@@ -1,0 +1,100 @@
+name: Universal Code Quality (Lint)
+
+on:
+  workflow_call:
+
+jobs:
+  lint-python:
+    name: 🐍 Python Lint (Flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for Python
+        id: check_python
+        run: |
+          if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "Pipfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Set up Python
+        if: steps.check_python.outputs.exists == 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Flake8
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          pip install flake8
+
+      - name: Run Flake8
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          # F401: Module imported but unused (Often false positive in __init__.py)
+          # E501: Line too long (We set 120, standard is 79)
+          # W503: Line break before binary operator (New conventions allows this)
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --ignore=E501,W503,F401 --statistics
+
+  lint-flutter:
+    name: 🐦 Flutter Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for Flutter
+        id: check_flutter
+        run: |
+          if [ -f "pubspec.yaml" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Helper - Subosito Flutter
+        if: steps.check_flutter.outputs.exists == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Run Flutter Analyze
+        if: steps.check_flutter.outputs.exists == 'true'
+        run: |
+          flutter config --no-analytics
+          flutter pub get
+          flutter analyze .
+
+  lint-node:
+    name: 📦 JS/TS Lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for Node
+        id: check_node
+        run: |
+          if [ -f "package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Run ESLint
+        if: steps.check_node.outputs.exists == 'true'
+        continue-on-error: true # Don't break build for now, just report
+        run: |
+          if npm list eslint > /dev/null 2>&1; then
+             npx eslint . --ext .js,.jsx,.ts,.tsx
+          else
+             echo "ESLint not installed in package.json. Skipping."
+          fi

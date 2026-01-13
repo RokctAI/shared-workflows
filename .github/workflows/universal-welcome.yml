@@ -1,0 +1,17 @@
+name: Universal Welcome Bot
+
+on:
+  workflow_call:
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: 'Thanks for opening your first issue! Please review CONTRIBUTING.md.'
+          pr-message: 'Thanks for your first Pull Request! Please ensure you have added comprehensive description.'

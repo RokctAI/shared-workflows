@@ -1,0 +1,74 @@
+name: Universal Security Check
+
+on:
+  workflow_call:
+
+jobs:
+  security-python:
+    name: 🐍 Python Security (Bandit & Pip Audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for Python
+        id: check_python
+        run: |
+          if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "Pipfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Set up Python
+        if: steps.check_python.outputs.exists == 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Security Tools
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          pip install bandit pip-audit
+
+      - name: Run Bandit (Code Analysis)
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          #Recursive scan, skip hidden dirs, minimal confidence HIGH
+          bandit -r . --exclude ./.git,./node_modules,./venv --severity high --exit-zero
+          # Note: We use --exit-zero for now so it doesn't break builds immediately until user cleans up.
+          # To enforce blocking, remove --exit-zero.
+
+      - name: Run Pip Audit (Dependency Vulnerabilities)
+        if: steps.check_python.outputs.exists == 'true'
+        continue-on-error: true # Report but don't fail build yet
+        run: |
+          if [ -f "requirements.txt" ]; then
+            pip-audit -r requirements.txt
+          else
+            echo "Skipping pip-audit (No requirements.txt found)"
+          fi
+
+  security-node:
+    name: 📦 Node Security (NPM Audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for Node
+        id: check_node
+        run: |
+          if [ -f "package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Run NPM Audit
+        if: steps.check_node.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          npm audit --audit-level=high

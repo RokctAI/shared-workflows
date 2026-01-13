@@ -1,0 +1,18 @@
+name: Universal Auto Assign
+
+on:
+  workflow_call:
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: kentaro-m/auto-assign-action@v2.0.0
+        with:
+          configuration-path: '.github/auto_assign.yml' # Apps must provide this config if used
+          # Fallback: Just assign author if no config found? 
+          # Actually, auto-assign needs a config in the repo.
+          # We will make this workflow assume the config exists or skipped.
+        continue-on-error: true
