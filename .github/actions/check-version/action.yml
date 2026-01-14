@@ -50,9 +50,9 @@ runs:
           exit 0
         fi
 
-        # Priority 5: versions.json (Recursive search fallback)
+        # Priority 5: versions.json OR version.json (Recursive search fallback)
         # Exclude standard ignored dirs to speed up and avoid false positives
-        FOUND_JSON=$(find . -type f -name "versions.json" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+        FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
         
         if [ -n "$FOUND_JSON" ]; then
           echo "Found versions.json at $FOUND_JSON"
