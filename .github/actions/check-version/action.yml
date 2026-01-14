@@ -37,7 +37,21 @@ runs:
           exit 0
         fi
 
-        # Priority 4: __init__.py (Python/Frappe projects)
+        # Priority 4: versions.json OR version.json (Recursive search fallback)
+        # Exclude standard ignored dirs to speed up and avoid false positives
+        # MOVED UP: Must check this BEFORE __init__.py because some apps have both, and JSON is the source of truth.
+        FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+        
+        if [ -n "$FOUND_JSON" ]; then
+          echo "Found versions.json at $FOUND_JSON"
+          # strip leading ./ for clean path
+          CLEAN_PATH=${FOUND_JSON#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=json" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 5: __init__.py (Python/Frappe projects)
         # Look for __init__.py files that contain "__version__ ="
         # SAFETY: || true prevents crash (exit 123) if grep finds nothing or xargs is empty
         FOUND_INIT=$(find . -name "__init__.py" -print0 | xargs -0 grep -l "__version__" 2>/dev/null | head -n 1 || true)
@@ -47,19 +61,6 @@ runs:
           CLEAN_PATH=${FOUND_INIT#./}
           echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
           echo "type=python" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
-        # Priority 5: versions.json OR version.json (Recursive search fallback)
-        # Exclude standard ignored dirs to speed up and avoid false positives
-        FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
-        
-        if [ -n "$FOUND_JSON" ]; then
-          echo "Found versions.json at $FOUND_JSON"
-          # strip leading ./ for clean path
-          CLEAN_PATH=${FOUND_JSON#./}
-          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
-          echo "type=json" >> $GITHUB_OUTPUT
           exit 0
         fi
 
