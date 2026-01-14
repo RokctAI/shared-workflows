@@ -98,12 +98,16 @@ runs:
           echo "full_version=$VERSION" >> $GITHUB_OUTPUT
 
         elif [ "$TYPE" == "json" ]; then
-          # Extract from version.json (standard json '{ "version": "1.0.0" }')
-          if command -v jq &> /dev/null; then
-             VERSION=$(jq -r .version "$FILE")
-          else
-             VERSION=$(grep -o '"version": *"[^"]*"' "$FILE" | cut -d'"' -f4)
-          fi
+          # Extract from versions.json (User Rule: Check ONLY the first value)
+          # We grab the first 3 lines (in case of opening brace), ignore the brace, take the first line remaining.
+          # This ensures we get the "primary" version key and ignore subsequent keys (dependencies).
+          
+          RAW_LINE=$(head -n 5 "$FILE" | grep -v '{' | head -n 1)
+          # Format is usually: "key": "value",
+          # Cut by double quotes. field 4 is usually the value: "key" : "value"
+          # 1=, 2=key, 3= : , 4=value
+          VERSION=$(echo "$RAW_LINE" | cut -d'"' -f4)
+          
           echo "full_version=$VERSION" >> $GITHUB_OUTPUT
         fi
 
