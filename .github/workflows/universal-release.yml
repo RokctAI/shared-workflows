@@ -60,12 +60,32 @@ jobs:
             echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
           fi
 
+      - name: Generate Changelog
+        if: steps.check_tag.outputs.exists == 'false'
+        id: changelog
+        run: |
+          TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+          
+          echo "## 🚀 Changes in $TAG" > changelog.txt
+          echo "" >> changelog.txt
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "- Initial Release" >> changelog.txt
+          else
+            echo "Changes since $PREV_TAG:" >> changelog.txt
+            git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" >> changelog.txt
+          fi
+          
+          echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: "v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
           name: "v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
+          body_path: ${{ steps.changelog.outputs.changelog_path }}
           generate_release_notes: true
           files: |
             ${{ steps.delta_zip.outputs.zip_path }}
