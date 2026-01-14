@@ -39,7 +39,8 @@ runs:
 
         # Priority 4: __init__.py (Python/Frappe projects)
         # Look for __init__.py files that contain "__version__ ="
-        FOUND_INIT=$(find . -name "__init__.py" -print0 | xargs -0 grep -l "__version__" | head -n 1)
+        # SAFETY: || true prevents crash (exit 123) if grep finds nothing or xargs is empty
+        FOUND_INIT=$(find . -name "__init__.py" -print0 | xargs -0 grep -l "__version__" 2>/dev/null | head -n 1 || true)
         
         if [ -n "$FOUND_INIT" ]; then
           echo "Found __init__.py with version at $FOUND_INIT"
