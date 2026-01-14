@@ -6,6 +6,14 @@ on:
         description: 'Specific version file to check (optional)'
         type: string
         required: false
+      brain_endpoint:
+        description: 'URL of the Brain Writer API (optional)'
+        type: string
+        required: false
+      brain_token:
+        description: 'Frappe API Token (optional, if endpoint provided)'
+        type: string
+        required: false
 
 jobs:
   release:
@@ -63,6 +71,9 @@ jobs:
       - name: Generate Changelog
         if: steps.check_tag.outputs.exists == 'false'
         id: changelog
+        env:
+          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+          BRAIN_TOKEN: ${{ inputs.brain_token }}
         run: |
           TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
@@ -70,11 +81,44 @@ jobs:
           echo "## 🚀 Changes in $TAG" > changelog.txt
           echo "" >> changelog.txt
           
+          # Extract Git Log
           if [ -z "$PREV_TAG" ]; then
-            echo "- Initial Release" >> changelog.txt
+             LOG="Initial Release"
           else
-            echo "Changes since $PREV_TAG:" >> changelog.txt
-            git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" >> changelog.txt
+             LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
+          fi
+
+          # AI GENERATION (If Endpoint Provided)
+          if [ ! -z "$BRAIN_ENDPOINT" ]; then
+             echo "🧠 Calling Brain Writer API..."
+             
+             # Format JSON payload properly to avoid breaking on newlines
+             JSON_PAYLOAD=$(jq -n \
+              --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+              --arg ver "$TAG" \
+              --arg log "$LOG" \
+              '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+             
+             # Call API
+             RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
+               -H "Content-Type: application/json" \
+               -H "Authorization: $BRAIN_TOKEN" \
+               -d "$JSON_PAYLOAD")
+
+             # Check if response contains valid markdown or error
+             if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
+                echo "⚠️ Brain Writer Failed. Falling back to git log."
+                echo "Error: $RESPONSE"
+                echo "$LOG" >> changelog.txt
+             else
+                # Success - Clean quotes if strictly JSON string returned, but usually it returns JSON with "message": "result" if frappe calls.
+                # Actually brain.api.generate_release_notes returns raw string if called directly, but Frappe wraps in 'message'.
+                echo "$RESPONSE" | jq -r '.message' > changelog.txt
+             fi
+             
+          else
+             # FALLBACK: Standard Git Log
+             echo "$LOG" >> changelog.txt
           fi
           
           echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
