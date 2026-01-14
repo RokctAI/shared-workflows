@@ -1,0 +1,11 @@
+name: Auto Release
+on:
+  push:
+    branches: [main]
+    paths: 
+      - 'version.json'
+
+jobs:
+  release:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    secrets: inherit
