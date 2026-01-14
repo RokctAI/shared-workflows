@@ -28,6 +28,10 @@ on:
 jobs:
   release:
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    with:
+      # Optional: Connect to your own self-hosted AI Endpoint (e.g., using Groq Free Tier)
+      # This allows you to generate release notes without paying minimal usage fees.
+      brain_endpoint: https://your-server.com/api/ai/release_notes
     secrets: inherit
 ```
 
