@@ -135,3 +135,123 @@ jobs:
     uses: RokctAI/shared-workflows/.github/workflows/universal-todo.yml@main
     secrets: inherit
 ```
+
+### 8. Welcome Bot (Community) 👋
+
+Create `.github/workflows/welcome.yml`:
+
+```yaml
+name: Welcome Bot
+on:
+  pull_request:
+    types: [opened]
+  issues:
+    types: [opened]
+
+jobs:
+  welcome:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-welcome.yml@main
+    secrets: inherit
+```
+
+### 9. PR Size Labeler (Review) 🏷️
+
+Create `.github/workflows/size.yml`:
+
+```yaml
+name: Size Labeler
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  size:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-size.yml@main
+    secrets: inherit
+```
+
+### 10. Link Checker (Docs) 🔗
+
+Create `.github/workflows/links.yml`:
+
+```yaml
+name: Link Checker
+on:
+  schedule:
+    - cron: '30 2 * * 0' # Weekly
+  workflow_dispatch:
+
+jobs:
+  links:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@main
+    secrets: inherit
+```
+
+### 11. Semantic PR (Title Check) 📝
+
+Create `.github/workflows/semantic.yml`:
+
+```yaml
+name: Semantic PR
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  semantic:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-semantic.yml@main
+    secrets: inherit
+```
+
+### 12. License Eye (Legal) ⚖️
+
+Create `.github/workflows/license.yml`:
+
+```yaml
+name: License Eye
+on:
+  pull_request:
+
+jobs:
+  license:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-license.yml@main
+    secrets: inherit
+```
+
+### 13. Auto Assign 👥
+
+Create `.github/workflows/assign.yml`:
+
+```yaml
+name: Auto Assign
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@main
+    secrets: inherit
+```
+
+### 14. Dependabot (Security Updates) 🤖
+
+Create `.github/dependabot.yml` in your repo:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # SAFETY: Creates PRs only. No Auto-Merge.
+    
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+```
+
