@@ -7,5 +7,7 @@ on:
 
 jobs:
   release:
+    permissions:
+      contents: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     secrets: inherit
