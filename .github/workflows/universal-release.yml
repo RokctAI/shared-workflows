@@ -14,9 +14,102 @@ on:
         description: 'Frappe API Token (optional, if endpoint provided)'
         type: string
         required: false
+      release_strategy:
+        description: 'Strategy: "immediate" (default) or "weekly".'
+        type: string
+        required: false
+        default: 'immediate'
 
 jobs:
+  # --- 1. PRE-FLIGHT CHECKS & WARNINGS ---
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Strategy & Configs
+        run: |
+          # 1. Strategy Check
+          STRAT="${{ inputs.release_strategy }}"
+          if [[ "$STRAT" == "immediate" || "$STRAT" == "" ]]; then
+             echo "### ⚠️ Legacy Strategy Detected" >> $GITHUB_STEP_SUMMARY
+             echo "You are using the old 'immediate' strategy." >> $GITHUB_STEP_SUMMARY
+             echo "Update to 'weekly' for RC builds and Safer Releases." >> $GITHUB_STEP_SUMMARY
+             echo "::warning title=Legacy Workflow::Update release_strategy to 'weekly' for safety."
+          fi
+          
+          # 2. AI Config Check
+          if [[ "${{ inputs.brain_endpoint }}" == "" ]]; then
+             echo "### ⚠️ AI Features Missing" >> $GITHUB_STEP_SUMMARY
+             echo "Missing 'brain_endpoint'. No AI Release Notes." >> $GITHUB_STEP_SUMMARY
+             echo "::warning title=Missing Feature::Missing 'brain_endpoint' input."
+          fi
+
+  # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
+  lts-guard:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check Major Version Bump
+        id: check_major
+        run: |
+          # Get current version details using shared action or jq
+          # Assuming versions.json. Simplification for inline logic:
+          FILE="${{ inputs.version_file || 'versions.json' }}"
+          if [ ! -f "$FILE" ]; then echo "No version file found."; exit 0; fi
+          
+          NEW_VER=$(jq -r .version "$FILE")
+          # Get previous commit version
+          git checkout HEAD^ -- "$FILE"
+          OLD_VER=$(jq -r .version "$FILE")
+          git checkout - -- "$FILE" # Restore
+          
+          echo "Old: $OLD_VER | New: $NEW_VER"
+          
+          # Extract Major
+          OLD_MAJOR=$(echo $OLD_VER | cut -d. -f1)
+          NEW_MAJOR=$(echo $NEW_VER | cut -d. -f1)
+          
+          if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
+             echo "Major Bump Detected ($OLD_MAJOR -> $NEW_MAJOR)"
+             echo "bumped=true" >> $GITHUB_OUTPUT
+             echo "old_ver=$OLD_VER" >> $GITHUB_OUTPUT
+             echo "old_major=$OLD_MAJOR" >> $GITHUB_OUTPUT
+          else
+             echo "bumped=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create LTS Branch & Tag
+        if: steps.check_major.outputs.bumped == 'true'
+        run: |
+          OLD_VER="${{ steps.check_major.outputs.old_ver }}"
+          MAJOR="${{ steps.check_major.outputs.old_major }}"
+          BRANCH_NAME="version-$MAJOR"
+          TAG_NAME="v${OLD_VER}-LTS"
+          
+          echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
+          
+          git config user.name "LTS Bot"
+          git config user.email "bot@rokct.ai"
+          
+          # Branch
+          git branch "$BRANCH_NAME" HEAD^
+          git push origin "$BRANCH_NAME"
+          
+          # Tag
+          git tag "$TAG_NAME" HEAD^
+          git push origin "$TAG_NAME"
+          
+          # Release (Optional Stub)
+          gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --- 3. THE RELEASE JOB ---
   release:
+    needs: [checks]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -27,109 +120,167 @@ jobs:
       - name: Get Version
         id: version
         uses: RokctAI/shared-workflows/.github/actions/check-version@main
+        with:
+           file_path: ${{ inputs.version_file }}
 
-      - name: Check Tag Exists
-        id: check_tag
+      # --- LOGIC: DETERMINE MODE ---
+      - name: Determine Release Mode
+        id: mode
         run: |
-          TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Tag $TAG already exists."
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Tag $TAG does not exist. Creating..."
+          STRAT="${{ inputs.release_strategy }}"
+          EVENT="${{ github.event_name }}"
+          
+          MODE="none"
+          SUFFIX=""
+          
+          if [[ "$STRAT" == "immediate" || "$STRAT" == "" ]]; then
+             MODE="stable" # Old behavior
+          elif [[ "$STRAT" == "weekly" ]]; then
+             if [[ "$EVENT" == "schedule" ]]; then
+                MODE="promote" # Friday Cron
+             else
+                MODE="rc" # Push
+                # Calculate RC Suffix (e.g., -rc4) based on existing tags
+                VER="${{ steps.version.outputs.version }}"
+                EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
+                NEXT_RC=$((EXISTING + 1))
+                SUFFIX="-rc${NEXT_RC}"
+             fi
           fi
+          
+          echo "mode=$MODE" >> $GITHUB_OUTPUT
+          echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+          echo "Selected Mode: $MODE (Suffix: $SUFFIX)"
 
-      - name: Create Tag
-        if: steps.check_tag.outputs.exists == 'false'
+      # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
+      - name: Promote RC to Stable
+        if: steps.mode.outputs.mode == 'promote'
         run: |
-          TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
+           VER="${{ steps.version.outputs.version }}"
+           # Find latest RC
+           LATEST_RC=$(git tag -l "v${VER}-rc*" | sort -V | tail -n 1)
+           
+           if [[ -z "$LATEST_RC" ]]; then
+              echo "No RCs found for v$VER to promote."
+              exit 0
+           fi
+           
+           echo "Promoting $LATEST_RC to v$VER"
+           git config user.name "Release Bot"
+           git config user.email "bot@rokct.ai"
+           
+           # Retag
+           git tag "v$VER" "$LATEST_RC"
+           git push origin "v$VER"
+           
+           # Set environment for downstream steps
+           echo "TAG_NAME=v$VER" >> $GITHUB_ENV
+           echo "IS_PRERELEASE=false" >> $GITHUB_ENV
 
+      # --- PATH 2: CREATE TAG (RC OR STABLE) ---
+      - name: Create New Tag
+        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc'
+        id: create_tag
+        run: |
+           TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
+           
+           if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG exists. Skipping."
+              echo "continue=false" >> $GITHUB_OUTPUT
+           else
+              echo "Creating $TAG"
+              git config user.name "Release Bot"
+              git config user.email "bot@rokct.ai"
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "$TAG"
+              
+              echo "continue=true" >> $GITHUB_OUTPUT
+              echo "TAG_NAME=$TAG" >> $GITHUB_ENV
+              
+              if [[ "${{ steps.mode.outputs.mode }}" == "rc" ]]; then
+                 echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+              else
+                 echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+              fi
+           fi
+
+      # --- DELTA ZIP (ONLY FOR STABLES) ---
       - name: Generate Delta Zip
-        if: steps.check_tag.outputs.exists == 'false'
+        if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'false'
         id: delta_zip
         run: |
-          TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          
-          # Find previous tag (sort by version refname)
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+          TAG="${{ env.TAG_NAME }}"
+          # Find previous STABLE tag (ignore RCs basically) using generic sort
+          # Actually, we want previous tag of any kind? No, probably previous stable.
+          # Simplest: Just use previous tag in time.
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | grep -v "-rc" | head -n 1)
           
           if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag found. Skipping delta zip."
-            echo "zip_path=" >> $GITHUB_OUTPUT
+            echo "No previous stable tag. Full release."
           else
-            echo "Creating delta from $PREV_TAG to $TAG"
+            echo "Generating Delta: $PREV_TAG -> $TAG"
             git diff --name-only "$PREV_TAG".."$TAG" > changed_files.txt
+            # Zip it (only existing files)
             zip -r update_package.zip -@ < changed_files.txt
             echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
           fi
 
+      # --- CHANGELOG & RELEASE ---
       - name: Generate Changelog
-        if: steps.check_tag.outputs.exists == 'false'
+        if: env.TAG_NAME != ''
         id: changelog
         env:
-          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-          BRAIN_TOKEN: ${{ inputs.brain_token }}
+           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+           BRAIN_TOKEN: ${{ inputs.brain_token }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
-          
-          echo "## 🚀 Changes in $TAG" > changelog.txt
-          echo "" >> changelog.txt
-          
-          # Extract Git Log
-          if [ -z "$PREV_TAG" ]; then
-             LOG="Initial Release"
-          else
-             LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
-          fi
+           TAG="${{ env.TAG_NAME }}"
+           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+           
+           echo "## 🚀 Release $TAG" > changelog.txt
+           
+           # Capture Log
+           if [ -z "$PREV_TAG" ]; then
+              LOG="Initial Release"
+           else
+              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
+           fi
+           
+           if [ ! -z "$BRAIN_ENDPOINT" ]; then
+              echo "🧠 Calling Brain Writer API..."
+              
+              # Format JSON payload
+              JSON_PAYLOAD=$(jq -n \
+               --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+               --arg ver "$TAG" \
+               --arg log "$LOG" \
+               '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+              
+              # Call API
+              RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: $BRAIN_TOKEN" \
+                -d "$JSON_PAYLOAD")
 
-          # AI GENERATION (If Endpoint Provided)
-          if [ ! -z "$BRAIN_ENDPOINT" ]; then
-             echo "🧠 Calling Brain Writer API..."
-             
-             # Format JSON payload properly to avoid breaking on newlines
-             JSON_PAYLOAD=$(jq -n \
-              --arg repo "${{ github.server_url }}/${{ github.repository }}" \
-              --arg ver "$TAG" \
-              --arg log "$LOG" \
-              '{repo_url: $repo, version_name: $ver, commit_log: $log}')
-             
-             # Call API
-             RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
-               -H "Content-Type: application/json" \
-               -H "Authorization: $BRAIN_TOKEN" \
-               -d "$JSON_PAYLOAD")
+              # Check response
+              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
+                 echo "⚠️ Brain Writer Failed. Falling back to git log."
+                 echo "Error: $RESPONSE"
+                 echo "$LOG" >> changelog.txt
+              else
+                 echo "$RESPONSE" | jq -r '.message' > changelog.txt
+              fi
+           else
+              echo "$LOG" >> changelog.txt
+           fi
+           echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
-             # Check if response contains valid markdown or error
-             if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
-                echo "⚠️ Brain Writer Failed. Falling back to git log."
-                echo "Error: $RESPONSE"
-                echo "$LOG" >> changelog.txt
-             else
-                # Success - Clean quotes if strictly JSON string returned, but usually it returns JSON with "message": "result" if frappe calls.
-                # Actually brain.api.generate_release_notes returns raw string if called directly, but Frappe wraps in 'message'.
-                echo "$RESPONSE" | jq -r '.message' > changelog.txt
-             fi
-             
-          else
-             # FALLBACK: Standard Git Log
-             echo "$LOG" >> changelog.txt
-          fi
-          
-          echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        if: steps.check_tag.outputs.exists == 'false'
+      - name: Publish GitHub Release
+        if: env.TAG_NAME != ''
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          name: "v${{ steps.version.outputs.version }}${{ steps.version.outputs.tag_suffix }}"
-          body_path: ${{ steps.changelog.outputs.changelog_path }}
-          generate_release_notes: true
-          files: |
-            ${{ steps.delta_zip.outputs.zip_path }}
+           tag_name: ${{ env.TAG_NAME }}
+           name: ${{ env.TAG_NAME }}
+           body_path: ${{ steps.changelog.outputs.changelog_path }}
+           prerelease: ${{ env.IS_PRERELEASE }}
+           files: |
+             ${{ steps.delta_zip.outputs.zip_path }}
