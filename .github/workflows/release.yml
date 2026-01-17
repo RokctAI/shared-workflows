@@ -2,8 +2,6 @@ name: Auto Release (Weekly)
 on:
   push:
     branches: [main]
-    paths: 
-      - 'version.json'
   schedule:
     - cron: '0 16 * * 5'
 
