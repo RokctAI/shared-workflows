@@ -1,0 +1,6 @@
+name: TODO to Issue
+on: [push]
+jobs:
+  todo:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-todo.yml@main
+    secrets: inherit
