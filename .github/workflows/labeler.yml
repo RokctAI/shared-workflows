@@ -1,0 +1,9 @@
+name: Auto Label
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  label:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-labeler.yml@main
+    secrets: inherit

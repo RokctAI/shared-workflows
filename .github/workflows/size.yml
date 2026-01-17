@@ -1,0 +1,9 @@
+name: Size Labeler
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  size:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-size.yml@main
+    secrets: inherit

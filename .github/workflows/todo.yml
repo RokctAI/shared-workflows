@@ -1,0 +1,9 @@
+name: ToDo Bot
+on:
+  push:
+    branches: [main]
+
+jobs:
+  todo:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-todo.yml@main
+    secrets: inherit

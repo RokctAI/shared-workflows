@@ -1,0 +1,9 @@
+name: Auto Assign
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@main
+    secrets: inherit
