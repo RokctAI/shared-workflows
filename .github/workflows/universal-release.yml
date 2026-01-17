@@ -72,12 +72,13 @@ jobs:
             fi
           }
           
+          
           NEW_VER=$(get_version "$FILE")
           
           # Get previous commit version
           git checkout HEAD^ -- "$FILE"
           OLD_VER=$(get_version "$FILE")
-          git checkout - -- "$FILE" # Restore
+          git checkout HEAD -- "$FILE" # Restore
           
           echo "Old: $OLD_VER | New: $NEW_VER"
           
