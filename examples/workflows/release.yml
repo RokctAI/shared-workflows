@@ -4,7 +4,6 @@ name: Release (Weekly Cycle)
 on:
   push:
     branches: [main]
-    paths: ['**/versions.json', '**/version.json']
   schedule:
     - cron: '0 16 * * 5' # Friday 4PM
 
