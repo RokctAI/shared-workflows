@@ -1,0 +1,8 @@
+name: Stale
+on:
+  schedule:
+    - cron: '0 0 * * *'
+jobs:
+  stale:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-stale.yml@main
+    secrets: inherit
