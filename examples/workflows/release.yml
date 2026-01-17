@@ -1,0 +1,16 @@
+name: Release (Weekly Cycle)
+# Copy to: .github/workflows/release.yml
+
+on:
+  push:
+    branches: [main]
+    paths: ['**/versions.json', '**/version.json']
+  schedule:
+    - cron: '0 16 * * 5' # Friday 4PM
+
+jobs:
+  release:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    with:
+      release_strategy: 'weekly'
+    secrets: inherit
