@@ -1,0 +1,6 @@
+name: Security Check
+on: [push, pull_request]
+jobs:
+  security:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    secrets: inherit
