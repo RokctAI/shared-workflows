@@ -1,5 +1,7 @@
-name: License Check
-on: [push, pull_request]
+name: License Eye
+on:
+  pull_request:
+
 jobs:
   license:
     uses: RokctAI/shared-workflows/.github/workflows/universal-license.yml@main
