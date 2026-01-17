@@ -14,6 +14,12 @@ outputs:
     description: 'Path of the file where version was found'
     value: ${{ steps.find.outputs.file }}
 
+inputs:
+  file_path:
+    description: 'Specific file path to check (optional)'
+    required: false
+    default: ''
+
 runs:
   using: "composite"
   steps:
@@ -21,6 +27,22 @@ runs:
       id: find
       shell: bash
       run: |
+        # Priority 0: Explicit Input
+        INPUT_FILE="${{ inputs.file_path }}"
+        if [ -n "$INPUT_FILE" ] && [ -f "$INPUT_FILE" ]; then
+           echo "Using specified version file: $INPUT_FILE"
+           echo "file=$INPUT_FILE" >> $GITHUB_OUTPUT
+           
+           # Determines type by extension
+           if [[ "$INPUT_FILE" == *pubspec.yaml ]]; then echo "type=pubspec" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *package.json ]]; then echo "type=package" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *versions.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *version.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *__init__.py ]]; then echo "type=python" >> $GITHUB_OUTPUT; fi
+           
+           exit 0
+        fi
+
         # Priority 1: versions.json OR version.json (Recursive search fallback)
         # Exclude standard ignored dirs to speed up and avoid false positives
         # MOVED UP: Must check this BEFORE everything else because JSON is the source of truth if present.
