@@ -58,12 +58,25 @@ jobs:
           # Get current version details using shared action or jq
           # Assuming versions.json. Simplification for inline logic:
           FILE="${{ inputs.version_file || 'versions.json' }}"
-          if [ ! -f "$FILE" ]; then echo "No version file found."; exit 0; fi
+          if [ ! -f "$FILE" ]; then echo "No version file found: $FILE"; exit 0; fi
           
-          NEW_VER=$(jq -r .version "$FILE")
+          # Function to extract version based on extension
+          get_version() {
+            local f="$1"
+            if [[ "$f" == *.json ]]; then
+               jq -r .version "$f"
+            elif [[ "$f" == *.yaml ]] || [[ "$f" == *.yml ]]; then
+               grep -m1 "^version:" "$f" | awk '{print $2}' | tr -d '"' | tr -d "'"
+            else
+               cat "$f" # Fallback
+            fi
+          }
+          
+          NEW_VER=$(get_version "$FILE")
+          
           # Get previous commit version
           git checkout HEAD^ -- "$FILE"
-          OLD_VER=$(jq -r .version "$FILE")
+          OLD_VER=$(get_version "$FILE")
           git checkout - -- "$FILE" # Restore
           
           echo "Old: $OLD_VER | New: $NEW_VER"
