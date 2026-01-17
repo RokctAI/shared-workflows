@@ -1,0 +1,6 @@
+name: Size Label
+on: [pull_request]
+jobs:
+  size:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-size.yml@main
+    secrets: inherit
