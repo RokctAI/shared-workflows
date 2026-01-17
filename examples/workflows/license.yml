@@ -1,0 +1,6 @@
+name: License Check
+on: [push, pull_request]
+jobs:
+  license:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-license.yml@main
+    secrets: inherit
