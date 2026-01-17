@@ -104,6 +104,25 @@ jobs:
           
           # Release (Optional Stub)
           gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." || true
+          
+          # --- ARCHIVAL LOGIC (User Request: Archive previous LTS when new one created) ---
+          PREV_MAJOR=$((MAJOR - 1))
+          PREV_BRANCH="version-$PREV_MAJOR"
+          ARCHIVE_NAME="archived/$PREV_BRANCH"
+          
+          if git ls-remote --exit-code --heads origin "$PREV_BRANCH" >/dev/null 2>&1; then
+             echo "Found failing LTS branch: $PREV_BRANCH. Archiving..."
+             
+             # Rename remote branch (Delete old, push new)
+             git checkout "$PREV_BRANCH"
+             git checkout -b "$ARCHIVE_NAME"
+             git push origin "$ARCHIVE_NAME"
+             git push origin --delete "$PREV_BRANCH"
+             
+             echo "Moved $PREV_BRANCH to $ARCHIVE_NAME"
+          else
+             echo "No previous LTS branch ($PREV_BRANCH) found to archive."
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
