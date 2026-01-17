@@ -1,4 +1,4 @@
-name: Universal Auto Release
+name: Universal Auto Release 
 on:
   workflow_call:
     inputs:
