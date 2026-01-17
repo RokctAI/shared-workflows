@@ -1,0 +1,6 @@
+name: Check Links
+on: [push, pull_request]
+jobs:
+  links:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@main
+    secrets: inherit
