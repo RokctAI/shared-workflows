@@ -1,5 +1,9 @@
-name: Check Links
-on: [push, pull_request]
+name: Link Checker
+on:
+  schedule:
+    - cron: '30 2 * * 0' # Weekly on Sunday
+  workflow_dispatch:
+
 jobs:
   links:
     uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@main

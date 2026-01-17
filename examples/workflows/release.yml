@@ -1,15 +1,15 @@
-name: Release (Weekly Cycle)
-# Copy to: .github/workflows/release.yml
-
+name: Release
 on:
   push:
-    branches: [main]
-  schedule:
-    - cron: '0 16 * * 5' # Friday 4PM
+    branches: [main, develop]
 
 jobs:
   release:
+    permissions:
+      contents: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
+      # Opt-in to Weekly RC Cycle
       release_strategy: 'weekly'
+      brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
     secrets: inherit

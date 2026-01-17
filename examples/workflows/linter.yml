@@ -1,7 +1,8 @@
 name: Code Quality
-# Copy to: .github/workflows/linters.yml
-
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   lint:
