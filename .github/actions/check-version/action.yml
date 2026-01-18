@@ -38,6 +38,7 @@ runs:
            if [[ "$INPUT_FILE" == *package.json ]]; then echo "type=package" >> $GITHUB_OUTPUT; fi
            if [[ "$INPUT_FILE" == *versions.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
            if [[ "$INPUT_FILE" == *version.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *manifest.json ]]; then echo "type=manifest" >> $GITHUB_OUTPUT; fi
            if [[ "$INPUT_FILE" == *__init__.py ]]; then echo "type=python" >> $GITHUB_OUTPUT; fi
            
            exit 0
@@ -54,6 +55,16 @@ runs:
           CLEAN_PATH=${FOUND_JSON#./}
           echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
           echo "type=json" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 1.5: manifest.json 
+        FOUND_MANIFEST=$(find . -type f -name "manifest.json" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -n 1)
+        if [ -n "$FOUND_MANIFEST" ]; then
+          echo "Found manifest.json at $FOUND_MANIFEST"
+          CLEAN_PATH=${FOUND_MANIFEST#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=manifest" >> $GITHUB_OUTPUT
           exit 0
         fi
 
@@ -106,8 +117,8 @@ runs:
           VERSION=$CLEAN
           echo "full_version=$RAW" >> $GITHUB_OUTPUT
 
-        elif [ "$TYPE" == "package" ]; then
-          # Extract from package.json (standard json '{ "version": "1.0.0" }')
+        elif [ "$TYPE" == "package" ] || [ "$TYPE" == "manifest" ]; then
+          # Extract from package.json or manifest.json (standard json '{ "version": "1.0.0" }')
            if command -v jq &> /dev/null; then
              VERSION=$(jq -r .version "$FILE")
           else
