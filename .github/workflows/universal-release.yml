@@ -271,8 +271,31 @@ jobs:
             echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
           fi
 
-      # --- CHANGELOG & RELEASE ---
-      - name: Generate Changelog
+       # --- ASSET BUNDLING (Developer Setup) ---
+       - name: Bundle Developer Assets
+         if: env.TAG_NAME != ''
+         id: dev_bundle
+         run: |
+            echo "Bundling Developer Setup Pack..."
+            mkdir -p dev_pack/.github/workflows
+            
+            # Copy Templates
+            if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
+            if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
+            
+            # Copy Release Config (The Caller)
+            # Note: We copy the template release.yml to be placed in the user's repo
+            if [ -f ".github/workflows/release.yml" ]; then cp .github/workflows/release.yml dev_pack/.github/workflows/; fi
+
+            # Zip it
+            cd dev_pack
+            zip -r ../developer_setup.zip .github
+            cd ..
+            
+            echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
+
+       # --- CHANGELOG & RELEASE ---
+       - name: Generate Changelog
         if: env.TAG_NAME != ''
         id: changelog
         env:
@@ -330,3 +353,4 @@ jobs:
            prerelease: ${{ env.IS_PRERELEASE }}
            files: |
              ${{ steps.delta_zip.outputs.zip_path }}
+             ${{ steps.dev_bundle.outputs.dev_pack_path }}
