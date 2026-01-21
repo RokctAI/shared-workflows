@@ -349,17 +349,24 @@ jobs:
            fi
            echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
-        uses: ncipollo/release-action@v1
-        with:
-           token: ${{ secrets.GITHUB_TOKEN }}
-           tag: ${{ env.TAG_NAME }}
-           name: ${{ env.TAG_NAME }}
-           bodyFile: ${{ steps.changelog.outputs.changelog_path }}
-           prerelease: ${{ env.IS_PRERELEASE }}
-           allowUpdates: true
-           removeArtifacts: true
-           artifacts: |
-             ${{ steps.delta_zip.outputs.zip_path }}
-             ${{ steps.dev_bundle.outputs.dev_pack_path }}
+        env:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+           TAG="${{ env.TAG_NAME }}"
+           PRERELEASE_FLAG=""
+           if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+           
+           echo "Creating Release $TAG via gh CLI..."
+           
+           # Assets List
+           FILES=""
+           if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES="$FILES ${{ steps.delta_zip.outputs.zip_path }}"; fi
+           if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES="$FILES ${{ steps.dev_bundle.outputs.dev_pack_path }}"; fi
+           
+           gh release create "$TAG" \
+             --title "$TAG" \
+             --notes-file "${{ steps.changelog.outputs.changelog_path }}" \
+             $PRERELEASE_FLAG \
+             $FILES
