@@ -295,61 +295,62 @@ jobs:
 
        # --- CHANGELOG & RELEASE ---
        - name: Generate Changelog
-        if: env.TAG_NAME != ''
-        id: changelog
-        env:
-           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-           BRAIN_TOKEN: ${{ inputs.brain_token }}
-        run: |
-           TAG="${{ env.TAG_NAME }}"
-           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
-           
-           echo "## 🚀 Release $TAG" > changelog.txt
-           
-           # Capture Log
-           if [ -z "$PREV_TAG" ]; then
-              LOG="Initial Release"
-           else
-              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
-           fi
-           
-           if [ ! -z "$BRAIN_ENDPOINT" ]; then
-              echo "🧠 Calling Brain Writer API..."
-              
-              # Format JSON payload
-              JSON_PAYLOAD=$(jq -n \
-               --arg repo "${{ github.server_url }}/${{ github.repository }}" \
-               --arg ver "$TAG" \
-               --arg log "$LOG" \
-               '{repo_url: $repo, version_name: $ver, commit_log: $log}')
-              
-              # Call API
-              RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: $BRAIN_TOKEN" \
-                -d "$JSON_PAYLOAD")
+         if: env.TAG_NAME != ''
+         id: changelog
+         env:
+            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+            BRAIN_TOKEN: ${{ inputs.brain_token }}
+         run: |
+            TAG="${{ env.TAG_NAME }}"
+            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+            
+            echo "## 🚀 Release $TAG" > changelog.txt
+            
+            # Capture Log
+            if [ -z "$PREV_TAG" ]; then
+               LOG="Initial Release"
+            else
+               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
+            fi
+            
+            if [ ! -z "$BRAIN_ENDPOINT" ]; then
+               echo "🧠 Calling Brain Writer API..."
+               
+               # Format JSON payload
+               JSON_PAYLOAD=$(jq -n \
+                --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+                --arg ver "$TAG" \
+                --arg log "$LOG" \
+                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+               
+               # Call API
+               RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
+                 -H "Content-Type: application/json" \
+                 -H "Authorization: $BRAIN_TOKEN" \
+                 -d "$JSON_PAYLOAD")
 
-              # Check response
-              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
-                 echo "⚠️ Brain Writer Failed. Falling back to git log."
-                 echo "Error: $RESPONSE"
-                 echo "$LOG" >> changelog.txt
-              else
-                 echo "$RESPONSE" | jq -r '.message' > changelog.txt
-              fi
-           else
-              echo "$LOG" >> changelog.txt
-           fi
-           echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
+               # Check response
+               if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
+                  echo "⚠️ Brain Writer Failed. Falling back to git log."
+                  echo "Error: $RESPONSE"
+                  echo "$LOG" >> changelog.txt
+               else
+                  echo "$RESPONSE" | jq -r '.message' > changelog.txt
+               fi
+            else
+               echo "$LOG" >> changelog.txt
+            fi
+            echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
-      - name: Publish GitHub Release
-        if: env.TAG_NAME != ''
-        uses: softprops/action-gh-release@v1
-        with:
-           tag_name: ${{ env.TAG_NAME }}
-           name: ${{ env.TAG_NAME }}
-           body_path: ${{ steps.changelog.outputs.changelog_path }}
-           prerelease: ${{ env.IS_PRERELEASE }}
-           files: |
-             ${{ steps.delta_zip.outputs.zip_path }}
-             ${{ steps.dev_bundle.outputs.dev_pack_path }}
+       - name: Publish GitHub Release
+         if: env.TAG_NAME != ''
+         uses: softprops/action-gh-release@v1
+         with:
+            tag_name: ${{ env.TAG_NAME }}
+            name: ${{ env.TAG_NAME }}
+            body_path: ${{ steps.changelog.outputs.changelog_path }}
+            prerelease: ${{ env.IS_PRERELEASE }}
+            files: |
+              ${{ steps.delta_zip.outputs.zip_path }}
+              ${{ steps.dev_bundle.outputs.dev_pack_path }}
+
