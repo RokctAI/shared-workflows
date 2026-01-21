@@ -152,6 +152,9 @@ jobs:
       - name: Determine Release Mode
         id: mode
         run: |
+          # Fetch all tags to ensure accurate calc
+          git fetch --tags --force
+          
           STRAT="${{ inputs.release_strategy }}"
           EVENT="${{ github.event_name }}"
           
