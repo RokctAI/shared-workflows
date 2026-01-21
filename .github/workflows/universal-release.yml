@@ -277,16 +277,15 @@ jobs:
          id: dev_bundle
          run: |
             echo "Bundling Developer Setup Pack..."
-            mkdir -p dev_pack/.github/workflows
+            mkdir -p dev_pack
             
-            # Copy Templates
+            # 1. Copy 'examples/' and rename it to '.github'
+            if [ -d "examples" ]; then cp -r examples dev_pack/.github; fi
+            
+            # 2. Copy Templates into that .github folder
             if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
             if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
             
-            # Copy Release Config (The Caller)
-            # Note: We copy the template release.yml to be placed in the user's repo
-            if [ -f ".github/workflows/release.yml" ]; then cp .github/workflows/release.yml dev_pack/.github/workflows/; fi
-
             # Zip it
             cd dev_pack
             zip -r ../developer_setup.zip .github
