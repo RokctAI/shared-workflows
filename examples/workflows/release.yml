@@ -1,7 +1,9 @@
-name: Release
+name: Auto Release (Weekly)
 on:
   push:
     branches: [main, develop]
+  schedule:
+    - cron: '0 16 * * 5'
 
 jobs:
   release:
@@ -9,7 +11,10 @@ jobs:
       contents: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
-      # Opt-in to Weekly RC Cycle
+      # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
+      version_file: 'version.json'
+      
+      # Brain Endpoint 
       brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
     secrets: inherit
