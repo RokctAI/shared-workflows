@@ -260,8 +260,9 @@ jobs:
         id: delta_zip
         run: |
           TAG="${{ env.TAG_NAME }}"
-          # Robust previous tag finding: Use -- to strictly delimit options from patterns
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v -- "$TAG" | grep -v -- "-rc" | head -n 1 || true)
+          # Robust previous tag finding: Use bracket expression [-] to avoid flag parsing issues
+          # grep -F for Fixed string (literal tag name)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -F -v "$TAG" | grep -v "[-]rc" | head -n 1 || true)
           
           if [ -z "$PREV_TAG" ]; then
             echo "No previous stable tag. Full release."
