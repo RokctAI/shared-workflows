@@ -222,8 +222,9 @@ jobs:
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            
-           if git rev-parse "$TAG" >/dev/null 2>&1; then
-              echo "Tag $TAG exists. Skipping."
+           # Check Local AND Remote
+           if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG exists (Local or Remote). Skipping."
               echo "continue=false" >> $GITHUB_OUTPUT
            else
               echo "Creating $TAG"
