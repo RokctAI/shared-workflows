@@ -351,6 +351,8 @@ jobs:
            body_path: ${{ steps.changelog.outputs.changelog_path }}
            prerelease: ${{ env.IS_PRERELEASE }}
            fail_on_unmatched_files: true
+           allow_updates: true
+           replace_artifacts: true
            files: |
              ${{ steps.delta_zip.outputs.zip_path }}
              ${{ steps.dev_bundle.outputs.dev_pack_path }}
