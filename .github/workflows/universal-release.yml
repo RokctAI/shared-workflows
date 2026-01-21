@@ -224,21 +224,31 @@ jobs:
         id: create_tag
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
+           MODE="${{ steps.mode.outputs.mode }}"
            
            # Check Local AND Remote
            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
-              echo "Tag $TAG exists (Local or Remote). Proceeding to Release update."
+              echo "Tag $TAG exists."
+              
+              if [[ "$MODE" == "rc" || "$MODE" == "dev" ]]; then
+                 echo "⚠️ RC/Dev Mode Detected. Performing Nuclear Cleanup."
+                 echo "Deleting remote tag $TAG to force fresh release..."
+                 git push origin --delete "$TAG" || true
+                 git tag -d "$TAG" || true
+                 echo "Cleanup complete. Proceeding to fresh creation."
+                 echo "continue=true" >> $GITHUB_OUTPUT
+              else
+                 echo "Stable Mode. Preserving existing tag."
+                 echo "continue=false" >> $GITHUB_OUTPUT
+              fi
            else
               echo "Calculated new tag: $TAG"
-              # Do NOT push here. Let Release Action handle it atomically.
-              # git tag -a "$TAG" -m "Release $TAG"
-              # git push origin "$TAG"
+              echo "continue=true" >> $GITHUB_OUTPUT
            fi
            
-           echo "continue=true" >> $GITHUB_OUTPUT
            echo "TAG_NAME=$TAG" >> $GITHUB_ENV
            
-           if [[ "${{ steps.mode.outputs.mode }}" == "rc" || "${{ steps.mode.outputs.mode }}" == "dev" ]]; then
+           if [[ "$MODE" == "rc" || "$MODE" == "dev" ]]; then
               echo "IS_PRERELEASE=true" >> $GITHUB_ENV
            else
               echo "IS_PRERELEASE=false" >> $GITHUB_ENV
