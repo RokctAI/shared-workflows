@@ -172,12 +172,25 @@ jobs:
              if [[ "$EVENT" == "schedule" ]]; then
                 MODE="promote" # Friday Cron
              else
-                MODE="rc" # Push
-                # Calculate RC Suffix (e.g., -rc4) based on existing tags
-                VER="${{ steps.version.outputs.version }}"
-                EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
-                NEXT_RC=$((EXISTING + 1))
-                SUFFIX="-rc${NEXT_RC}"
+                # Push Event - Check Branch
+                BRANCH="${{ github.ref_name }}"
+                
+                if [[ "$BRANCH" == "develop" ]]; then
+                    MODE="dev"
+                    # Short Hash
+                    HASH=$(echo "${{ github.sha }}" | cut -c1-7)
+                    SUFFIX="-dev-$HASH"
+                elif [[ "$BRANCH" == "main" ]]; then
+                    MODE="rc" # Push to Main
+                    # Calculate RC Suffix (e.g., -rc4) based on existing tags
+                    VER="${{ steps.version.outputs.version }}"
+                    EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
+                    NEXT_RC=$((EXISTING + 1))
+                    SUFFIX="-rc${NEXT_RC}"
+                else
+                    echo "Branch $BRANCH ignored for weekly strategy."
+                    exit 0 
+                fi
              fi
           fi
           
@@ -210,9 +223,9 @@ jobs:
            echo "TAG_NAME=v$VER" >> $GITHUB_ENV
            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
 
-      # --- PATH 2: CREATE TAG (RC OR STABLE) ---
+      # --- PATH 2: CREATE TAG (RC, DEV, OR STABLE) ---
       - name: Create New Tag
-        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc'
+        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev'
         id: create_tag
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
