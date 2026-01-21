@@ -260,19 +260,25 @@ jobs:
         id: delta_zip
         run: |
           TAG="${{ env.TAG_NAME }}"
-          # Find previous STABLE tag (ignore RCs basically) using generic sort
-          # Actually, we want previous tag of any kind? No, probably previous stable.
-          # Simplest: Just use previous tag in time.
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | grep -v "-rc" | head -n 1)
+          # Robust previous tag finding (handle failures/pipes)
+          # Use || true to suppress grep exit codes (1=no match)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | grep -v "-rc" | head -n 1 || true)
           
           if [ -z "$PREV_TAG" ]; then
             echo "No previous stable tag. Full release."
           else
             echo "Generating Delta: $PREV_TAG -> $TAG"
-            git diff --name-only "$PREV_TAG".."$TAG" > changed_files.txt
-            # Zip it (only existing files)
-            zip -r update_package.zip -@ < changed_files.txt
-            echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
+            if git diff --name-only "$PREV_TAG".."$TAG" > changed_files.txt; then
+               # Check if file has content
+               if [ -s changed_files.txt ]; then
+                  zip -r update_package.zip -@ < changed_files.txt
+                  echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
+               else
+                  echo "No files changed."
+               fi
+            else
+               echo "Diff failed (shallow clone?). Skipping delta."
+            fi
           fi
 
       # --- ASSET BUNDLING (Developer Setup) ---
@@ -290,15 +296,17 @@ jobs:
            if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
            if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
            
-           # Zip it
+           # Zip Logic (Condition Check)
            cd dev_pack
-           zip -r ../developer_setup.zip .github
-           cd ..
-           
-           echo "Debug: Listing created artifacts"
-           ls -lh developer_setup.zip
-           
-           echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
+           if [ -d ".github" ]; then
+              echo "Found assets to bundle."
+              zip -r ../developer_setup.zip .github
+              cd ..
+              echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
+           else
+              echo "No assets found to bundle. Skipping."
+              cd ..
+           fi
 
       # --- CHANGELOG & RELEASE ---
       - name: Generate Changelog
@@ -309,7 +317,7 @@ jobs:
            BRAIN_TOKEN: ${{ inputs.brain_token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
-           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
            
            echo "## 🚀 Release $TAG" > changelog.txt
            
@@ -331,18 +339,24 @@ jobs:
                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
               
               # Call API
-              RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
+              # Increase robustness (timeout, fail-safe)
+              RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
                 -H "Content-Type: application/json" \
                 -H "Authorization: $BRAIN_TOKEN" \
-                -d "$JSON_PAYLOAD")
+                -d "$JSON_PAYLOAD" || echo "Curl Failed")
 
               # Check response
-              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
+              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]]; then
                  echo "⚠️ Brain Writer Failed. Falling back to git log."
                  echo "Error: $RESPONSE"
                  echo "$LOG" >> changelog.txt
               else
-                 echo "$RESPONSE" | jq -r '.message' > changelog.txt
+                 MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
+                 if [[ "$MSG" == "Invalid JSON" ]]; then
+                    echo "$LOG" >> changelog.txt
+                 else
+                    echo "$MSG" > changelog.txt
+                 fi
               fi
            else
               echo "$LOG" >> changelog.txt
@@ -364,6 +378,9 @@ jobs:
            FILES=""
            if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES="$FILES ${{ steps.delta_zip.outputs.zip_path }}"; fi
            if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES="$FILES ${{ steps.dev_bundle.outputs.dev_pack_path }}"; fi
+           
+           # Only pass FILES if not empty
+           echo "Files to upload: '$FILES'"
            
            gh release create "$TAG" \
              --title "$TAG" \
