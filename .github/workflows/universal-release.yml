@@ -139,8 +139,7 @@ jobs:
           else
              echo "No previous LTS branch ($PREV_BRANCH) found to archive."
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
   # --- 3. THE RELEASE JOB (Syntax Verified) ---
   release:
