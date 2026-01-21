@@ -47,6 +47,8 @@ jobs:
   lts-guard:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
