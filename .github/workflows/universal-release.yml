@@ -287,6 +287,9 @@ jobs:
            zip -r ../developer_setup.zip .github
            cd ..
            
+           echo "Debug: Listing created artifacts"
+           ls -lh developer_setup.zip
+           
            echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
 
       # --- CHANGELOG & RELEASE ---
@@ -342,10 +345,12 @@ jobs:
         if: env.TAG_NAME != ''
         uses: softprops/action-gh-release@v1
         with:
+           token: ${{ secrets.GITHUB_TOKEN }}
            tag_name: ${{ env.TAG_NAME }}
            name: ${{ env.TAG_NAME }}
            body_path: ${{ steps.changelog.outputs.changelog_path }}
            prerelease: ${{ env.IS_PRERELEASE }}
+           fail_on_unmatched_files: true
            files: |
              ${{ steps.delta_zip.outputs.zip_path }}
              ${{ steps.dev_bundle.outputs.dev_pack_path }}
