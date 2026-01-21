@@ -140,7 +140,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # --- 3. THE RELEASE JOB ---
+  # --- 3. THE RELEASE JOB (Syntax Verified) ---
   release:
     needs: [checks]
     runs-on: ubuntu-latest
