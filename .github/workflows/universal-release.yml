@@ -1,47 +1,38 @@
-name: Universal Auto Release 
+name: Universal Release Workflow
+
 on:
   workflow_call:
     inputs:
-      version_file:
-        description: 'Specific version file to check (optional)'
-        type: string
-        required: false
-      brain_endpoint:
-        description: 'URL of the Brain Writer API (optional)'
-        type: string
-        required: false
-      brain_token:
-        description: 'Frappe API Token (optional, if endpoint provided)'
-        type: string
-        required: false
       release_strategy:
-        description: 'Strategy: "immediate" (default) or "weekly".'
+        required: true
         type: string
+        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
+      version_file:
+         required: false
+         type: string
+         default: "version.json"
+         description: "Path to version file (json/yaml/txt)"
+      brain_endpoint:
+         required: false
+         type: string
+         description: "Endpoint for AI Release Notes"
+    secrets:
+      BRAIN_TOKEN:
         required: false
-        default: 'immediate'
 
 jobs:
-  # --- 1. PRE-FLIGHT CHECKS & WARNINGS ---
+  # --- 1. CHECKS (Lint, Test, Build) ---
   checks:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Strategy & Configs
-        run: |
-          # 1. Strategy Check
-          STRAT="${{ inputs.release_strategy }}"
-          if [[ "$STRAT" == "immediate" || "$STRAT" == "" ]]; then
-             echo "### ⚠️ Legacy Strategy Detected" >> $GITHUB_STEP_SUMMARY
-             echo "You are using the old 'immediate' strategy." >> $GITHUB_STEP_SUMMARY
-             echo "Update to 'weekly' for RC builds and Safer Releases." >> $GITHUB_STEP_SUMMARY
-             echo "::warning title=Legacy Workflow::Update release_strategy to 'weekly' for safety."
-          fi
-          
-          # 2. AI Config Check
-          if [[ "${{ inputs.brain_endpoint }}" == "" ]]; then
-             echo "### ⚠️ AI Features Missing" >> $GITHUB_STEP_SUMMARY
-             echo "Missing 'brain_endpoint'. No AI Release Notes." >> $GITHUB_STEP_SUMMARY
-             echo "::warning title=Missing Feature::Missing 'brain_endpoint' input."
-          fi
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # Add lint/test steps here if generic enough, 
+      # or rely on caller workflow to do checking before calling this.
+      - run: echo "Checks passed (Placeholder)"
 
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
@@ -251,7 +242,7 @@ jobs:
               fi
            fi
 
-      # --- DELTA ZIP (ONLY FOR STABLES) ---
+      # --- DELTA ZIP (STABLE & DEV) ---
       - name: Generate Delta Zip
         if: env.TAG_NAME != '' && (env.IS_PRERELEASE == 'false' || contains(env.TAG_NAME, '-dev'))
         id: delta_zip
@@ -272,86 +263,85 @@ jobs:
             echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
           fi
 
-       # --- ASSET BUNDLING (Developer Setup) ---
-       - name: Bundle Developer Assets
-         if: env.TAG_NAME != ''
-         id: dev_bundle
-         run: |
-            echo "Bundling Developer Setup Pack..."
-            mkdir -p dev_pack
-            
-            # 1. Copy 'examples/' and rename it to '.github'
-            if [ -d "examples" ]; then cp -r examples dev_pack/.github; fi
-            
-            # 2. Copy Templates into that .github folder
-            if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
-            if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
-            
-            # Zip it
-            cd dev_pack
-            zip -r ../developer_setup.zip .github
-            cd ..
-            
-            echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
+      # --- ASSET BUNDLING (Developer Setup) ---
+      - name: Bundle Developer Assets
+        if: env.TAG_NAME != ''
+        id: dev_bundle
+        run: |
+           echo "Bundling Developer Setup Pack..."
+           mkdir -p dev_pack
+           
+           # 1. Copy 'examples/' and rename it to '.github'
+           if [ -d "examples" ]; then cp -r examples dev_pack/.github; fi
+           
+           # 2. Copy Templates into that .github folder
+           if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
+           if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
+           
+           # Zip it
+           cd dev_pack
+           zip -r ../developer_setup.zip .github
+           cd ..
+           
+           echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
 
-       # --- CHANGELOG & RELEASE ---
-       - name: Generate Changelog
-         if: env.TAG_NAME != ''
-         id: changelog
-         env:
-            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-            BRAIN_TOKEN: ${{ inputs.brain_token }}
-         run: |
-            TAG="${{ env.TAG_NAME }}"
-            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
-            
-            echo "## 🚀 Release $TAG" > changelog.txt
-            
-            # Capture Log
-            if [ -z "$PREV_TAG" ]; then
-               LOG="Initial Release"
-            else
-               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
-            fi
-            
-            if [ ! -z "$BRAIN_ENDPOINT" ]; then
-               echo "🧠 Calling Brain Writer API..."
-               
-               # Format JSON payload
-               JSON_PAYLOAD=$(jq -n \
-                --arg repo "${{ github.server_url }}/${{ github.repository }}" \
-                --arg ver "$TAG" \
-                --arg log "$LOG" \
-                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
-               
-               # Call API
-               RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
-                 -H "Content-Type: application/json" \
-                 -H "Authorization: $BRAIN_TOKEN" \
-                 -d "$JSON_PAYLOAD")
+      # --- CHANGELOG & RELEASE ---
+      - name: Generate Changelog
+        if: env.TAG_NAME != ''
+        id: changelog
+        env:
+           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+           BRAIN_TOKEN: ${{ inputs.brain_token }}
+        run: |
+           TAG="${{ env.TAG_NAME }}"
+           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1)
+           
+           echo "## 🚀 Release $TAG" > changelog.txt
+           
+           # Capture Log
+           if [ -z "$PREV_TAG" ]; then
+              LOG="Initial Release"
+           else
+              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
+           fi
+           
+           if [ ! -z "$BRAIN_ENDPOINT" ]; then
+              echo "🧠 Calling Brain Writer API..."
+              
+              # Format JSON payload
+              JSON_PAYLOAD=$(jq -n \
+               --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+               --arg ver "$TAG" \
+               --arg log "$LOG" \
+               '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+              
+              # Call API
+              RESPONSE=$(curl -s -X POST "$BRAIN_ENDPOINT" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: $BRAIN_TOKEN" \
+                -d "$JSON_PAYLOAD")
 
-               # Check response
-               if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
-                  echo "⚠️ Brain Writer Failed. Falling back to git log."
-                  echo "Error: $RESPONSE"
-                  echo "$LOG" >> changelog.txt
-               else
-                  echo "$RESPONSE" | jq -r '.message' > changelog.txt
-               fi
-            else
-               echo "$LOG" >> changelog.txt
-            fi
-            echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
+              # Check response
+              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]]; then
+                 echo "⚠️ Brain Writer Failed. Falling back to git log."
+                 echo "Error: $RESPONSE"
+                 echo "$LOG" >> changelog.txt
+              else
+                 echo "$RESPONSE" | jq -r '.message' > changelog.txt
+              fi
+           else
+              echo "$LOG" >> changelog.txt
+           fi
+           echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
-       - name: Publish GitHub Release
-         if: env.TAG_NAME != ''
-         uses: softprops/action-gh-release@v1
-         with:
-            tag_name: ${{ env.TAG_NAME }}
-            name: ${{ env.TAG_NAME }}
-            body_path: ${{ steps.changelog.outputs.changelog_path }}
-            prerelease: ${{ env.IS_PRERELEASE }}
-            files: |
-              ${{ steps.delta_zip.outputs.zip_path }}
-              ${{ steps.dev_bundle.outputs.dev_pack_path }}
-
+      - name: Publish GitHub Release
+        if: env.TAG_NAME != ''
+        uses: softprops/action-gh-release@v1
+        with:
+           tag_name: ${{ env.TAG_NAME }}
+           name: ${{ env.TAG_NAME }}
+           body_path: ${{ steps.changelog.outputs.changelog_path }}
+           prerelease: ${{ env.IS_PRERELEASE }}
+           files: |
+             ${{ steps.delta_zip.outputs.zip_path }}
+             ${{ steps.dev_bundle.outputs.dev_pack_path }}
