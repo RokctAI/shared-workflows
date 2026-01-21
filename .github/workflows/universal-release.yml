@@ -219,7 +219,7 @@ jobs:
            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
 
       # --- PATH 2: CREATE TAG (RC, DEV, OR STABLE) ---
-      - name: Create New Tag
+      - name: Create New Tag (Dry Run)
         if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev'
         id: create_tag
         run: |
@@ -227,23 +227,21 @@ jobs:
            
            # Check Local AND Remote
            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
-              echo "Tag $TAG exists (Local or Remote). Skipping."
-              echo "continue=false" >> $GITHUB_OUTPUT
+              echo "Tag $TAG exists (Local or Remote). Proceeding to Release update."
            else
-              echo "Creating $TAG"
-              git config user.name "Release Bot"
-              git config user.email "bot@rokct.ai"
-              git tag -a "$TAG" -m "Release $TAG"
-              git push origin "$TAG"
-              
-              echo "continue=true" >> $GITHUB_OUTPUT
-              echo "TAG_NAME=$TAG" >> $GITHUB_ENV
-              
-              if [[ "${{ steps.mode.outputs.mode }}" == "rc" || "${{ steps.mode.outputs.mode }}" == "dev" ]]; then
-                 echo "IS_PRERELEASE=true" >> $GITHUB_ENV
-              else
-                 echo "IS_PRERELEASE=false" >> $GITHUB_ENV
-              fi
+              echo "Calculated new tag: $TAG"
+              # Do NOT push here. Let Release Action handle it atomically.
+              # git tag -a "$TAG" -m "Release $TAG"
+              # git push origin "$TAG"
+           fi
+           
+           echo "continue=true" >> $GITHUB_OUTPUT
+           echo "TAG_NAME=$TAG" >> $GITHUB_ENV
+           
+           if [[ "${{ steps.mode.outputs.mode }}" == "rc" || "${{ steps.mode.outputs.mode }}" == "dev" ]]; then
+              echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+           else
+              echo "IS_PRERELEASE=false" >> $GITHUB_ENV
            fi
 
       # --- DELTA ZIP (STABLE & DEV) ---
