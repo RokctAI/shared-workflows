@@ -1,7 +1,7 @@
 name: Auto Release (Weekly)
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   schedule:
     - cron: '0 16 * * 5'
 
