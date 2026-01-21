@@ -146,10 +146,10 @@ jobs:
     needs: [checks]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+       - name: Checkout Code
+         uses: actions/checkout@v4
+         with:
+           fetch-depth: 0
 
       - name: Get Version
         id: version
