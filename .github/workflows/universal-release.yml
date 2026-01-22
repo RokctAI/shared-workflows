@@ -270,8 +270,9 @@ jobs:
           if [ -z "$PREV_TAG" ]; then
             echo "No previous stable tag. Full release."
           else
-            echo "Generating Delta: $PREV_TAG -> $TAG"
-            if git diff --name-only "$PREV_TAG".."$TAG" > changed_files.txt; then
+            echo "Generating Delta: $PREV_TAG -> $TAG (HEAD)"
+            # Compare against HEAD because $TAG is not created yet (Atomic Release)
+            if git diff --name-only "$PREV_TAG"..HEAD > changed_files.txt; then
                # Check if file has content
                if [ -s changed_files.txt ]; then
                   zip -r update_package.zip -@ < changed_files.txt
