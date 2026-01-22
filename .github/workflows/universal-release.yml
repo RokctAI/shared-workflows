@@ -259,6 +259,9 @@ jobs:
         if: env.TAG_NAME != '' && (env.IS_PRERELEASE == 'false' || contains(env.TAG_NAME, '-dev'))
         id: delta_zip
         run: |
+          # Ensure we have all tags/commits for diffing
+          git fetch origin --tags --force
+          
           TAG="${{ env.TAG_NAME }}"
           # Robust previous tag finding: Use bracket expression [-] to avoid flag parsing issues
           # grep -F for Fixed string (literal tag name)
