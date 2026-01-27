@@ -1,0 +1,27 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  test:
+    name: Test
+    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
+    with:
+      # Optional: Override Python version (default is 3.14)
+      python-version: '3.14'
+      # Optional: Override MariaDB version (default is 10.6)
+      mariadb-version: '10.6'
+      # Optional: Override Node version (default is 18)
+      node-version: 18
+      # Optional: Override Redis version (default is 6.0)
+      redis-version: '6.0'
+    secrets: inherit
