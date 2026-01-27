@@ -1,0 +1,86 @@
+name: Frappe App Test
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.14'
+      db-password:
+        required: false
+        type: string
+        default: 'travis'
+      mariadb-version:
+        required: false
+        type: string
+        default: '10.6'
+      redis-version:
+        required: false
+        type: string
+        default: '6.0'
+      node-version:
+        required: false
+        type: number
+        default: 18
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      mariadb:
+        image: mariadb:${{ inputs.mariadb-version }}
+        env:
+          MARIADB_ROOT_PASSWORD: ${{ inputs.db-password }}
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=2s --health-retries=3
+
+      redis:
+        image: redis:${{ inputs.redis-version }}
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=2s --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wkhtmltopdf mariadb-client
+
+      - name: Install Frappe Bench
+        run: |
+          pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+
+      - name: Install App & Run Tests
+        working-directory: frappe-bench
+        run: |
+          # Configure Bench to use the service DB/Redis
+          bench set-config -g db_host 127.0.0.1
+          bench set-config -g redis_cache redis://127.0.0.1:6379
+          bench set-config -g redis_queue redis://127.0.0.1:6379
+          bench set-config -g redis_socketio redis://127.0.0.1:6379
+
+          # Fetch key app (the repo calling this workflow)
+          bench get-app ${{ github.event.repository.name }} --branch ${{ github.ref_name }} --resolve-deps
+          
+          # Create Test Site
+          bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+
+          # Install App & Run Tests
+          bench --site test_site install-app ${{ github.event.repository.name }}
+          bench --site test_site run-tests --app ${{ github.event.repository.name }}
