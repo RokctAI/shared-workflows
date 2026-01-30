@@ -189,7 +189,7 @@ jobs:
           git fetch --tags --force
           
           # Get all stable releases (no -rc, -dev, -alpha, -beta suffixes)
-          STABLE_TAGS=$(git tag -l "v*" | grep -v -E '-(rc|dev|alpha|beta)' | sort -V)
+          STABLE_TAGS=$(git tag -l "v*" | grep -v -E -- '-(rc|dev|alpha|beta)' | sort -V)
           
           if [[ -z "$STABLE_TAGS" ]]; then
              echo "No stable releases found. Nothing to clean up."
