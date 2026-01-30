@@ -193,9 +193,11 @@ jobs:
           echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
           echo "Selected Mode: $MODE (Suffix: $SUFFIX)"
 
-      # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
+       # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
       - name: Promote RC to Stable
         if: steps.mode.outputs.mode == 'promote'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
            VER="${{ steps.version.outputs.version }}"
            # Find latest RC
@@ -217,6 +219,38 @@ jobs:
            # Set environment for downstream steps
            echo "TAG_NAME=v$VER" >> $GITHUB_ENV
            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+           
+           # --- CLEANUP: Delete all RC releases and tags for this version ---
+           echo "🧹 Cleaning up RC releases and tags for v$VER..."
+           
+           # Get all RC tags for this version
+           RC_TAGS=$(git tag -l "v${VER}-rc*")
+           
+           if [[ -n "$RC_TAGS" ]]; then
+              echo "Found RC tags to delete:"
+              echo "$RC_TAGS"
+              
+              # Delete GitHub releases first (if they exist)
+              for RC_TAG in $RC_TAGS; do
+                 echo "Deleting release for $RC_TAG..."
+                 gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "No release found for $RC_TAG"
+              done
+              
+              # Delete remote tags
+              echo "Deleting remote RC tags..."
+              for RC_TAG in $RC_TAGS; do
+                 git push origin --delete "$RC_TAG" 2>/dev/null || echo "Tag $RC_TAG already deleted"
+              done
+              
+              # Delete local tags
+              echo "Deleting local RC tags..."
+              echo "$RC_TAGS" | xargs -r git tag -d
+              
+              echo "✅ Cleanup complete. Deleted $(echo "$RC_TAGS" | wc -l) RC releases and tags."
+           else
+              echo "No RC tags found to clean up."
+           fi
+
 
       # --- PATH 2: CREATE TAG (RC, DEV, OR STABLE) ---
       - name: Create New Tag (Dry Run)
