@@ -497,16 +497,20 @@ jobs:
               # Increase robustness (timeout, fail-safe)
               if [ -z "$BRAIN_TOKEN" ]; then
                  # No token - call without Authorization header
-                 RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
+                 echo "Calling Brain API without token..."
+                 RESPONSE=$(curl -v -m 30 -X POST "$BRAIN_ENDPOINT" \
                    -H "Content-Type: application/json" \
-                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+                   -d "$JSON_PAYLOAD" 2>&1 || echo "Curl Failed")
               else
                  # Token provided - include Authorization header
-                 RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
+                 echo "Calling Brain API with token..."
+                 RESPONSE=$(curl -v -m 30 -X POST "$BRAIN_ENDPOINT" \
                    -H "Content-Type: application/json" \
                    -H "Authorization: $BRAIN_TOKEN" \
-                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+                   -d "$JSON_PAYLOAD" 2>&1 || echo "Curl Failed")
               fi
+              
+              echo "Response: $RESPONSE"
 
               # Check response
               if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]]; then
