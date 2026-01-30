@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, develop]
   schedule:
-    - cron: '0 16 * * 5'
+    - cron: '0 23 * * 5'
 
 jobs:
   release:
@@ -13,7 +13,7 @@ jobs:
     with:
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
-      version_file: 'version.json'
+
       
       # Brain Endpoint 
       brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
