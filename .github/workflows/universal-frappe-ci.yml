@@ -106,6 +106,13 @@ jobs:
              bench pip install -e apps/$APP_NAME
           fi
           
+          # HACK: Workaround for potential module rename issues (e.g. brain code importing frappebrain)
+          # If 'brain' directory exists but code imports 'frappebrain', create a symlink alias
+          if [ -d "apps/$APP_NAME/$APP_NAME" ] && [ ! -d "apps/$APP_NAME/frappebrain" ]; then
+             echo "Creating alias: apps/$APP_NAME/frappebrain -> apps/$APP_NAME/$APP_NAME"
+             ln -s $APP_NAME apps/$APP_NAME/frappebrain
+          fi
+          
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
