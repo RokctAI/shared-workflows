@@ -232,8 +232,8 @@ jobs:
                    git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag $RC_TAG already deleted"
                 done
                 
-                # Delete local tags
-                echo "$RC_TAGS" | xargs -r git tag -d
+                # Delete local tags (suppress errors if already deleted)
+                echo "$RC_TAGS" | xargs -r git tag -d 2>/dev/null || true
                 
                 COUNT=$(echo "$RC_TAGS" | wc -l)
                 TOTAL_DELETED=$((TOTAL_DELETED + COUNT))
