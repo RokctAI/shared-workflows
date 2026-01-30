@@ -469,7 +469,7 @@ jobs:
         id: changelog
         env:
            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-           BRAIN_TOKEN: ${{ inputs.brain_token }}
+           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
@@ -495,10 +495,18 @@ jobs:
               
               # Call API
               # Increase robustness (timeout, fail-safe)
-              RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: $BRAIN_TOKEN" \
-                -d "$JSON_PAYLOAD" || echo "Curl Failed")
+              if [ -z "$BRAIN_TOKEN" ]; then
+                 # No token - call without Authorization header
+                 RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
+                   -H "Content-Type: application/json" \
+                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+              else
+                 # Token provided - include Authorization header
+                 RESPONSE=$(curl -s -m 30 -X POST "$BRAIN_ENDPOINT" \
+                   -H "Content-Type: application/json" \
+                   -H "Authorization: $BRAIN_TOKEN" \
+                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+              fi
 
               # Check response
               if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]]; then
