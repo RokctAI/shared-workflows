@@ -14,6 +14,13 @@ jobs:
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
 
+      # RC Cleanup: Delete RC releases/tags after promotion to stable
+      cleanup_rc_releases: true
+      
+      # One-time cleanup: Set a cutoff date (YYYY-MM-DD) to run cleanup once if past this date
+      # After cleanup runs once, a marker file is created and cleanup won't run again
+      # Example: one_time_cleanup_cutoff_date: '2026-02-01'
+      one_time_cleanup_cutoff_date: '2026-01-30'
       
       # Brain Endpoint 
       brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
