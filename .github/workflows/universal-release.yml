@@ -16,6 +16,16 @@ on:
          required: false
          type: string
          description: "Endpoint for AI Release Notes"
+      cleanup_rc_releases:
+         required: false
+         type: boolean
+         default: true
+         description: "Delete RC releases/tags after promotion to stable"
+      one_time_cleanup_cutoff_date:
+         required: false
+         type: string
+         default: ""
+         description: "Date (YYYY-MM-DD) - Run one-time cleanup once if current date is past this. Leave empty to disable."
     secrets:
       BRAIN_TOKEN:
         required: false
@@ -132,6 +142,116 @@ jobs:
           fi
 
 
+  # --- 2.5. MANUAL/DATE-BASED CLEANUP JOB (One-Time) ---
+  manual-cleanup:
+    runs-on: ubuntu-latest
+    if: inputs.manual_cleanup_mode == true || inputs.one_time_cleanup_cutoff_date != ''
+    permissions:
+      contents: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Date and Run One-Time RC Cleanup
+        run: |
+          CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
+          MANUAL_MODE="${{ inputs.manual_cleanup_mode }}"
+          
+          # Check if we should run cleanup
+          SHOULD_RUN=false
+          
+          if [[ "$MANUAL_MODE" == "true" ]]; then
+             echo "🔧 Manual cleanup mode enabled"
+             SHOULD_RUN=true
+          elif [[ -n "$CUTOFF_DATE" ]]; then
+             echo "📅 Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
+             
+             # Get current date in YYYY-MM-DD format
+             CURRENT_DATE=$(date +%Y-%m-%d)
+             
+             # Compare dates
+             if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
+                echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
+                
+                # Check if cleanup marker file exists
+                MARKER_FILE=".github/.rc-cleanup-done"
+                if [[ -f "$MARKER_FILE" ]]; then
+                   echo "⏭️ Cleanup already completed (marker file exists). Skipping."
+                   SHOULD_RUN=false
+                else
+                   echo "🆕 First time running cleanup past cutoff date"
+                   SHOULD_RUN=true
+                fi
+             else
+                echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
+                SHOULD_RUN=false
+             fi
+          fi
+          
+          if [[ "$SHOULD_RUN" == "false" ]]; then
+             echo "No cleanup to perform. Exiting."
+             exit 0
+          fi
+          
+          echo ""
+          echo "🧹 Starting RC cleanup..."
+          
+          # Fetch all tags
+          git fetch --tags --force
+          
+          # Get all RC tags
+          ALL_RC_TAGS=$(git tag -l "*-rc*" | sort -V)
+          
+          if [[ -z "$ALL_RC_TAGS" ]]; then
+             echo "No RC tags found. Nothing to clean up."
+             exit 0
+          fi
+          
+          echo "Found $(echo "$ALL_RC_TAGS" | wc -l) RC tags:"
+          echo "$ALL_RC_TAGS"
+          echo ""
+          echo "⚠️ Deleting all RC releases and tags..."
+          
+          # Delete GitHub releases
+          for RC_TAG in $ALL_RC_TAGS; do
+             echo "Deleting release for $RC_TAG..."
+             gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "  No release found for $RC_TAG"
+          done
+          
+          # Delete remote tags
+          echo ""
+          echo "Deleting remote RC tags..."
+          for RC_TAG in $ALL_RC_TAGS; do
+             git push origin --delete "$RC_TAG" 2>/dev/null || echo "  Tag $RC_TAG already deleted"
+          done
+          
+          # Delete local tags
+          echo ""
+          echo "Deleting local RC tags..."
+          echo "$ALL_RC_TAGS" | xargs -r git tag -d
+          
+          echo ""
+          echo "✅ Cleanup complete. Deleted $(echo "$ALL_RC_TAGS" | wc -l) RC releases and tags."
+          
+          # Create marker file if date-based cleanup
+          if [[ -n "$CUTOFF_DATE" ]] && [[ "$MANUAL_MODE" != "true" ]]; then
+             echo ""
+             echo "📝 Creating marker file to prevent future cleanups..."
+             mkdir -p .github
+             echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
+             git config user.name "Cleanup Bot"
+             git config user.email "bot@rokct.ai"
+             git add .github/.rc-cleanup-done
+             git commit -m "chore: mark RC cleanup as completed"
+             git push origin HEAD
+             echo "✅ Marker file created. Future runs will skip cleanup."
+          fi
+
+
   # --- 3. THE RELEASE JOB (Syntax Verified) ---
   release:
     needs: [checks]
@@ -221,7 +341,8 @@ jobs:
            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
            
            # --- CLEANUP: Delete all RC releases and tags for this version ---
-           echo "🧹 Cleaning up RC releases and tags for v$VER..."
+           if [[ "${{ inputs.cleanup_rc_releases }}" == "true" ]]; then
+              echo "🧹 Cleaning up RC releases and tags for v$VER..."
            
            # Get all RC tags for this version
            RC_TAGS=$(git tag -l "v${VER}-rc*")
@@ -249,6 +370,9 @@ jobs:
               echo "✅ Cleanup complete. Deleted $(echo "$RC_TAGS" | wc -l) RC releases and tags."
            else
               echo "No RC tags found to clean up."
+           fi
+           else
+              echo "⏭️ RC cleanup disabled (cleanup_rc_releases=false)"
            fi
 
 
