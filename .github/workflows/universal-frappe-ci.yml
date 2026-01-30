@@ -5,7 +5,7 @@ on:
       python-version:
         required: false
         type: string
-        default: '3.14'
+        default: '3.12'
       db-password:
         required: false
         type: string
@@ -21,7 +21,7 @@ on:
       node-version:
         required: false
         type: number
-        default: 18
+        default: 22
 
 jobs:
   test:
