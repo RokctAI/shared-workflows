@@ -142,10 +142,10 @@ jobs:
           fi
 
 
-  # --- 2.5. MANUAL/DATE-BASED CLEANUP JOB (One-Time) ---
+  # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
     runs-on: ubuntu-latest
-    if: inputs.manual_cleanup_mode == true || inputs.one_time_cleanup_cutoff_date != ''
+    if: inputs.one_time_cleanup_cutoff_date != ''
     permissions:
       contents: write
     env:
@@ -159,41 +159,26 @@ jobs:
       - name: Check Date and Run One-Time RC Cleanup
         run: |
           CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
-          MANUAL_MODE="${{ inputs.manual_cleanup_mode }}"
           
-          # Check if we should run cleanup
-          SHOULD_RUN=false
+          echo " Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
           
-          if [[ "$MANUAL_MODE" == "true" ]]; then
-             echo "🔧 Manual cleanup mode enabled"
-             SHOULD_RUN=true
-          elif [[ -n "$CUTOFF_DATE" ]]; then
-             echo "📅 Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
+          # Get current date in YYYY-MM-DD format
+          CURRENT_DATE=$(date +%Y-%m-%d)
+          
+          # Compare dates
+          if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
+             echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
              
-             # Get current date in YYYY-MM-DD format
-             CURRENT_DATE=$(date +%Y-%m-%d)
-             
-             # Compare dates
-             if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
-                echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
-                
-                # Check if cleanup marker file exists
-                MARKER_FILE=".github/.rc-cleanup-done"
-                if [[ -f "$MARKER_FILE" ]]; then
-                   echo "⏭️ Cleanup already completed (marker file exists). Skipping."
-                   SHOULD_RUN=false
-                else
-                   echo "🆕 First time running cleanup past cutoff date"
-                   SHOULD_RUN=true
-                fi
-             else
-                echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
-                SHOULD_RUN=false
+             # Check if cleanup marker file exists
+             MARKER_FILE=".github/.rc-cleanup-done"
+             if [[ -f "$MARKER_FILE" ]]; then
+                echo "⏭️ Cleanup already completed (marker file exists). Skipping."
+                exit 0
              fi
-          fi
-          
-          if [[ "$SHOULD_RUN" == "false" ]]; then
-             echo "No cleanup to perform. Exiting."
+             
+             echo "🆕 First time running cleanup past cutoff date"
+          else
+             echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
              exit 0
           fi
           
@@ -237,19 +222,17 @@ jobs:
           echo ""
           echo "✅ Cleanup complete. Deleted $(echo "$ALL_RC_TAGS" | wc -l) RC releases and tags."
           
-          # Create marker file if date-based cleanup
-          if [[ -n "$CUTOFF_DATE" ]] && [[ "$MANUAL_MODE" != "true" ]]; then
-             echo ""
-             echo "📝 Creating marker file to prevent future cleanups..."
-             mkdir -p .github
-             echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
-             git config user.name "Cleanup Bot"
-             git config user.email "bot@rokct.ai"
-             git add .github/.rc-cleanup-done
-             git commit -m "chore: mark RC cleanup as completed"
-             git push origin HEAD
-             echo "✅ Marker file created. Future runs will skip cleanup."
-          fi
+          # Create marker file to prevent future cleanups
+          echo ""
+          echo "📝 Creating marker file to prevent future cleanups..."
+          mkdir -p .github
+          echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
+          git config user.name "Cleanup Bot"
+          git config user.email "bot@rokct.ai"
+          git add .github/.rc-cleanup-done
+          git commit -m "chore: mark RC cleanup as completed"
+          git push origin HEAD
+          echo "✅ Marker file created. Future runs will skip cleanup."
 
 
   # --- 3. THE RELEASE JOB (Syntax Verified) ---
