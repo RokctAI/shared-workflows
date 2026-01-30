@@ -79,7 +79,8 @@ jobs:
           git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
           
           # Fetch key app (the repo calling this workflow)
-          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps
+          # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
+          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps --skip-assets
           
           # Create Test Site
           bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
