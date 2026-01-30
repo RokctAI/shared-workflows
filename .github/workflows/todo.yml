@@ -7,6 +7,6 @@ jobs:
   todo:
     uses: RokctAI/shared-workflows/.github/workflows/universal-todo.yml@main
     permissions:
-      contents: write
+      contents: read
       issues: write
     secrets: inherit
