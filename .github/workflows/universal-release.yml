@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       # Add lint/test steps here if generic enough, 
       # or rely on caller workflow to do checking before calling this.
       - run: echo "Checks passed (Placeholder)"
