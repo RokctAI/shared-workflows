@@ -75,6 +75,9 @@ jobs:
           bench set-config -g redis_queue redis://127.0.0.1:6379
           bench set-config -g redis_socketio redis://127.0.0.1:6379
 
+          # Configure git to use GitHub token for private repos
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
           # Fetch key app (the repo calling this workflow)
           bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps
           
