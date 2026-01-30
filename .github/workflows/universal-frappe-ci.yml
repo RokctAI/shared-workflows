@@ -82,14 +82,40 @@ jobs:
           # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
           bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps --skip-assets
           
+          # Detect actual app name from pyproject.toml
+          # This handles cases where repo name (e.g. 'brain') differs from python package name (e.g. 'frappebrain')
+          cd apps/${{ github.event.repository.name }}
+          if [ -f "pyproject.toml" ]; then
+             APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
+          elif [ -f "setup.py" ]; then
+             APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+          else
+             APP_NAME="${{ github.event.repository.name }}"
+          fi
+          cd ../..
+          
+          echo "Expected App Name: ${{ github.event.repository.name }}"
+          echo "Actual App Name: $APP_NAME"
+          
+          # If names differ, rename the app directory
+          if [[ "$APP_NAME" != "${{ github.event.repository.name }}" && -n "$APP_NAME" ]]; then
+             echo "Renaming apps/${{ github.event.repository.name }} to apps/$APP_NAME"
+             mv apps/${{ github.event.repository.name }} apps/$APP_NAME
+             
+             # Re-install editable pip package with new path
+             bench pip install -e apps/$APP_NAME
+          fi
+          
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          
           # Create Test Site
           bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
           
           # Ensure app is in apps.txt (required for install-app)
-          if ! grep -q "^${{ github.event.repository.name }}$" sites/apps.txt; then
-             echo "${{ github.event.repository.name }}" >> sites/apps.txt
+          if ! grep -q "^$APP_NAME$" sites/apps.txt; then
+             echo "$APP_NAME" >> sites/apps.txt
           fi
 
           # Install App & Run Tests
-          bench --site test_site install-app ${{ github.event.repository.name }}
-          bench --site test_site run-tests --app ${{ github.event.repository.name }}
+          bench --site test_site install-app $APP_NAME
+          bench --site test_site run-tests --app $APP_NAME
