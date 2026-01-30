@@ -214,11 +214,24 @@ jobs:
              # Extract version from NEXT_STABLE (e.g., v1.2.0 -> 1.2.0)
              VERSION="${NEXT_STABLE#v}"
              
+             # Get the creation date of the stable tag
+             STABLE_DATE=$(git log -1 --format=%ai "$NEXT_STABLE" | cut -d' ' -f1)
+             
              # Find all RC tags for this version
-             RC_TAGS=$(git tag -l "v${VERSION}-rc*" | sort -V)
+             ALL_RC_TAGS=$(git tag -l "v${VERSION}-rc*" | sort -V)
+             
+             # Filter RCs: only keep those created BEFORE the stable tag
+             RC_TAGS=""
+             for RC_TAG in $ALL_RC_TAGS; do
+                RC_DATE=$(git log -1 --format=%ai "$RC_TAG" | cut -d' ' -f1)
+                if [[ "$RC_DATE" < "$STABLE_DATE" ]] || [[ "$RC_DATE" == "$STABLE_DATE" ]]; then
+                   RC_TAGS="$RC_TAGS$RC_TAG"$'\n'
+                fi
+             done
+             RC_TAGS=$(echo "$RC_TAGS" | sed '/^$/d')  # Remove empty lines
              
              if [[ -n "$RC_TAGS" ]]; then
-                echo "  Found $(echo "$RC_TAGS" | wc -l) RC tags for $NEXT_STABLE:"
+                echo "  Found $(echo "$RC_TAGS" | wc -l) RC tags created before $NEXT_STABLE ($STABLE_DATE):"
                 echo "$RC_TAGS" | sed 's/^/    /'
                 
                 # Delete GitHub releases
@@ -255,8 +268,15 @@ jobs:
           git config user.email "bot@rokct.ai"
           git add .github/.rc-cleanup-done
           git commit -m "chore: mark RC cleanup as completed"
-          git push origin HEAD
-          echo "✅ Marker file created. Future runs will skip cleanup."
+          
+          # Try to push, but don't fail if branch is protected
+          if git push origin HEAD 2>&1; then
+             echo "✅ Marker file created. Future runs will skip cleanup."
+          else
+             echo "⚠️ Could not push marker file (branch may be protected)."
+             echo "   Cleanup will run again on next workflow execution."
+             echo "   To prevent this, manually create .github/.rc-cleanup-done in your repo."
+          fi
 
 
   # --- 3. THE RELEASE JOB (Syntax Verified) ---
@@ -351,11 +371,24 @@ jobs:
            if [[ "${{ inputs.cleanup_rc_releases }}" == "true" ]]; then
               echo "🧹 Cleaning up RC releases and tags for v$VER..."
            
+           # Get the creation date of the stable tag we just created
+           STABLE_DATE=$(git log -1 --format=%ai "v$VER" | cut -d' ' -f1)
+           
            # Get all RC tags for this version
-           RC_TAGS=$(git tag -l "v${VER}-rc*")
+           ALL_RC_TAGS=$(git tag -l "v${VER}-rc*")
+           
+           # Filter RCs: only keep those created BEFORE the stable tag
+           RC_TAGS=""
+           for RC_TAG in $ALL_RC_TAGS; do
+              RC_DATE=$(git log -1 --format=%ai "$RC_TAG" | cut -d' ' -f1)
+              if [[ "$RC_DATE" < "$STABLE_DATE" ]] || [[ "$RC_DATE" == "$STABLE_DATE" ]]; then
+                 RC_TAGS="$RC_TAGS$RC_TAG"$'\n'
+              fi
+           done
+           RC_TAGS=$(echo "$RC_TAGS" | sed '/^$/d')  # Remove empty lines
            
            if [[ -n "$RC_TAGS" ]]; then
-              echo "Found RC tags to delete:"
+              echo "Found RC tags created before v$VER ($STABLE_DATE):"
               echo "$RC_TAGS"
               
               # Delete GitHub releases first (if they exist)
