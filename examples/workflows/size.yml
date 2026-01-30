@@ -6,4 +6,6 @@ on:
 jobs:
   size:
     uses: RokctAI/shared-workflows/.github/workflows/universal-size.yml@main
+    permissions:
+      pull-requests: write
     secrets: inherit
