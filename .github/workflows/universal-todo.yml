@@ -4,17 +4,15 @@ on:
   workflow_call:
     secrets:
       GH_TOKEN:
-        required: true
+        required: false
 
 jobs:
   todo:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_TOKEN }}
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@v5
         with:
