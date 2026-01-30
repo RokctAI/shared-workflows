@@ -76,7 +76,7 @@ jobs:
           bench set-config -g redis_socketio redis://127.0.0.1:6379
 
           # Fetch key app (the repo calling this workflow)
-          bench get-app ${{ github.event.repository.name }} --branch ${{ github.ref_name }} --resolve-deps
+          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps
           
           # Create Test Site
           bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
