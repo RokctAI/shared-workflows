@@ -84,6 +84,11 @@ jobs:
           
           # Create Test Site
           bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+          
+          # Ensure app is in apps.txt (required for install-app)
+          if ! grep -q "^${{ github.event.repository.name }}$" sites/apps.txt; then
+             echo "${{ github.event.repository.name }}" >> sites/apps.txt
+          fi
 
           # Install App & Run Tests
           bench --site test_site install-app ${{ github.event.repository.name }}
