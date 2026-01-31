@@ -95,8 +95,8 @@ jobs:
           # Detect actual app directory and name
           # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
           cd apps
-          # Find the app directory that isn't 'frappe'
-          APP_DIR=$(ls -d * | grep -v "^frappe$" | head -n 1)
+          # Find the app directory that isn't 'frappe' or 'erpnext'
+          APP_DIR=$(ls -d * | grep -v "^frappe$" | grep -v "^erpnext$" | head -n 1)
           echo "Detected App Directory: $APP_DIR"
           cd $APP_DIR
           if [ -f "pyproject.toml" ]; then
