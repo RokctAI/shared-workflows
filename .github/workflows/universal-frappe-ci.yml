@@ -113,6 +113,16 @@ jobs:
              ln -s $APP_NAME apps/$APP_NAME/frappebrain
           fi
           
+          # HACK: Fix namespace packages (missing __init__.py) which cause Frappe install to fail
+          # Frappe requires modules to have valid __file__ paths
+          echo "Ensuring __init__.py exists in app directories..."
+          find apps/$APP_NAME/$APP_NAME -type d | while read dir; do
+             if [ ! -f "$dir/__init__.py" ]; then
+                echo "Creating missing __init__.py in $dir"
+                touch "$dir/__init__.py"
+             fi
+          done
+          
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
