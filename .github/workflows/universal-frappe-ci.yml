@@ -22,6 +22,10 @@ on:
         required: false
         type: number
         default: 22
+      install-erpnext:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -74,6 +78,12 @@ jobs:
           bench set-config -g redis_cache redis://127.0.0.1:6379
           bench set-config -g redis_queue redis://127.0.0.1:6379
           bench set-config -g redis_socketio redis://127.0.0.1:6379
+
+          # Install ERPNext if requested
+          if [ "${{ inputs.install-erpnext }}" == "true" ]; then
+             echo "Installing ERPNext..."
+             bench get-app erpnext --resolve-deps --skip-assets
+          fi
 
           # Configure git to use GitHub token for private repos
           git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
