@@ -123,6 +123,12 @@ jobs:
              fi
           done
           
+          # HACK: Fix deprecated/incorrect API usage in brain app (frappe.utils.update_site_config -> frappe.installer.update_site_config)
+          if [ -d "apps/$APP_NAME/$APP_NAME" ]; then
+             echo "Patching update_site_config usage in app..."
+             grep -r "frappe.utils.update_site_config" apps/$APP_NAME | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
+          fi
+
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
