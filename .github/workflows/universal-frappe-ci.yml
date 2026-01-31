@@ -119,9 +119,19 @@ jobs:
           bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
           
           # Ensure app is in apps.txt (required for install-app)
+          # Use printf to ensure valid newline handling
+          echo "Current apps.txt:"
+          cat sites/apps.txt
+          
           if ! grep -q "^$APP_NAME$" sites/apps.txt; then
+             echo "Adding $APP_NAME to apps.txt"
+             # Append newline if missing, then the app name
+             sed -i -e '$a\' sites/apps.txt
              echo "$APP_NAME" >> sites/apps.txt
           fi
+          
+          echo "Updated apps.txt:"
+          cat sites/apps.txt
 
           # Install App & Run Tests
           bench --site test_site install-app $APP_NAME
