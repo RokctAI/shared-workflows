@@ -82,9 +82,13 @@ jobs:
           # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
           bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps --skip-assets
           
-          # Detect actual app name from pyproject.toml
-          # This handles cases where repo name (e.g. 'brain') differs from python package name (e.g. 'frappebrain')
-          cd apps/${{ github.event.repository.name }}
+          # Detect actual app directory and name
+          # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
+          cd apps
+          # Find the app directory that isn't 'frappe'
+          APP_DIR=$(ls -d * | grep -v "^frappe$" | head -n 1)
+          echo "Detected App Directory: $APP_DIR"
+          cd $APP_DIR
           if [ -f "pyproject.toml" ]; then
              APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
           elif [ -f "setup.py" ]; then
@@ -97,10 +101,10 @@ jobs:
           echo "Expected App Name: ${{ github.event.repository.name }}"
           echo "Actual App Name: $APP_NAME"
           
-          # If names differ, rename the app directory
-          if [[ "$APP_NAME" != "${{ github.event.repository.name }}" && -n "$APP_NAME" ]]; then
-             echo "Renaming apps/${{ github.event.repository.name }} to apps/$APP_NAME"
-             mv apps/${{ github.event.repository.name }} apps/$APP_NAME
+          # If names differ (package name != current folder name), rename the app directory
+          if [[ "$APP_NAME" != "$APP_DIR" && -n "$APP_NAME" ]]; then
+             echo "Renaming apps/$APP_DIR to apps/$APP_NAME"
+             mv apps/$APP_DIR apps/$APP_NAME
              
              # Re-install editable pip package with new path
              bench pip install -e apps/$APP_NAME
