@@ -90,7 +90,7 @@ jobs:
           
           # Fetch key app (the repo calling this workflow)
           # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
-          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --resolve-deps --skip-assets
+          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
           
           # Detect actual app directory and name
           # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
