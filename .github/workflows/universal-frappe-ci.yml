@@ -169,4 +169,4 @@ jobs:
 
           # Install App & Run Tests
           bench --site test_site install-app $APP_NAME
-          bench --site test_site run-tests --app $APP_NAME --verbose
+          bench --site test_site run-tests --app $APP_NAME
