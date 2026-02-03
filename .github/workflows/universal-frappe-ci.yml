@@ -87,6 +87,9 @@ jobs:
           bench set-config -g redis_queue redis://127.0.0.1:6379
           bench set-config -g redis_socketio redis://127.0.0.1:6379
 
+          # Fix for Missing pkg_resources in payments app
+          bench pip install setuptools
+
           # Install Payments if requested (Required by some apps like rcore)
           if [ "${{ inputs.install-payments }}" == "true" ]; then
              echo "Installing Payments App..."
