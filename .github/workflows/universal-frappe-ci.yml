@@ -112,8 +112,19 @@ jobs:
           # Detect actual app directory and name
           # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
           cd apps
-          # Find the app directory that isn't 'frappe' or 'erpnext'
-          APP_DIR=$(ls -d * | grep -v "^frappe$" | grep -v "^erpnext$" | head -n 1)
+          
+          # Priority 1: Check if directory matches Repo Name (e.g. rCore)
+          REPO_NAME="${{ github.event.repository.name }}"
+          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
+              APP_DIR="$REPO_NAME"
+          # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
+          elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
+              APP_DIR="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
+          else
+              # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
+              APP_DIR=$(ls -d * | grep -v "^frappe$" | grep -v "^erpnext$" | grep -v "^payments$" | head -n 1)
+          fi
+          
           echo "Detected App Directory: $APP_DIR"
           cd $APP_DIR
           if [ -f "pyproject.toml" ]; then
