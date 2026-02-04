@@ -76,10 +76,19 @@ After copying the files, you **MUST** review and update the following:
 3.  **`dependabot.yml`**:
     *   Verify the schedule and package ecosystems match your project (e.g., `pip` vs `npm`).
 
-4.  **`workflows/linter.yml`**:
-    *   `run-build-runner: true` - Set to `true` if your Flutter project uses Freezed/JSON Serializable and needs code generation before analysis.
+        *   Values: `true` / `false` (default: `false` for `install-erpnext` and `install-payments`).
 
-5.  **Android Secrets (for Signing)** 🤖:
+5.  **`workflows/universal-node-ci.yml`**:
+    *   Designed for **Next.js**, **React**, or generic Node.js apps.
+    *   **Features**: Setup Node, Cache Dependencies, Install, Build, Test, Telemetry.
+    *   **Usage**: The `build.yml` example is "Smart"—it auto-detects `package.json` vs `pubspec.yaml` and calls this workflow automatically for Node projects.
+
+6.  **"Smart" Build Example (`examples/workflows/build.yml`)** 🧠:
+    *   This single file works for both **Flutter** and **Node.js** projects.
+    *   **How it works**: It detects your project type (`pubspec.yaml` or `package.json`) and runs the appropriate pipeline (`universal-flutter-build` or `universal-node-ci`).
+    *   **Recommendation**: Rename `examples/workflows` to `.github` in your new project.
+
+7.  **Android Secrets (for Signing)** 🤖:
     *   **Encode Keystore:**
         *   **Windows (Powershell):**
             ```powershell
