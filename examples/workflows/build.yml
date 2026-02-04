@@ -42,23 +42,16 @@ jobs:
              echo "is_node=false" >> $GITHUB_OUTPUT
           fi
 
-  # --- 2. FLUTTER BUILD (Conditioned) ---
-  ci-flutter:
+  # --- 2. UNIFIED PIPELINE (Smart) ---
+  pipeline:
     needs: detect
-    if: needs.detect.outputs.is_flutter == 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
-      build-type: ${{ inputs.build-type || 'apk' }}
-    secrets: inherit
-
-  # --- 3. NODE CI (Conditioned) ---
-  ci-node:
-    needs: detect
-    if: needs.detect.outputs.is_node == 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
-    with:
-      node-version: '22'
-      package-manager: 'pnpm'
-      run-build: true
-      run-test: true
+      project_type: ${{ needs.detect.outputs.is_flutter == 'true' && 'flutter' || (needs.detect.outputs.is_node == 'true' && 'node' || 'frappe') }}
+      # Quality Gate Toggles
+      run_security: true
+      run_lint: true
+      run_ci: true
+      # Deployment Configuration (Immediate release on Main)
+      release_strategy: 'immediate'
     secrets: inherit
