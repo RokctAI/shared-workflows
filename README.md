@@ -1,11 +1,11 @@
 # Universal Shared Workflows
 
 <!-- usage-badge-start -->
-![Total Builds](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.counterapi.dev%2Fv1%2Frokctai%2Fusage%2F&query=%24.value&label=Total%20Builds&color=blue)
+![Total Builds](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.counterapi.dev%2Fv2%2Frokctai%2Fusage%2Fstats&query=%24.data.up_count&label=Total%20Builds&color=blue)
 <!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
-Designed to work with **Flutter**, **Node.js (Next.js/React)**, **Frappe**, and **Documentation** projects.
+Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **Documentation** projects.
 
 ## Features
 
