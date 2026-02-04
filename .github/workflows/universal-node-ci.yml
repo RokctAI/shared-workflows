@@ -17,15 +17,15 @@ on:
       package-manager:
         required: false
         type: string
-        default: 'npm' # npm, yarn, pnpm
+        default: 'pnpm' # npm, yarn, pnpm
       build-command:
         required: false
         type: string
-        default: 'npm run build'
+        default: 'pnpm run build'
       test-command:
         required: false
         type: string
-        default: 'npm run test'
+        default: 'pnpm run test'
 
     secrets:
       COUNTER_API_KEY:
@@ -61,7 +61,13 @@ jobs:
 
       - name: Run Tests
         if: inputs.run-test == true
-        run: ${{ inputs.test-command }}
+        run: |
+          if jq -e '.scripts.test' package.json > /dev/null; then
+            echo "Test script detected. Running..."
+            ${{ inputs.test-command }}
+          else
+            echo "No 'test' script found in package.json. Skipping tests."
+          fi
 
       - name: Run Build
         if: inputs.run-build == true
