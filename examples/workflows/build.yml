@@ -58,7 +58,7 @@ jobs:
     uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
     with:
       node-version: '22'
-      package-manager: 'npm'
+      package-manager: 'pnpm'
       run-build: true
       run-test: true
     secrets: inherit
