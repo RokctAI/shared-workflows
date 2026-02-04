@@ -15,6 +15,27 @@ on:
         options:
         - apk
         - appbundle
+      node-version:
+        type: string
+        default: '22'
+      python-version:
+        type: string
+        default: '3.14'
+      mariadb-version:
+        type: string
+        default: '10.6'
+      postgres-version:
+        type: string
+        default: '15'
+      db-type:
+        type: string
+        default: 'mariadb'
+      flutter-channel:
+        type: string
+        default: 'stable'
+      java-version:
+        type: string
+        default: '17'
 
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
@@ -54,4 +75,12 @@ jobs:
       run_ci: true
       # Deployment Configuration (Immediate release on Main)
       release_strategy: 'immediate'
+      # Environment configuration
+      node-version: ${{ inputs.node-version }}
+      python-version: ${{ inputs.python-version }}
+      mariadb-version: ${{ inputs.mariadb-version }}
+      postgres-version: ${{ inputs.postgres-version }}
+      db-type: ${{ inputs.db-type }}
+      flutter-channel: ${{ inputs.flutter-channel }}
+      java-version: ${{ inputs.java-version }}
     secrets: inherit
