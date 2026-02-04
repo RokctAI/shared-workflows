@@ -74,6 +74,10 @@ After copying the files, you **MUST** review and update the following:
             *   If you use Firebase/Google Sign-In, encode your `google-services.json` the same way.
             *   Add it as a secret named `GOOGLE_SERVICES_JSON`.
 
+6.  **Windows Builds (For Desktop Apps)** 🪟:
+    *   To enable Windows Zip builds in `release.yml`, set `build_windows: true`.
+    *   **Note**: Windows builds are skipped for RC releases (Weekly Strategy) to save time, but are included in Dev, Promote, and Stable (Immediate) releases.
+    *   The output will be attached as `app-windows-vX.Y.Z.zip`.
 
 ### Manual Setup
 If you prefer picking specific workflows, you can copy individual `.yml` files from `examples/workflows/` to your `.github/workflows/` directory.
