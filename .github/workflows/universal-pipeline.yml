@@ -31,8 +31,6 @@ on:
       build_windows:
         type: boolean
         default: false
-    secrets:
-      inherit
 
 jobs:
   # 1. SECURITY
@@ -48,25 +46,37 @@ jobs:
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     secrets: inherit
 
-  # 3. CI / BUILD
-  ci:
+  # 3. CI / BUILD (Project Specific Jobs)
+  ci-frappe:
     needs: lint
-    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci
-    uses: >-
-      ${{ 
-        inputs.project_type == 'frappe' && 'RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main' ||
-        inputs.project_type == 'node' && 'RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main' ||
-        'RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main'
-      }}
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
+    secrets: inherit
+
+  ci-node:
+    needs: lint
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'node'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
+    secrets: inherit
+
+  ci-flutter:
+    needs: lint
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'flutter'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     secrets: inherit
 
   # 4. RELEASE (The Gate)
   release:
-    needs: ci
-    # CRITICAL GATE: Only release if CI passed OR if we are on 'develop' branch (Bypass)
-    if: >-
+    needs: [ci-frappe, ci-node, ci-flutter]
+    # Gate logic: SUCCESS or SKIPPED for all needs, OR Bypass if develop
+    # NOTE: In GitHub Actions, skipped jobs count as success in boolean conditions if checked specifically
+    if: |
       always() && 
-      (github.ref_name == 'develop' || (needs.ci.result == 'success' || needs.ci.result == 'skipped'))
+      (github.ref_name == 'develop' || (
+        (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
+        (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
+        (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped')
+      ))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
       release_strategy: ${{ inputs.release_strategy }}
