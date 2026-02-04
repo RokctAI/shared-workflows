@@ -341,7 +341,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: ${{ inputs.flutter-channel }}
           cache: true
 
       - name: Build Windows
@@ -629,13 +629,13 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: ${{ inputs.java-version }}
 
       - name: Helper - Subosito Flutter
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc')
         uses: subosito/flutter-action@v2
         with:
-           channel: 'stable'
+           channel: ${{ inputs.flutter-channel }}
            cache: true
 
       # Decode Google Services JSON if provided
