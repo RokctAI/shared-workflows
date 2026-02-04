@@ -365,12 +365,11 @@ jobs:
 
 
 
-  # --- 3. THE RELEASE JOB (Syntax Verified) ---
+  # --- 3. THE RELEASE JOB ---
   release:
     needs: [checks, build-windows]
-    if: always() # Run even if optional needs skipped (we handle dependencies logic internally or GitHub handles 'skipped' needs strictly. 'always()' might be unsafe if checks fail. Better to separate via if logic or just standard 'needs'. BUT since build-windows is conditional, standard 'needs' waits for it if it runs, or proceeds if it doesn't. If checks failed, we want to stop.)
-    # Logic: If checks failed, we stop. If build-windows skipped, we proceed.
-    # Standard 'needs' behaves this way by default: success or skipped is fine. failure is not.
+    # Run if checks passed, even if build-windows was skipped
+    if: needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
