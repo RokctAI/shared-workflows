@@ -29,6 +29,8 @@ on:
         required: false
       IOS_CERTIFICATE_PASSWORD:
         required: false
+      IOS_GOOGLE_SERVICE_INFO_PLIST:
+        required: false
       COUNTER_API_KEY:
         required: false
 
@@ -151,9 +153,15 @@ jobs:
       IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # Decode GoogleService-Info.plist if provided (For iOS Firebase)
+      - name: Decode GoogleService-Info.plist
+        if: env.IOS_GOOGLE_SERVICE_INFO_PLIST != ''
+        run: echo "$IOS_GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
