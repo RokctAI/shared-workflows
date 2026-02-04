@@ -1,0 +1,77 @@
+name: Universal Pipeline Orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      project_type:
+        required: true
+        type: string
+        description: "Project type: 'frappe', 'node', or 'flutter'"
+      run_security:
+        type: boolean
+        default: true
+      run_lint:
+        type: boolean
+        default: true
+      run_ci:
+        type: boolean
+        default: true
+      # Release Inputs (Proxied to universal-release.yml)
+      release_strategy:
+        type: string
+        default: 'immediate'
+      version_file:
+        type: string
+        default: 'version.json'
+      brain_endpoint:
+        type: string
+      build_android:
+        type: boolean
+        default: false
+      build_windows:
+        type: boolean
+        default: false
+    secrets:
+      inherit
+
+jobs:
+  # 1. SECURITY
+  security:
+    if: inputs.run_security
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    secrets: inherit
+
+  # 2. LINT
+  lint:
+    needs: security
+    if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint
+    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
+    secrets: inherit
+
+  # 3. CI / BUILD
+  ci:
+    needs: lint
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci
+    uses: >-
+      ${{ 
+        inputs.project_type == 'frappe' && 'RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main' ||
+        inputs.project_type == 'node' && 'RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main' ||
+        'RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main'
+      }}
+    secrets: inherit
+
+  # 4. RELEASE (The Gate)
+  release:
+    needs: ci
+    # CRITICAL GATE: Only release if CI passed OR if we are on 'develop' branch (Bypass)
+    if: >-
+      always() && 
+      (github.ref_name == 'develop' || (needs.ci.result == 'success' || needs.ci.result == 'skipped'))
+    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    with:
+      release_strategy: ${{ inputs.release_strategy }}
+      version_file: ${{ inputs.version_file }}
+      brain_endpoint: ${{ inputs.brain_endpoint }}
+      build_android: ${{ inputs.build_android }}
+      build_windows: ${{ inputs.build_windows }}
+    secrets: inherit
