@@ -1,0 +1,70 @@
+name: Update Usage Badge
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Midnight daily
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  update-badge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Calculate Usage Count
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_NAME: "RokctAI" # Your Organization
+          WORKFLOW_PATH: "RokctAI/shared-workflows"
+        run: |
+          echo "🔍 Searching for repos in $ORG_NAME using $WORKFLOW_PATH..."
+          
+          # Search for code usage in the target organization
+          # Note: GitHub Code Search API has rate limits and requires exact string matching
+          # We search for the string "uses: RokctAI/shared-workflows"
+          
+          QUERY="org:$ORG_NAME \"uses: $WORKFLOW_PATH\""
+          
+          # Using gh api to search code (requires GITHUB_TOKEN with appropriate scopes)
+          # Code search might be restricted; Repositories search is cleaner if looking for *files*
+          # But finding "uses" requires code search.
+          
+          # Alternative: Iterate all repos and finding file content is expensive.
+          # Best approximation for a badge:
+          
+          COUNT=$(gh api search/code --method GET -f q="$QUERY" --jq '.total_count')
+          
+          # If API fails or returns null (common with Code Search restrictions), fallback to 0 or previous
+          if [ -z "$COUNT" ] || [ "$COUNT" == "null" ]; then
+             echo "⚠️ Search API returned null. Defaulting to 1 (Self)."
+             COUNT=1
+          fi
+          
+          echo "✅ Found usage count: $COUNT"
+          echo "COUNT=$COUNT" >> $GITHUB_ENV
+
+      - name: Update README Badge
+        run: |
+          # Badge Format: ![Usage](https://img.shields.io/badge/Used%20By-5%20Repos-blue)
+          # We look for the regex and replace the number
+          
+          BADGE_URL="https://img.shields.io/badge/Used%20By-${{ env.COUNT }}%20Repos-blue"
+          
+          # Update README.md
+          # Replaces existing badge or adds it if missing (Logic: explicit tag)
+          
+          if grep -q "<!-- usage-badge-start -->" README.md; then
+             echo "Updating existing badge..."
+             sed -i "s|<!-- usage-badge-start -->.*<!-- usage-badge-end -->|<!-- usage-badge-start -->![Usage]($BADGE_URL)<!-- usage-badge-end -->|g" README.md
+          else
+             echo "Badge anchor not found. Please add <!-- usage-badge-start -->...<!-- usage-badge-end --> to README."
+          fi
+
+      - name: Commit Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update usage badge count to ${{ env.COUNT }}"
+          file_pattern: README.md
