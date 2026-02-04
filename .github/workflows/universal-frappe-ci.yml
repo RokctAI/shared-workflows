@@ -68,25 +68,11 @@ jobs:
     timeout-minutes: 60
 
     services:
-      mariadb:
-        image: mariadb:${{ inputs.mariadb-version }}
-        if: ${{ inputs.db-type == 'mariadb' }}
-        env:
-          MARIADB_ROOT_PASSWORD: ${{ inputs.db-password }}
-        ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=2s --health-retries=3
-
-      postgres:
-        image: postgres:${{ inputs.postgres-version }}
-        if: ${{ inputs.db-type == 'postgres' }}
-        env:
-          POSTGRES_PASSWORD: ${{ inputs.db-password }}
-        ports:
-          - 5432:5432
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
       redis:
+        image: redis:${{ inputs.redis-version }}
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=2s --health-retries=5
         image: redis:${{ inputs.redis-version }}
         ports:
           - 6379:6379
@@ -94,6 +80,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start Database Service
+        run: |
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             echo "Starting MariaDB..."
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ inputs.db-password }} mariadb:${{ inputs.mariadb-version }}
+             # Wait for health
+             timeout 60s bash -c 'until docker exec db-service mysqladmin ping -p${{ inputs.db-password }} --silent; do echo "Waiting for MariaDB..."; sleep 2; done'
+          else
+             echo "Starting PostgreSQL..."
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ inputs.db-password }} postgres:${{ inputs.postgres-version }}
+             # Wait for health
+             timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v4
