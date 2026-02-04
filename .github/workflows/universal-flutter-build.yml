@@ -7,7 +7,7 @@ on:
         required: false
         type: string
         default: "apk"
-        description: "Build type: apk or appbundle"
+        description: "Build type: apk, appbundle, or windows"
       upload-artifact:
         required: false
         type: boolean
@@ -84,3 +84,34 @@ jobs:
         with:
           name: app-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
+
+  build-windows:
+    name: 🪟 Windows Build
+    runs-on: windows-latest
+    if: inputs.build-type == 'windows'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build Windows
+        run: |
+          flutter build windows --release
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
+
+      - name: Upload Artifact (Windows)
+        if: inputs.upload-artifact == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-build
+          path: flutter-windows-app.zip
