@@ -9,8 +9,9 @@ jobs:
   release:
     permissions:
       contents: write
-    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
+      project_type: 'frappe' # Or 'node'/'flutter'
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
 
