@@ -134,7 +134,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: ${{ inputs.flutter-channel }}
           cache: true
 
       - name: Get Dependencies
@@ -206,7 +206,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: ${{ inputs.flutter-channel }}
           cache: true
 
       - name: Get Dependencies
