@@ -87,10 +87,11 @@ After copying the files, you **MUST** review and update the following:
         *   `KEY_JKS`: Paste the content of `key_b64.txt`.
         *   `KEY_PASSWORD`: Your keystore password.
         *   `ALIAS_PASSWORD`: Your key alias password.
-    *   **Google Services (Optional):**
-        *   If you use Firebase/Google Sign-In, encode your `google-services.json` using the same command:
-            *   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("google-services.json"))`
-        *   Add the output string as a secret named `GOOGLE_SERVICES_JSON`.
+        *   **Google Services (Optional):**
+            *   If you use Firebase/Google Sign-In, encode your `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) using these PowerShell commands (run from project root):
+                *   **Android:** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\google-services.json"))`
+                *   **iOS:** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("ios\Runner\GoogleService-Info.plist"))`
+            *   Add the output strings as secrets named `GOOGLE_SERVICES_JSON` and `IOS_GOOGLE_SERVICE_INFO_PLIST` respectively.
 
 6.  **Windows Builds (For Desktop Apps)** 🪟:
     *   To enable Windows Zip builds in `release.yml`, set `build_windows: true`.
