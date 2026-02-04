@@ -1,7 +1,7 @@
 # Universal Shared Workflows
 
 <!-- usage-badge-start -->
-![Usage](https://img.shields.io/badge/Used%20By-1%20Repos-blue)
+![Total Builds](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.counterapi.dev%2Fv2%2Frokctai%2Fusage&query=%24.value&label=Total%20Builds&color=blue)
 <!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
@@ -91,5 +91,10 @@ After copying the files, you **MUST** review and update the following:
 87:         *   `IOS_P12_BASE64`: Base64 encoded Distribution Certificate (.p12).
 88:         *   `IOS_MOBILEPROVISION_BASE64`: Base64 encoded Provisioning Profile.
 89:         *   `IOS_CERTIFICATE_PASSWORD`: Password for the .p12 certificate.
+
+8.  **Usage Tracking (Optional)** 📡:
+    *   To track total builds across all repos, set the `COUNTER_API_KEY` secret.
+    *   The workflows will ping your private counter on every run.
+
 ### Manual Setup
 If you prefer picking specific workflows, you can copy individual `.yml` files from `examples/workflows/` to your `.github/workflows/` directory.
