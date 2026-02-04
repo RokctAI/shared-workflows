@@ -1,0 +1,79 @@
+name: Universal Flutter Build
+
+on:
+  workflow_call:
+    inputs:
+      build-type:
+        required: false
+        type: string
+        default: "apk"
+        description: "Build type: apk or appbundle"
+      upload-artifact:
+        required: false
+        type: boolean
+        default: true
+        description: "Upload build artifact to GitHub"
+    secrets:
+      KEY_JKS:
+        required: false
+      KEY_PASSWORD:
+        required: false
+      ALIAS_PASSWORD:
+        required: false
+
+jobs:
+  build-android:
+    name: 🤖 Android Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Helper - Subosito Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      # Decode Keystore if secret provided (Optional robust signing)
+      - name: Decode Keystore
+        if: ${{ secrets.KEY_JKS != '' }}
+        run: |
+          echo "${{ secrets.KEY_JKS }}" | base64 --decode > android/app/key.jks
+          echo "storePassword=${{ secrets.KEY_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.ALIAS_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=upload" >> android/key.properties
+          echo "storeFile=key.jks" >> android/key.properties
+
+      - name: Build APK
+        if: inputs.build-type == 'apk'
+        run: flutter build apk --release
+
+      - name: Build AppBundle
+        if: inputs.build-type == 'appbundle'
+        run: flutter build appbundle --release
+
+      - name: Upload Artifact (APK)
+        if: inputs.upload-artifact == true && inputs.build-type == 'apk'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Artifact (AAB)
+        if: inputs.upload-artifact == true && inputs.build-type == 'appbundle'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
