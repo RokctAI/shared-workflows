@@ -49,6 +49,11 @@ jobs:
   build-android:
     name: 🤖 Android Build
     runs-on: ubuntu-latest
+    env:
+      KEY_JKS: ${{ secrets.KEY_JKS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -72,16 +77,16 @@ jobs:
 
       # Decode Google Services JSON if provided
       - name: Decode Google Services JSON
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > android/app/google-services.json
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
 
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
-        if: ${{ secrets.KEY_JKS != '' }}
+        if: env.KEY_JKS != ''
         run: |
-          echo "${{ secrets.KEY_JKS }}" | base64 --decode > android/app/key.jks
-          echo "storePassword=${{ secrets.KEY_PASSWORD }}" > android/key.properties
-          echo "keyPassword=${{ secrets.ALIAS_PASSWORD }}" >> android/key.properties
+          echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+          echo "storePassword=$KEY_PASSWORD" > android/key.properties
+          echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
           echo "keyAlias=upload" >> android/key.properties
           echo "storeFile=key.jks" >> android/key.properties
 
@@ -142,16 +147,22 @@ jobs:
     name: 🍎 iOS Build
     runs-on: macos-latest
     if: inputs.build-type == 'ios'
+    env:
+      IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+      IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Install Apple Certificate and Profile
-        if: ${{ secrets.IOS_P12_BASE64 != '' }}
+        if: env.IOS_P12_BASE64 != ''
+        # We can map env vars to new names or use them directly. 
+        # The script below uses specific names (P12_BASE64, etc.), so we map them at step level from job level env.
         env:
-          P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          P12_BASE64: ${{ env.IOS_P12_BASE64 }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ env.IOS_MOBILEPROVISION_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ env.IOS_CERTIFICATE_PASSWORD }}
         run: |
           # Create variables
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
@@ -195,7 +206,7 @@ jobs:
 
       - name: Build IPA (No Codesign stub if secrets missing)
         run: |
-           if [ -z "${{ secrets.IOS_P12_BASE64 }}" ]; then
+           if [ -z "$IOS_P12_BASE64" ]; then
               echo "⚠️ No Signing Certs found. Building unsigned (for testing only)..."
               flutter build ios --release --no-codesign
            else
