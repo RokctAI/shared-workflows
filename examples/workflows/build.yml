@@ -1,0 +1,24 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-type:
+        description: 'Build Type (apk/appbundle)'
+        required: true
+        default: 'apk'
+        type: choice
+        options:
+        - apk
+        - appbundle
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    with:
+      build-type: ${{ inputs.build-type || 'apk' }}
+    secrets: inherit
