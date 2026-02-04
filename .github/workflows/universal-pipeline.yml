@@ -31,6 +31,12 @@ on:
       build_windows:
         type: boolean
         default: false
+      cleanup_rc_releases:
+        type: boolean
+        default: true
+      one_time_cleanup_cutoff_date:
+        type: string
+        default: ""
 
 jobs:
   # 1. SECURITY
@@ -84,4 +90,6 @@ jobs:
       brain_endpoint: ${{ inputs.brain_endpoint }}
       build_android: ${{ inputs.build_android }}
       build_windows: ${{ inputs.build_windows }}
+      cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
+      one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
     secrets: inherit
