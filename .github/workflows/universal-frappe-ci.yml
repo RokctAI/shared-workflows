@@ -14,14 +14,23 @@ on:
         required: false
         type: string
         default: '10.6'
+      postgres-version:
+        required: false
+        type: string
+        default: '15'
+      db-type:
+        required: false
+        type: string
+        default: 'mariadb'
+        description: "Database type: 'mariadb' or 'postgres'"
       redis-version:
         required: false
         type: string
         default: '6.0'
       node-version:
         required: false
-        type: number
-        default: 22
+        type: string
+        default: '22'
       install-erpnext:
         required: false
         type: boolean
@@ -61,11 +70,21 @@ jobs:
     services:
       mariadb:
         image: mariadb:${{ inputs.mariadb-version }}
+        if: ${{ inputs.db-type == 'mariadb' }}
         env:
           MARIADB_ROOT_PASSWORD: ${{ inputs.db-password }}
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=5s --health-timeout=2s --health-retries=3
+
+      postgres:
+        image: postgres:${{ inputs.postgres-version }}
+        if: ${{ inputs.db-type == 'postgres' }}
+        env:
+          POSTGRES_PASSWORD: ${{ inputs.db-password }}
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
       redis:
         image: redis:${{ inputs.redis-version }}
@@ -89,7 +108,12 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wkhtmltopdf mariadb-client
+          sudo apt-get install -y wkhtmltopdf
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             sudo apt-get install -y mariadb-client
+          else
+             sudo apt-get install -y postgresql-client
+          fi
 
       - name: Install Frappe Bench
         run: |
@@ -192,7 +216,11 @@ jobs:
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
-          bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+          else
+             bench new-site test_site --db-type postgres --db-root-password ${{ inputs.db-password }} --admin-password admin
+          fi
           
           # Ensure app is in apps.txt (required for install-app)
           # Use printf to ensure valid newline handling
