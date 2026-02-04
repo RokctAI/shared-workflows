@@ -48,10 +48,7 @@ jobs:
     with:
       build-type: ios
       upload-artifact: true 
-    secrets:
-      IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
-      IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
-      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+    secrets: inherit
 
   attach-ipa:
     needs: build-ios
