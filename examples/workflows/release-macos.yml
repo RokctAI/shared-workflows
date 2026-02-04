@@ -1,0 +1,76 @@
+name: Build macOS (Stable Only)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  # 🛑 Monthly Limit for macOS Builds (Cost Control)
+  MAX_MONTHLY_BUILDS: 4
+
+jobs:
+  check-quota:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check Monthly Quota
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LIMIT="${{ env.MAX_MONTHLY_BUILDS }}"
+          # Explicitly disable quota if triggered manually
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+             echo "🚀 Manual Trigger. Skipping Quota Check."
+             echo "should_run=true" >> $GITHUB_OUTPUT
+             exit 0
+          fi
+          
+          CURRENT_MONTH=$(date +%Y-%m)
+          echo "Checking macOS Release Quota for $CURRENT_MONTH (Limit: $LIMIT)..."
+          
+          # List releases, filter for '-macos' suffix and current month creation date
+          # Format: "tag_name published_at"
+          COUNT=$(gh release list --limit 100 --json tagName,publishedAt --jq ".[] | select(.tagName | endswith(\"-macos\")) | select(.publishedAt | startswith(\"$CURRENT_MONTH\")) | .tagName" | wc -l)
+          
+          echo "Found $COUNT macOS releases this month."
+          
+          if [ "$COUNT" -ge "$LIMIT" ]; then
+             echo "❌ Quota Exceeded ($COUNT >= $LIMIT). Skipping Build."
+             echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+             echo "✅ Quota OK ($COUNT < $LIMIT). Proceeding."
+             echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-macos:
+    needs: check-quota
+    # Only run if Quota Check passed AND is stable (or manual)
+    if: needs.check-quota.outputs.should_run == 'true' && (github.event_name == 'workflow_dispatch' || !github.event.release.prerelease)
+    permissions:
+      contents: write
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    with:
+      build-type: macos
+      upload-artifact: true 
+    secrets: inherit
+
+  attach-macos:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release-build
+          path: macos_build
+          
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: macos_build/*.zip
