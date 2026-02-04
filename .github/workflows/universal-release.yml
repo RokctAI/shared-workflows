@@ -31,6 +31,11 @@ on:
          type: boolean
          default: false
          description: "Build Android APK and include in release"
+      build_windows:
+         required: false
+         type: boolean
+         default: false
+         description: "Build Windows App and include in release"
     secrets:
       BRAIN_TOKEN:
         required: false
@@ -291,16 +296,88 @@ jobs:
              echo "   To prevent this, manually create .github/.rc-cleanup-done in your repo."
           fi
 
+  # --- 2.7. WINDOWS BUILD (Optional) ---
+  build-windows:
+    # Needs checks to ensure we don't build broken code, but technically independent
+    needs: [checks]
+    runs-on: windows-latest
+    if: inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')))
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Build Windows
+        # We need to filter Release Mode logic here too to avoid building for RC if user requested
+        # Logic: Promote (Schedule) = Yes, Dev = Yes, Stable (Immediate input) = Yes. RC (Main) = No.
+        # Repeating partial logic from Release Job, but simpler check:
+        # If Main branch AND not Schedule -> RC -> Skip
+        run: |
+          $BRANCH = "${{ github.ref_name }}"
+          $EVENT = "${{ github.event_name }}"
+          
+          if ($BRANCH -eq "main" -and $EVENT -ne "schedule") {
+             Write-Output "RC Release Mode on Main (Push). Skipping Windows Build."
+             exit 0 
+          }
+
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build windows --release
+          
+          # Zip the build
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
+          
+      - name: Upload Windows Artifact
+        # Only upload if zip exists (meaning we didn't skip)
+        if: hashFiles('flutter-windows-app.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-build
+          path: flutter-windows-app.zip
+          retention-days: 1
+
+
 
   # --- 3. THE RELEASE JOB (Syntax Verified) ---
   release:
-    needs: [checks]
+    needs: [checks, build-windows]
+    if: always() # Run even if optional needs skipped (we handle dependencies logic internally or GitHub handles 'skipped' needs strictly. 'always()' might be unsafe if checks fail. Better to separate via if logic or just standard 'needs'. BUT since build-windows is conditional, standard 'needs' waits for it if it runs, or proceeds if it doesn't. If checks failed, we want to stop.)
+    # Logic: If checks failed, we stop. If build-windows skipped, we proceed.
+    # Standard 'needs' behaves this way by default: success or skipped is fine. failure is not.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      # --- WINDOWS ARTIFACT RETRIEVAL ---
+      - name: Download Windows Artifact
+        if: inputs.build_windows == true
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release-build
+          path: windows_build
+        continue-on-error: true # Might not exist if we skipped build due to RC logic
+
+      - name: Prepare Windows Asset
+        if: inputs.build_windows == true
+        run: |
+           # Check if downloaded file exists
+           if [ -f "windows_build/flutter-windows-app.zip" ]; then
+              echo "✅ Found Windows Build"
+              echo "has_windows=true" >> $GITHUB_ENV
+              mv windows_build/flutter-windows-app.zip windows_app.zip
+           else
+              echo "⚠️ No Windows Build found (skipped?)"
+              echo "has_windows=false" >> $GITHUB_ENV
+           fi
 
       - name: Get Version
         id: version
@@ -676,6 +753,12 @@ jobs:
            if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES="$FILES ${{ steps.dev_bundle.outputs.dev_pack_path }}"; fi
            if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES="$FILES ${{ steps.build_apk.outputs.apk_path }}"; fi
            if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES="$FILES ${{ steps.build_aab.outputs.aab_path }}"; fi
+           
+           # Rename Windows Zip with Tag
+           if [ "${{ env.has_windows }}" == "true" ]; then
+              mv windows_app.zip "app-windows-${TAG}.zip"
+              FILES="$FILES app-windows-${TAG}.zip"
+           fi
            
            # Only pass FILES if not empty
            echo "Files to upload: '$FILES'"
