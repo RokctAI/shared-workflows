@@ -8,9 +8,25 @@ on:
         type: boolean
         default: false
         description: "Run build_runner before analyzing Flutter code"
+    secrets:
+      COUNTER_API_KEY:
+        required: false
 
 jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
   lint-python:
+    needs: telemetry
     name: 🐍 Python Lint (Flake8)
     runs-on: ubuntu-latest
     steps:
@@ -48,6 +64,7 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --ignore=E501,W503,F401 --statistics
 
   lint-flutter:
+    needs: telemetry
     name: 🐦 Flutter Analyze
     runs-on: ubuntu-latest
     steps:
@@ -85,6 +102,7 @@ jobs:
           flutter analyze .
 
   lint-node:
+    needs: telemetry
     name: 📦 JS/TS Lint (ESLint)
     runs-on: ubuntu-latest
     steps:

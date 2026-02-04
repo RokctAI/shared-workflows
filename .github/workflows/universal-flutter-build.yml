@@ -49,6 +49,7 @@ jobs:
            -H "Authorization: Bearer $API_KEY"
 
   build-android:
+    needs: telemetry
     name: 🤖 Android Build
     runs-on: ubuntu-latest
     env:

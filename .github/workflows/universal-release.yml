@@ -68,6 +68,7 @@ jobs:
 
   # --- 1. CHECKS (Lint, Test, Build) ---
   checks:
+    needs: telemetry
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +82,7 @@ jobs:
 
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
+    needs: telemetry
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
@@ -179,6 +181,7 @@ jobs:
 
   # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
+    needs: telemetry
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     permissions:
