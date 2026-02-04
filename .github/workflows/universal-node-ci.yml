@@ -1,0 +1,68 @@
+name: Universal Node.js CI
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '22'
+      run-test:
+        required: false
+        type: boolean
+        default: true
+      run-build:
+        required: false
+        type: boolean
+        default: true
+      package-manager:
+        required: false
+        type: string
+        default: 'npm' # npm, yarn, pnpm
+      build-command:
+        required: false
+        type: string
+        default: 'npm run build'
+      test-command:
+        required: false
+        type: string
+        default: 'npm run test'
+
+    secrets:
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage (CounterAPI)
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  node-ci:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+
+      - name: Install Dependencies
+        run: ${{ inputs.package-manager }} install
+
+      - name: Run Tests
+        if: inputs.run-test == true
+        run: ${{ inputs.test-command }}
+
+      - name: Run Build
+        if: inputs.run-build == true
+        run: ${{ inputs.build-command }}
