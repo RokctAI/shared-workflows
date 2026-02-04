@@ -81,13 +81,17 @@ After copying the files, you **MUST** review and update the following:
 
 5.  **Android Secrets (for Signing)** 🤖:
     *   **Encode Keystore:**
-        *   **Windows (Powershell):** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("path\to\your-key.jks")) > key_b64.txt`
-        *   **Linux/Mac:** `base64 -w 0 path/to/your-key.jks > key_b64.txt`
+        *   **Windows (Powershell):**
+            ```powershell
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\keys\upload-keystore.jks"))
+            ```
+            *(Note: Adjust the path if your key is named differently, e.g., `key.jks`)*
+        *   **Linux/Mac:** `base64 -w 0 android/app/keys/upload-keystore.jks > key_b64.txt`
     *   **Add Secrets** in GitHub Repo Settings -> Secrets and variables -> Actions:
         *   `KEY_JKS`: Paste the content of `key_b64.txt`.
         *   `KEY_PASSWORD`: Your keystore password.
         *   `ALIAS_PASSWORD`: Your key alias password.
-        *   **Google Services (Optional):**
+        *   **Google Services (Optional)::**
             *   If you use Firebase/Google Sign-In, encode your `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) using these PowerShell commands (run from project root):
                 *   **Android:** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\app\google-services.json"))`
                 *   **iOS:** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("ios\Runner\GoogleService-Info.plist"))`
