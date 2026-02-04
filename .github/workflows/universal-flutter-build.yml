@@ -217,14 +217,20 @@ jobs:
            if [ -z "$IOS_P12_BASE64" ]; then
               echo "⚠️ No Signing Certs found. Building unsigned (for testing only)..."
               flutter build ios --release --no-codesign
-           else
-              echo "✅ Signing Certs found. Building IPA..."
-              flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
-           fi
+      - name: Enable MacOS Config
+        run: flutter config --enable-macos-desktop
 
-      - name: Upload Artifact (IPA)
+      - name: Build MacOS
+        run: flutter build macos --release
+
+      - name: Zip MacOS App
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../macos-app.zip *.app
+
+      - name: Upload MacOS Artifact
         if: inputs.upload-artifact == true
         uses: actions/upload-artifact@v4
         with:
-          name: ios-release-build
-          path: build/ios/ipa/*.ipa
+          name: macos-release-build
+          path: macos-app.zip
