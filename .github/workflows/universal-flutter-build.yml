@@ -29,8 +29,23 @@ on:
         required: false
       IOS_CERTIFICATE_PASSWORD:
         required: false
+      COUNTER_API_KEY:
+        required: false
 
 jobs:
+  telemetry:
+    name: 📡 Usage Tracking
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: ${{ env.API_KEY != '' }}
+        run: |
+           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+           -H "Authorization: Bearer $API_KEY"
+
   build-android:
     name: 🤖 Android Build
     runs-on: ubuntu-latest
