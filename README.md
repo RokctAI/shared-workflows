@@ -108,7 +108,13 @@ After copying the files, you **MUST** review and update the following:
         *   `IOS_CERTIFICATE_PASSWORD`: Password for the .p12 certificate.
         *   `IOS_GOOGLE_SERVICE_INFO_PLIST` (Optional): Base64 encoded `GoogleService-Info.plist` for Firebase.
 
-8.  **Usage Tracking (Optional)** 📡:
+    8.  **macOS Builds (Desktop)** 🖥️:
+        *   Supported via `universal-flutter-build.yml` with `build-type: macos`.
+        *   **Setup**: Copy [`examples/workflows/release-macos.yml`](examples/workflows/release-macos.yml).
+        *   **Artifact**: Produces a `macos-app.zip` containing the signed `.app`.
+        *   **Secrets**: Uses the same `IOS_...` signing secrets as iOS (requires a Mac Certificate).
+
+    9.  **Usage Tracking (Optional)** 📡:
     *   To track total builds across all repos, set the `COUNTER_API_KEY` secret.
     *   The workflows will ping your private counter on every run.
 
