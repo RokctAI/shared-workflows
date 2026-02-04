@@ -608,6 +608,15 @@ jobs:
          if: ${{ inputs.build_android == true && secrets.GOOGLE_SERVICES_JSON != '' }}
          run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > android/app/google-services.json
 
+       - name: Decode Keystore
+         if: inputs.build_android == true && secrets.KEY_JKS != ''
+         run: |
+           echo "${{ secrets.KEY_JKS }}" | base64 --decode > android/app/key.jks
+           echo "storePassword=${{ secrets.KEY_PASSWORD }}" > android/key.properties
+           echo "keyPassword=${{ secrets.ALIAS_PASSWORD }}" >> android/key.properties
+           echo "keyAlias=upload" >> android/key.properties
+           echo "storeFile=key.jks" >> android/key.properties
+
        - name: Build Android APK
         # Build for Dev, Promote (Stable), and Immediate Stable. Exclude RC.
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable')
