@@ -24,4 +24,7 @@ jobs:
       
       # Brain Endpoint 
       brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
+
+      # Build APK
+      build_android: true
     secrets: inherit
