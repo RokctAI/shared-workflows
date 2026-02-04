@@ -31,6 +31,13 @@ on:
       mariadb-version:
         type: string
         default: '10.6'
+      postgres-version:
+        type: string
+        default: '15'
+      db-type:
+        type: string
+        default: 'mariadb'
+        description: "Database type: 'mariadb' or 'postgres'"
       redis-version:
         type: string
         default: '6.0'
@@ -44,6 +51,9 @@ on:
       flutter-channel:
         type: string
         default: 'stable'
+      java-version:
+        type: string
+        default: '17'
 
       # --- Release Inputs (Proxied to universal-release.yml) ---
       release_strategy:
@@ -89,6 +99,8 @@ jobs:
     with:
       python-version: ${{ inputs.python-version }}
       mariadb-version: ${{ inputs.mariadb-version }}
+      postgres-version: ${{ inputs.postgres-version }}
+      db-type: ${{ inputs.db-type }}
       redis-version: ${{ inputs.redis-version }}
       node-version: ${{ inputs.node-version }}
       install-erpnext: ${{ inputs.install-erpnext }}
@@ -111,6 +123,8 @@ jobs:
     with:
       # Note: build-type here for CI is usually 'apk' or similar to verify compilation
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
+      flutter-channel: ${{ inputs.flutter-channel }}
+      java-version: ${{ inputs.java-version }}
     secrets: inherit
 
   # 4. RELEASE (The Gate)
@@ -133,4 +147,9 @@ jobs:
       build_windows: ${{ inputs.build_windows }}
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
+      # Environment 
+      node-version: ${{ inputs.node-version }}
+      flutter-channel: ${{ inputs.flutter-channel }}
+      java-version: ${{ inputs.java-version }}
+      python-version: ${{ inputs.python-version }}
     secrets: inherit
