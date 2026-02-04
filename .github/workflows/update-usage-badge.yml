@@ -28,17 +28,13 @@ jobs:
           
           QUERY="org:$ORG_NAME \"uses: $WORKFLOW_PATH\""
           
-          # Using gh api to search code (requires GITHUB_TOKEN with appropriate scopes)
-          # Code search might be restricted; Repositories search is cleaner if looking for *files*
-          # But finding "uses" requires code search.
+          # Using gh api to search code. 
+          # We fetch the JSON, extract repository names, sort, and count unique lines.
           
-          # Alternative: Iterate all repos and finding file content is expensive.
-          # Best approximation for a badge:
+          COUNT=$(gh api search/code --method GET -f q="$QUERY" --jq '.items[].repository.full_name' | sort | uniq | wc -l)
           
-          COUNT=$(gh api search/code --method GET -f q="$QUERY" --jq '.total_count')
-          
-          # If API fails or returns null (common with Code Search restrictions), fallback to 0 or previous
-          if [ -z "$COUNT" ] || [ "$COUNT" == "null" ]; then
+          # If API fails or returns null (possible with Code Search restrictions), fallback to 0
+          if [ -z "$COUNT" ] || [ "$COUNT" == "0" ]; then
              echo "⚠️ Search API returned null. Defaulting to 1 (Self)."
              COUNT=1
           fi
