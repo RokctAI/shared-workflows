@@ -11,10 +11,10 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 
 ## Features
 
-*   **🧠 Smart Detection**: The `build.yml` workflow automatically scans your repo for `pubspec.yaml` (Flutter) or `package.json` (Node.js) and runs the correct pipeline.
-*   **📦 Universal Release**: One workflow (`release.yml`) handles Semantic Versioning, AI Release Notes, and Git Tagging for ALL project types.
+*   **🛡️ CI-Gate Orchestration**: The new `universal-pipeline.yml` chains `Security` -> `Lint` -> `CI` -> `Release` sequentially. Tags are only created if all quality checks pass.
+*   **🧠 Smart Detection**: The `build.yml` workflow automatically scans your repo for `pubspec.yaml` (Flutter), `package.json` (Node.js), or Frappe patterns and runs the correct pipeline via the orchestrator.
+*   **📦 Universal Release**: One workflow (`release.yml`) handles Semantic Versioning, AI Release Notes, and Git Tagging for ALL project types, protected by the CI-Gate.
 *   **📱 Multi-Platform**: Supports Android (APK/Bundle), iOS (IPA), macOS (.app), Windows (Zip), and Web.
-*   **🧪 Universal Testing**: Specialized CI for Node.js (Fast) and Frappe (Database-enabled).
 *   **🧹 Maintenance Bots**: Auto-merge Dependabot, Stale issue closer, PR Assignee, Labeler, and more.
 
 ---
@@ -32,32 +32,26 @@ cp -r ../shared-workflows/examples/workflows .github/workflows
 ```
 
 ### 2. What you get
-This installs **"The Standard Fleet"**:
+This installs **"The Unified Fleet"**:
 
-| Workflow | Purpose | Smart Logic 🧠 |
+| Workflow | Purpose | Orcherstration ⛓️ |
 | :--- | :--- | :--- |
-| **`build.yml`** | **CI Build** | Auto-detects **Flutter** vs **Node**. Skips if neither (e.g. pure Python/Docs). |
-| **`release.yml`** | **Release** | Auto-handles Versioning & Tags. Configurable for Android/Windows builds. |
-| **`frappe-ci.yml`** | **Frappe Test** | Special workflow for Frappe Apps (MariaDB+Redis). |
-| **`linter.yml`** | **Code Quality** | Runs Flake8 (Python), Flutter Analyze, or ESLint (JS) based on files found. |
-| **`...others`** | **Bots** | Automations for Labeling, Assigning, Merging, Security, etc. |
+| **`build.yml`** | **Manual/Push CI** | Uses `universal-pipeline.yml`. Auto-detects **Flutter**, **Node**, or **Frappe**. |
+| **`release.yml`** | **Auto Release** | Uses `universal-pipeline.yml`. Locked to **Friday 11 PM UTC**. |
+| **`linter.yml`** | **Code Quality** | Runs Flake8, Flutter Analyze, or ESLint based on file patterns. |
+| **`security.yml`**| **Vulnerability Fix**| Automated security scanning and patching. |
+| **`...others`** | **Bots** | Automations for Labeling, Assigning, Merging, Stale, etc. |
 
 ### 3. Configuration ⚙️
 
 After copying, check these files:
 
 #### A. `workflows/release.yml`
-*   **Next.js / Web**: Ensure `build_android: false` (or remove the line).
+*   **Project Type**: Set `project_type` to `'frappe'`, `'node'`, or `'flutter'`.
+*   **Next.js / Web**: Ensure `build_android: false`.
 *   **Flutter**: Set `build_android: true` if you want APKs.
 *   **Windows**: Set `build_windows: true` for Desktop apps.
 *   **AI Notes**: Update `brain_endpoint` or remove if not using AI.
-
-#### B. `workflows/frappe-ci.yml`
-*   Only needed for **Frappe** apps. Delete if not using Frappe.
-*   Set `install-erpnext: true` or `install-payments: true` if your app requires them.
-
-#### C. `workflows/merge.yml`
-*   Update `allowed_users` to your GitHub username(s) for auto-merging.
 
 ---
 
@@ -94,9 +88,10 @@ These are available in `examples/workflows` but usually strictly for **Flutter m
 
 ## 🛠️ Architecture
 
+*   **`universal-pipeline.yml`**: The Orchestrator. Chains Security, Lint, CI, and Release.
 *   **`universal-flutter-build.yml`**: The heavy lifter for Dart/Flutter.
 *   **`universal-node-ci.yml`**: The lightweight builder for Next.js/React.
 *   **`universal-frappe-ci.yml`**: The environment builder for Python/Bench.
-*   **`universal-release.yml`**: The brain of the operation.
+*   **`universal-release.yml`**: The release and tagging engine.
 
 *Maintained by the Platform Engineering Team.*
