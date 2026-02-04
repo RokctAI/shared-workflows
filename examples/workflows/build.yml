@@ -1,24 +1,64 @@
-name: Build APK
+name: Build (Smart)
 
 on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
     inputs:
       build-type:
-        description: 'Build Type (apk/appbundle)'
+        description: 'Build Type (apk/appbundle) - Ignored for Node'
         required: true
         default: 'apk'
         type: choice
         options:
         - apk
         - appbundle
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
 
 jobs:
-  build:
+  # --- 1. DETECT PROJECT TYPE ---
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      is_flutter: ${{ steps.check.outputs.is_flutter }}
+      is_node: ${{ steps.check.outputs.is_node }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Project Type
+        id: check
+        run: |
+          if [ -f "pubspec.yaml" ]; then
+             echo "Flutter project detected."
+             echo "is_flutter=true" >> $GITHUB_OUTPUT
+             echo "is_node=false" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ]; then
+             echo "Node.js project detected."
+             echo "is_flutter=false" >> $GITHUB_OUTPUT
+             echo "is_node=true" >> $GITHUB_OUTPUT
+          else
+             echo "Unknown project type. Skipping builds."
+             echo "is_flutter=false" >> $GITHUB_OUTPUT
+             echo "is_node=false" >> $GITHUB_OUTPUT
+          fi
+
+  # --- 2. FLUTTER BUILD (Conditioned) ---
+  ci-flutter:
+    needs: detect
+    if: needs.detect.outputs.is_flutter == 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
       build-type: ${{ inputs.build-type || 'apk' }}
+    secrets: inherit
+
+  # --- 3. NODE CI (Conditioned) ---
+  ci-node:
+    needs: detect
+    if: needs.detect.outputs.is_node == 'true'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
+    with:
+      node-version: '22'
+      package-manager: 'npm'
+      run-build: true
+      run-test: true
     secrets: inherit
