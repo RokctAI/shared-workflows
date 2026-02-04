@@ -314,14 +314,18 @@ jobs:
 
       - name: Build Windows
         # We need to filter Release Mode logic here too to avoid building for RC if user requested
-        # Logic: Promote (Schedule) = Yes, Dev = Yes, Stable (Immediate input) = Yes. RC (Main) = No.
-        # Repeating partial logic from Release Job, but simpler check:
-        # If Main branch AND not Schedule -> RC -> Skip
+        # Logic: 
+        # 1. Promote (Schedule) = Yes
+        # 2. Dev (Develop branch) = Yes
+        # 3. Stable (Immediate input + Main branch) = Yes
+        # 4. RC (Weekly input + Main branch) = No (Skip)
         run: |
           $BRANCH = "${{ github.ref_name }}"
           $EVENT = "${{ github.event_name }}"
+          $STRAT = "${{ inputs.release_strategy }}"
           
-          if ($BRANCH -eq "main" -and $EVENT -ne "schedule") {
+          # Check for RC condition: Weekly Strategy + Main Branch + NOT Schedule
+          if ($STRAT -eq "weekly" -and $BRANCH -eq "main" -and $EVENT -ne "schedule") {
              Write-Output "RC Release Mode on Main (Push). Skipping Windows Build."
              exit 0 
           }
