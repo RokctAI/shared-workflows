@@ -30,6 +30,7 @@ my-app/
 │       ├── test.yml         (CI/CD Pipeline)
 │       ├── linter.yml       (Code Quality)
 │       ├── assign.yml       (Auto Assign PRs)
+│       ├── build.yml        (Manual APK Build)
 │       ├── merge.yml        (Auto Merge Dependabot)
 │       ├── stale.yml        (Close old issues)
 │       └── ... (13+ workflows)
@@ -54,6 +55,25 @@ After copying the files, you **MUST** review and update the following:
 3.  **`dependabot.yml`**:
     *   Verify the schedule and package ecosystems match your project (e.g., `pip` vs `npm`).
 
+4.  **`workflows/linter.yml`**:
+    *   `run-build-runner: true` - Set to `true` if your Flutter project uses Freezed/JSON Serializable and needs code generation before analysis.
+
+5.  **Android Signing & Secrets (For APK Builds)** 🔐:
+    *   To enable automatic APK builds in `release.yml`, set `build_android: true`.
+    *   To use manual builds via `build.yml`, just ensure these secrets are set.
+    *   **NEVER commit your `.jks` keystore file to the repository.**
+    *   Instead, encode it and store it as a GitHub Secret:
+        1.  **Encode Keystore:**
+            *   **Windows (Powershell):** `[Convert]::ToBase64String([IO.File]::ReadAllBytes("path\to\your-key.jks")) > key_b64.txt`
+            *   **Linux/Mac:** `base64 -w 0 path/to/your-key.jks > key_b64.txt`
+        2.  **Add Secrets** in GitHub Repo Settings -> Secrets and variables -> Actions:
+            *   `KEY_JKS`: Paste the content of `key_b64.txt`.
+            *   `KEY_PASSWORD`: Your keystore password.
+            *   `ALIAS_PASSWORD`: Your key alias password.
+        3.  **Google Services (Optional):**
+            *   If you use Firebase/Google Sign-In, encode your `google-services.json` the same way.
+            *   Add it as a secret named `GOOGLE_SERVICES_JSON`.
+
+
 ### Manual Setup
 If you prefer picking specific workflows, you can copy individual `.yml` files from `examples/workflows/` to your `.github/workflows/` directory.
-
