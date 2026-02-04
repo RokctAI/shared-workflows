@@ -1,6 +1,8 @@
 # Universal Shared Workflows
 
-<!-- usage-badge-start -->![Usage](https://img.shields.io/badge/Used%20By-1%20Repos-blue)<!-- usage-badge-end -->
+<!-- usage-badge-start -->
+![Usage](https://img.shields.io/badge/Used%20By-1%20Repos-blue)
+<!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
 Designed to work with **Flutter**, **Node.js**, **Laravel**, and **Generic** projects.
