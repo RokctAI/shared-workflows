@@ -20,6 +20,8 @@ on:
         required: false
       ALIAS_PASSWORD:
         required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
 
 jobs:
   build-android:
@@ -45,6 +47,11 @@ jobs:
         run: |
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
+
+      # Decode Google Services JSON if provided
+      - name: Decode Google Services JSON
+        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > android/app/google-services.json
 
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
