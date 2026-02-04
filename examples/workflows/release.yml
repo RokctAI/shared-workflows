@@ -4,6 +4,29 @@ on:
     branches: [main, develop]
   schedule:
     - cron: '0 23 * * 5'
+  workflow_dispatch:
+    inputs:
+      node-version:
+        type: string
+        default: '22'
+      python-version:
+        type: string
+        default: '3.14'
+      mariadb-version:
+        type: string
+        default: '10.6'
+      postgres-version:
+        type: string
+        default: '15'
+      db-type:
+        type: string
+        default: 'mariadb'
+      flutter-channel:
+        type: string
+        default: 'stable'
+      java-version:
+        type: string
+        default: '17'
 
 jobs:
   release:
@@ -28,4 +51,12 @@ jobs:
 
       # Build APK
       build_android: true
+      # Environment configuration
+      node-version: ${{ inputs.node-version || '22' }}
+      python-version: ${{ inputs.python-version || '3.14' }}
+      mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
+      postgres-version: ${{ inputs.postgres-version || '15' }}
+      db-type: ${{ inputs.db-type || 'mariadb' }}
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      java-version: ${{ inputs.java-version || '17' }}
     secrets: inherit
