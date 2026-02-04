@@ -2,6 +2,12 @@ name: Universal Code Quality (Lint)
 
 on:
   workflow_call:
+    inputs:
+      run-build-runner:
+        required: false
+        type: boolean
+        default: false
+        description: "Run build_runner before analyzing Flutter code"
 
 jobs:
   lint-python:
@@ -64,6 +70,12 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Run Build Runner
+        if: inputs.run-build-runner == true && steps.check_flutter.outputs.exists == 'true'
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
 
       - name: Run Flutter Analyze
         if: steps.check_flutter.outputs.exists == 'true'
