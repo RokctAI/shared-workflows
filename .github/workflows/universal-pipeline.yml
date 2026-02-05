@@ -65,7 +65,7 @@ on:
         default: 'immediate'
       version_file:
         type: string
-        default: 'versions.json'
+        default: 'version.json'
       version_format:
         type: string
         default: '##.##.##'
