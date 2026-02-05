@@ -38,7 +38,7 @@ on:
          description: "Build Windows App and include in release"
       node-version:
         type: string
-        default: '22'
+        default: '24'
       flutter-channel:
         type: string
         default: 'stable'
