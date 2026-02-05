@@ -5,8 +5,9 @@ on:
 
 jobs:
   stale:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-stale.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-stale.yml@latest
     permissions:
       issues: write
       pull-requests: write
     secrets: inherit
+
