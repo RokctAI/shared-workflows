@@ -20,6 +20,7 @@ VITAL_WORKFLOWS=(
 PROJECT_TYPE="smart"
 STARTING_VERSION="0.0.1"
 RELEASE_STRATEGY="immediate"
+CRON_SCHEDULE="0 23 * * 5"
 NODE_VERSION="24"
 PYTHON_VERSION="3.14"
 
@@ -61,6 +62,12 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
         3) RELEASE_STRATEGY="weekly-rc" ;;
         *) RELEASE_STRATEGY="immediate" ;;
     esac
+
+    # Cron Schedule (Only for weekly)
+    if [[ "$RELEASE_STRATEGY" == "weekly" || "$RELEASE_STRATEGY" == "weekly-rc" ]]; then
+        read -p "Cron schedule [$CRON_SCHEDULE] (e.g., '0 23 * * 5' for Friday 11PM): " INPUT_CRON
+        CRON_SCHEDULE=${INPUT_CRON:-$CRON_SCHEDULE}
+    fi
 
     # Dependency Versions
     echo -e "\nDefault Dependency Versions:"
@@ -104,8 +111,10 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         # Strategy
         sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST.tmp"
         
+        # Cron Schedule
+        sed -i "s/cron: '.*'/cron: '$CRON_SCHEDULE'/g" "$DEST.tmp"
+
         # Node (Targeting the default: line specifically for node-version)
-        # We use a range pattern to match the correct default
         sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST.tmp"
         
         # Python
