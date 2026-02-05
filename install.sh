@@ -24,6 +24,7 @@ CRON_SCHEDULE="0 23 * * 5"
 NODE_VERSION="24"
 PYTHON_VERSION="3.14"
 LOCAL_MODE=false
+GH_HANDLE="@RendaniSinyage"
 
 # Check for --local flag
 for arg in "$@"; do
@@ -93,6 +94,9 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
     
     read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
     PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
+    # CODEOWNERS Handle
+    read -p "GitHub handle for CODEOWNERS [$GH_HANDLE]: " INPUT_HANDLE
+    GH_HANDLE=${INPUT_HANDLE:-$GH_HANDLE}
 else
     echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
 fi
@@ -157,6 +161,13 @@ if [ "$PROJECT_TYPE" != "flutter" ]; then
         echo -e "\n\033[0;33m📝 Creating version.json ($STARTING_VERSION)...\033[0m"
         echo -e "{\n  \"version\": \"$STARTING_VERSION\"\n}" > version.json
     fi
+fi
+
+# 5. Handle CODEOWNERS (Governance - Custom Setup Only)
+if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
+    echo -e "\n\033[0;33m🛡️ Creating .github/CODEOWNERS..."
+    mkdir -p ".github"
+    echo -e "# All files are owned by $GH_HANDLE\n*       $GH_HANDLE" > .github/CODEOWNERS
 fi
 
 echo -e "\n\033[0;32m✅ Installation Complete!\033[0m\n"
