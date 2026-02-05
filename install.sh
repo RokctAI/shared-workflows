@@ -155,7 +155,7 @@ done
 if [ "$PROJECT_TYPE" != "flutter" ]; then
     if [ ! -f "version.json" ]; then
         echo -e "\n\033[0;33m📝 Creating version.json ($STARTING_VERSION)...\033[0m"
-        echo "{\"version\": \"$STARTING_VERSION\"}" > version.json
+        echo -e "{\n  \"version\": \"$STARTING_VERSION\"\n}" > version.json
     fi
 fi
 
