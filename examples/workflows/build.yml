@@ -66,7 +66,7 @@ jobs:
   # --- 2. UNIFIED PIPELINE (Smart) ---
   pipeline:
     needs: detect
-    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@latest
     with:
       project_type: ${{ needs.detect.outputs.is_flutter == 'true' && 'flutter' || (needs.detect.outputs.is_node == 'true' && 'node' || 'frappe') }}
       # Quality Gate Toggles
@@ -84,3 +84,4 @@ jobs:
       flutter-channel: ${{ inputs.flutter-channel }}
       java-version: ${{ inputs.java-version }}
     secrets: inherit
+
