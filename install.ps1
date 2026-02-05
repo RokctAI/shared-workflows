@@ -2,6 +2,9 @@ param (
     [string]$ProjectName = "smart"
 )
 
+# Set Console Encoding to UTF8 for clean icons
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 # Configuration
 $baseUrl = "https://raw.githubusercontent.com/RokctAI/shared-workflows/main"
 $workflowDir = "examples/workflows"
@@ -28,12 +31,12 @@ $pythonVersion = "3.14"
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
 
 # --- 1. Interaction ---
-$customize = Read-Host "Do you want to customize your workflow setup? (y/N)"
+$customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
 if ($customize -eq 'y' -or $customize -eq 'Y') {
-    Write-Host "`n🛠️ Customizing Setup..." -ForegroundColor Yellow
+    Write-Host "`n🛠️ Customizing Setup... (Press Enter to keep the [default] value)`n" -ForegroundColor Yellow
     
     # Project Type
-    Write-Host "`nSelect Project Type:"
+    Write-Host "Select Project Type:"
     Write-Host "1. smart (Auto-detect Flutter/Node/Frappe)"
     Write-Host "2. flutter (Mobile/Desktop/Web)"
     Write-Host "3. frappe (ERPNext/Python)"
@@ -48,17 +51,17 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
 
     # Versioning (Skip for Flutter)
     if ($projectType -ne "flutter") {
-        $startingVersion = Read-Host "Starting version [$startingVersion]"
-        if ([string]::IsNullOrWhiteSpace($startingVersion)) { $startingVersion = "0.0.1" }
+        $startingVersionInput = Read-Host "Starting version [$startingVersion]"
+        if (![string]::IsNullOrWhiteSpace($startingVersionInput)) { $startingVersion = $startingVersionInput }
     }
 
     # Release Strategy
     Write-Host "`nSelect Release Strategy:"
-    Write-Host "1. immediate (Release on every push to main - Default)"
+    Write-Host "1. immediate (Release on every push to main)"
     Write-Host "2. weekly (Promote Friday RCs to Stable)"
     Write-Host "3. weekly-rc (Pre-release RCs on every push to main)"
-    $choice = Read-Host "Choice [1]"
-    switch ($choice) {
+    $strategyChoice = Read-Host "Choice [1]"
+    switch ($strategyChoice) {
         "2" { $releaseStrategy = "weekly" }
         "3" { $releaseStrategy = "weekly-rc" }
         Default { $releaseStrategy = "immediate" }
@@ -73,7 +76,7 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     if (![string]::IsNullOrWhiteSpace($pythonVersionInput)) { $pythonVersion = $pythonVersionInput }
 }
 else {
-    Write-Host "`n⏩ Using standard fleet defaults (Standard Installation)." -ForegroundColor Gray
+    Write-Host "`n⏩ Using standard fleet defaults (Quick Install)." -ForegroundColor Gray
 }
 
 # --- 2. Preparing Files ---
@@ -99,19 +102,20 @@ foreach ($wf in $vitalWorkflows) {
     try {
         $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
         
-        # Patching (Simple string replacements)
+        # Patching (Robust multi-line replacements)
         if ($wf -eq "build.yml" -or $wf -eq "release.yml") {
             # Project Type
             if ($projectType -ne "smart") {
-                $content = $content -replace "project_type: .*#", "project_type: '$projectType' #"
-                $content = $content -replace "project_type: .*", "project_type: '$projectType'"
+                $content = $content -replace "(project_type: )'[^']+'", "`$1'$projectType'"
             }
             # Strategy
-            $content = $content -replace "release_strategy: '.*'", "release_strategy: '$releaseStrategy'"
-            # Node
-            $content = $content -replace "node-version:.*default: '.*'", "node-version:`r`n        type: string`r`n        default: '$nodeVersion'"
+            $content = $content -replace "(release_strategy: )'[^']+'", "`$1'$releaseStrategy'"
+            
+            # Node (Multi-line target: node-version: \s+ type: string \s+ default: '24')
+            $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
+            
             # Python
-            $content = $content -replace "python-version:.*default: '.*'", "python-version:`r`n        type: string`r`n        default: '$pythonVersion'"
+            $content = $content -replace "(?s)(python-version:.*?default: )'[^']+'", "`${1}'$pythonVersion'"
         }
 
         # Save file with UTF8 encoding (No BOM)
