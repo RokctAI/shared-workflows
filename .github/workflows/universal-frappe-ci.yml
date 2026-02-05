@@ -113,6 +113,7 @@ jobs:
 
       - name: Install Frappe Bench
         run: |
+          npm install -g yarn
           pip install frappe-bench
           bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
 
