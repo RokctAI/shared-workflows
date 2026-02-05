@@ -14,7 +14,8 @@ $vitalWorkflows = @(
     "assign.yml", 
     "labeler.yml",
     "stale.yml",
-    "todo.yml"
+    "todo.yml",
+    "dependabot.yml"
 )
 
 # Default Values
@@ -84,8 +85,16 @@ if (!(Test-Path $targetPath)) {
 
 # 3. Download and Patch
 foreach ($wf in $vitalWorkflows) {
-    $url = "$baseUrl/$workflowDir/$wf"
-    $dest = Join-Path $targetPath $wf
+    # Workflows are in examples/workflows/, Dependabot is in examples/
+    if ($wf -eq "dependabot.yml") {
+        $url = "$baseUrl/examples/$wf"
+        $dest = Join-Path ".github" $wf
+    }
+    else {
+        $url = "$baseUrl/$workflowDir/$wf"
+        $dest = Join-Path $targetPath $wf
+    }
+
     Write-Host "📥 Fetching and Patching ${wf}..."
     try {
         $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
