@@ -35,9 +35,16 @@ done
 echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
-if [ -z "$GITHUB_ACTIONS" ]; then
+# In CI, we only read if stdin is not a terminal (piped)
+if [ -t 0 ] || [ -n "$GITHUB_ACTIONS" ]; then
+    # We want to allow reading from a pipe in CI
     read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
 else
+    CUSTOMIZE="n"
+fi
+
+# Fallback for headless CI with no pipe
+if [ -z "$CUSTOMIZE" ] && [ -n "$GITHUB_ACTIONS" ]; then
     CUSTOMIZE="n"
 fi
 
@@ -102,13 +109,20 @@ fi
 
 # 3. Download and Patch
 for wf in "${VITAL_WORKFLOWS[@]}"; do
+    DEST_FINAL=""
+    if [ "$wf" == "dependabot.yml" ]; then
+        DEST_FINAL=".github/$wf"
+    else
+        DEST_FINAL="$TARGET_PATH/$wf"
+    fi
+
     if [ "$LOCAL_MODE" = true ]; then
         if [ "$wf" == "dependabot.yml" ]; then
             SRC="../examples/$wf"
         else
             SRC="../$WORKFLOW_DIR/$wf"
         fi
-        cp "$SRC" "$DEST.tmp"
+        cp "$SRC" "$DEST_FINAL.tmp"
     else
         if [ "$wf" == "dependabot.yml" ]; then
             URL="$BASE_URL/examples/$wf"
@@ -116,32 +130,25 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
             URL="$BASE_URL/$WORKFLOW_DIR/$wf"
         fi
         echo "📥 Fetching and Patching $wf..."
-        curl -sSL "$URL" -o "$DEST.tmp"
-    fi
-
-    DEST_FINAL=""
-    if [ "$wf" == "dependabot.yml" ]; then
-        DEST_FINAL=".github/$wf"
-    else
-        DEST_FINAL="$TARGET_PATH/$wf"
+        curl -sSL "$URL" -o "$DEST_FINAL.tmp"
     fi
     
     if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
         # Project Type
         if [ "$PROJECT_TYPE" != "smart" ]; then
-            sed -i "s/project_type: '.*'/project_type: '$PROJECT_TYPE'/g" "$DEST.tmp"
+            sed -i "s/project_type: '.*'/project_type: '$PROJECT_TYPE'/g" "$DEST_FINAL.tmp"
         fi
         # Strategy
-        sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST.tmp"
+        sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST_FINAL.tmp"
         # Cron Schedule
-        sed -i "s/cron: '.*'/cron: '$CRON_SCHEDULE'/g" "$DEST.tmp"
+        sed -i "s/cron: '.*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
         # Node
-        sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST.tmp"
+        sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
         # Python
-        sed -i "/python-version:/,/default:/s/default: '.*'/default: '$PYTHON_VERSION'/" "$DEST.tmp"
+        sed -i "/python-version:/,/default:/s/default: '.*'/default: '$PYTHON_VERSION'/" "$DEST_FINAL.tmp"
     fi
 
-    mv "$DEST.tmp" "$DEST_FINAL"
+    mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
 
 # 4. Handle version.json (Skip for Flutter)
