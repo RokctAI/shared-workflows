@@ -17,7 +17,7 @@ on:
         - appbundle
       node-version:
         type: string
-        default: '22'
+        default: '24'
       python-version:
         type: string
         default: '3.14'
@@ -36,6 +36,10 @@ on:
       java-version:
         type: string
         default: '17'
+      version_format:
+        type: string
+        default: '##.##.##'
+        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
 
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
@@ -83,5 +87,6 @@ jobs:
       db-type: ${{ inputs.db-type }}
       flutter-channel: ${{ inputs.flutter-channel }}
       java-version: ${{ inputs.java-version }}
+      version_format: ${{ inputs.version_format || '##.##.##' }}
     secrets: inherit
 
