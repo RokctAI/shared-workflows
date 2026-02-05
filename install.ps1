@@ -33,11 +33,16 @@ $pythonVersion = "3.14"
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
 
 # --- 1. Interaction ---
-if ($null -eq $env:GITHUB_ACTIONS) {
-    $customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
-}
-else {
-    $customize = "n" # Default for CI unless piped
+# In CI, we want to allow piped input if provided, otherwise bypass
+$customize = "n"
+if ($null -eq $env:GITHUB_ACTIONS -or [Console]::IsInputRedirected) {
+    # Check if there's actually input waiting if redirected
+    try {
+        $customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
+    }
+    catch {
+        $customize = "n"
+    }
 }
 
 if ($customize -eq 'y' -or $customize -eq 'Y') {
@@ -145,8 +150,12 @@ foreach ($wf in $vitalWorkflows) {
         $content = $content -replace "(?s)(python-version:.*?default: )'[^']+'", "`${1}'$pythonVersion'"
     }
 
-    # Save file with UTF8 encoding (No BOM)
-    $content | Set-Content -Path $dest -Encoding utf8
+    # Save file with UTF8 encoding (No BOM) and Unix-style line endings (LF)
+    $content = $content -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText((Get-Item -LiteralPath $dest -ErrorAction SilentlyContinue).FullName, $content, (New-Object System.Text.UTF8Encoding $false))
+    if (!(Test-Path $dest)) {
+        [System.IO.File]::WriteAllText($dest, $content, (New-Object System.Text.UTF8Encoding $false))
+    }
 }
 
 # 4. Handle version.json (Skip for Flutter)
