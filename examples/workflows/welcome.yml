@@ -7,8 +7,9 @@ on:
 
 jobs:
   welcome:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-welcome.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-welcome.yml@latest
     permissions:
       issues: write 
       pull-requests: write
     secrets: inherit
+
