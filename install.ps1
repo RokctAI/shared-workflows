@@ -29,6 +29,7 @@ $releaseStrategy = "immediate"
 $cronSchedule = "0 23 * * 5"
 $nodeVersion = "24"
 $pythonVersion = "3.14"
+$ghHandle = "@RendaniSinyage"
 
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
 
@@ -91,6 +92,10 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     
     $pythonVersionInput = Read-Host "Python version [$pythonVersion]"
     if (![string]::IsNullOrWhiteSpace($pythonVersionInput)) { $pythonVersion = $pythonVersionInput }
+
+    # CODEOWNERS Handle
+    $ghHandleInput = Read-Host "GitHub handle for CODEOWNERS [$ghHandle]"
+    if (![string]::IsNullOrWhiteSpace($ghHandleInput)) { $ghHandle = $ghHandleInput }
 }
 else {
     Write-Host "`n⏩ Using standard fleet defaults (Quick Install)." -ForegroundColor Gray
@@ -156,6 +161,15 @@ if ($projectType -ne "flutter") {
         Write-Host "`n📝 Creating version.json ($startingVersion)..." -ForegroundColor Yellow
         $json = @{ version = $startingVersion } | ConvertTo-Json
         $json | Set-Content -Path "version.json" -Encoding utf8
+    }
+}
+
+# 5. Handle CODEOWNERS (Governance - Custom Setup Only)
+if ($customize -eq 'y' -or $customize -eq 'Y') {
+    if (!(Test-Path ".github/CODEOWNERS")) {
+        Write-Host "`n🛡️ Creating .github/CODEOWNERS..." -ForegroundColor Yellow
+        if (!(Test-Path ".github")) { New-Item -ItemType Directory -Path ".github" -Force | Out-Null }
+        "# All files are owned by $ghHandle`n*       $ghHandle" | Set-Content -Path ".github/CODEOWNERS" -Encoding utf8
     }
 }
 
