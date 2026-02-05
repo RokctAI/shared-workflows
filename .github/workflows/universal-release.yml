@@ -14,7 +14,7 @@ on:
       version_file:
          required: false
          type: string
-         default: "version.json"
+         default: "versions.json"
          description: "Path to version file (json/yaml/txt)"
       version_format:
          required: false
@@ -486,7 +486,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-           FILE="${{ inputs.version_file || 'version.json' }}"
+           FILE="${{ inputs.version_file || 'versions.json' }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
            
            # Get current version from file or fallback to check-version action result
