@@ -13,6 +13,7 @@ VITAL_WORKFLOWS=(
     "labeler.yml"
     "stale.yml"
     "todo.yml"
+    "dependabot.yml"
 )
 
 # Default Values
@@ -81,8 +82,15 @@ fi
 
 # 3. Download and Patch
 for wf in "${VITAL_WORKFLOWS[@]}"; do
-    URL="$BASE_URL/$WORKFLOW_DIR/$wf"
-    DEST="$TARGET_PATH/$wf"
+    # Workflows are in examples/workflows/, Dependabot is in examples/
+    if [ "$wf" == "dependabot.yml" ]; then
+        URL="$BASE_URL/examples/$wf"
+        DEST=".github/$wf"
+    else
+        URL="$BASE_URL/$WORKFLOW_DIR/$wf"
+        DEST="$TARGET_PATH/$wf"
+    fi
+    
     echo "📥 Fetching and Patching $wf..."
     
     CONTENT=$(curl -sSL "$URL")
