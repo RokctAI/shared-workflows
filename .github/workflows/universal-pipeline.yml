@@ -1,5 +1,9 @@
 name: Universal Pipeline Orchestrator
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_call:
     inputs:
@@ -62,6 +66,10 @@ on:
       version_file:
         type: string
         default: 'version.json'
+      version_format:
+        type: string
+        default: '##.##.##'
+        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
       brain_endpoint:
         type: string
       build_android:
@@ -142,6 +150,7 @@ jobs:
     with:
       release_strategy: ${{ inputs.release_strategy }}
       version_file: ${{ inputs.version_file }}
+      version_format: ${{ inputs.version_format }}
       brain_endpoint: ${{ inputs.brain_endpoint }}
       build_android: ${{ inputs.build_android }}
       build_windows: ${{ inputs.build_windows }}
