@@ -235,5 +235,29 @@ jobs:
           cat sites/apps.txt
 
           # Install App & Run Tests
+          # Use tee to capture stdout/stderr for annotation processing
           bench --site test_site install-app $APP_NAME
-          bench --site test_site run-tests --app $APP_NAME
+          bench --site test_site run-tests --app $APP_NAME 2>&1 | tee test_output.log
+
+      - name: Process Annotations
+        if: always()
+        run: |
+          if [ -f frappe-bench/test_output.log ]; then
+             echo "Processing deprecation warnings for annotations..."
+             # Parse for DeprecationWarning (Inspired by Frappe)
+             grep -E "DeprecationWarning" frappe-bench/test_output.log | sort -u | while read -r warning; do
+               file_info=$(echo "$warning" | grep -oP '^.*?:\d+:')
+               if [ -n "$file_info" ]; then
+                  file_path=$(echo "$file_info" | cut -d':' -f1)
+                  line_number=$(echo "$file_info" | cut -d':' -f2)
+                  msg=$(echo "$warning" | sed -E "s/^.*DeprecationWarning: //")
+                  echo "::warning file=${file_path},line=${line_number}::DeprecationWarning: ${msg}"
+               fi
+             done
+          fi
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ failure() && contains( github.event.pull_request.labels.*.name, 'debug-gha') }}
+        with:
+          limit-access-to-actor: true
