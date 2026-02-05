@@ -1,7 +1,7 @@
 name: Universal Release Workflow
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-release
   cancel-in-progress: true
 
 on:
@@ -851,6 +851,7 @@ jobs:
            else
               echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
            fi
+            
             # Extract Contributors (Inspired by Frappe)
             if [ ! -z "$PREV_TAG" ]; then
                echo -e "
