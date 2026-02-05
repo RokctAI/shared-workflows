@@ -1,5 +1,9 @@
 name: Universal Release Workflow
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_call:
     inputs:
@@ -12,6 +16,11 @@ on:
          type: string
          default: "version.json"
          description: "Path to version file (json/yaml/txt)"
+      version_format:
+         required: false
+         type: string
+         default: "##.##.##"
+         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
       brain_endpoint:
          required: false
          type: string
@@ -476,18 +485,64 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-           VER="${{ steps.version.outputs.version }}"
+           FILE="${{ inputs.version_file || 'version.json' }}"
+           FORMAT="${{ inputs.version_format || '##.##.##' }}"
+           
+           # Get current version from file or fallback to check-version action result
+           if [[ -f "$FILE" ]]; then
+              CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || cat "$FILE" | grep -oP '"version":\s*"\K[^"]+')
+              echo "✅ Found version file: $FILE (Current: $CUR_VER)"
+              
+              # Automated Bump Logic (Python for precision)
+              NEW_VER=$(python3 -c "
+import sys
+cur_ver = '$CUR_VER'
+fmt_str = '$FORMAT'
+try:
+    v_parts = [int(x) for x in cur_ver.split('.')]
+    f_parts = fmt_str.split('.')
+    v_parts[-1] += 1
+    for i in range(len(v_parts)-1, 0, -1):
+        width = f_parts[i].count('#')
+        limit = 10**width
+        if v_parts[i] >= limit:
+            v_parts[i] = 0
+            v_parts[i-1] += 1
+    print('.'.join(map(str, v_parts)))
+except Exception as e:
+    print(cur_ver) # Fallback to no change on error
+")
+              echo "🚀 Bumping version: $CUR_VER -> $NEW_VER (Format: $FORMAT)"
+              
+              # Update File
+              if [[ "$FILE" == *.json ]]; then
+                jq ".version = \"$NEW_VER\"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+              else
+                sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
+              fi
+              
+              # Commit and Push Change
+              git config user.name "Release Bot"
+              git config user.email "bot@rokct.ai"
+              git add "$FILE"
+              git commit -m "chore: bump version to $NEW_VER [skip ci]" || echo "No version change to commit"
+              git push origin HEAD:${{ github.ref_name }}
+              
+              VER="$NEW_VER"
+           else
+              VER="${{ steps.version.outputs.version }}"
+              echo "⚠️ No version file found. Using existing version: $VER"
+           fi
+
            # Find latest RC
-           LATEST_RC=$(git tag -l "v${VER}-rc*" | sort -V | tail -n 1)
+           LATEST_RC=$(git tag -l "v${{ steps.version.outputs.version }}-rc*" | sort -V | tail -n 1)
            
            if [[ -z "$LATEST_RC" ]]; then
-              echo "No RCs found for v$VER to promote."
+              echo "No RCs found for v${{ steps.version.outputs.version }} to promote."
               exit 0
            fi
            
            echo "Promoting $LATEST_RC to v$VER"
-           git config user.name "Release Bot"
-           git config user.email "bot@rokct.ai"
            
            # Retag
            git tag "v$VER" "$LATEST_RC"
@@ -504,8 +559,8 @@ jobs:
            # Get the creation date of the stable tag we just created
            STABLE_DATE=$(git log -1 --format=%ai "v$VER" | cut -d' ' -f1)
            
-           # Get all RC tags for this version
-           ALL_RC_TAGS=$(git tag -l "v${VER}-rc*")
+           # Get all RC tags for this version (using original version prefix)
+           ALL_RC_TAGS=$(git tag -l "v${{ steps.version.outputs.version }}-rc*")
            
            # Filter RCs: only keep those created BEFORE the stable tag
            RC_TAGS=""
