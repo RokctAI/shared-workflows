@@ -27,14 +27,17 @@ All repositories in the fleet should typically have the standard set of workflow
 
 ### 1. Simple Bootstrap (Recommended)
 
-Run our interactive one-liner from the root of your repository. It will prompt you for your project type, release strategy, and versioning preferences (or you can press enter to use defaults):
+Run our interactive one-liner from the root of your repository. It will bootstrap your repo with the standard fleet workflows and a `version.json`. 
+
+> [!NOTE]
+> It will ask if you want to **Standardize** (Full Defaults) or **Customize** (Specific Project Type, Versions, etc.).
 
 **Windows (PowerShell):**
 ```powershell
 iwr -useb https://raw.githubusercontent.com/RokctAI/shared-workflows/main/install.ps1 | iex
 ```
 
-**Linux / macOS (Bash):**
+**Unix / macOS / Linux (Bash):**
 ```bash
 curl -sSL https://raw.githubusercontent.com/RokctAI/shared-workflows/main/install.sh | bash
 ```
