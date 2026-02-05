@@ -154,7 +154,7 @@ foreach ($wf in $vitalWorkflows) {
 if ($projectType -ne "flutter") {
     if (!(Test-Path "version.json")) {
         Write-Host "`n📝 Creating version.json ($startingVersion)..." -ForegroundColor Yellow
-        $json = @{ version = $startingVersion } | ConvertTo-Json -Compress
+        $json = @{ version = $startingVersion } | ConvertTo-Json
         $json | Set-Content -Path "version.json" -Encoding utf8
     }
 }
