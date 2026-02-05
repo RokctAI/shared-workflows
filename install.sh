@@ -26,12 +26,12 @@ PYTHON_VERSION="3.14"
 echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
-read -p "Do you want to customize your workflow setup? (y/N): " CUSTOMIZE
+read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
-    echo -e "\n\033[0;33m🛠️ Customizing Setup...\033[0m"
+    echo -e "\n\033[0;33m🛠️ Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
     
     # Project Type
-    echo -e "\nSelect Project Type:"
+    echo "Select Project Type:"
     echo "1. smart (Auto-detect Flutter/Node/Frappe)"
     echo "2. flutter (Mobile/Desktop/Web)"
     echo "3. frappe (ERPNext/Python)"
@@ -52,7 +52,7 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
 
     # Release Strategy
     echo -e "\nSelect Release Strategy:"
-    echo "1. immediate (Release on every push to main - Default)"
+    echo "1. immediate (Release on every push to main)"
     echo "2. weekly (Promote Friday RCs to Stable)"
     echo "3. weekly-rc (Pre-release RCs on every push to main)"
     read -p "Choice [1]: " CHOICE_STRAT
@@ -70,7 +70,7 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
     read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
     PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
 else
-    echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Standard Installation).\033[0m"
+    echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
 fi
 
 # --- 2. Preparing Files ---
@@ -87,29 +87,32 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         URL="$BASE_URL/examples/$wf"
         DEST=".github/$wf"
     else
-        URL="$BASE_URL/$WORKFLOW_DIR/$wf"
+        URL="$BASE_URL/$workflowDir/$wf"
         DEST="$TARGET_PATH/$wf"
     fi
-    
+
     echo "📥 Fetching and Patching $wf..."
     
-    CONTENT=$(curl -sSL "$URL")
+    # Download content to a temporary file for processing
+    curl -sSL "$URL" -o "$DEST.tmp"
     
     if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
         # Project Type
         if [ "$PROJECT_TYPE" != "smart" ]; then
-            CONTENT=$(echo "$CONTENT" | sed "s/project_type: .*#/project_type: '$PROJECT_TYPE' #/g")
-            CONTENT=$(echo "$CONTENT" | sed "s/project_type: .*/project_type: '$PROJECT_TYPE'/g")
+            sed -i "s/project_type: '.*'/project_type: '$PROJECT_TYPE'/g" "$DEST.tmp"
         fi
         # Strategy
-        CONTENT=$(echo "$CONTENT" | sed "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g")
-        # Node
-        CONTENT=$(echo "$CONTENT" | sed "s/node-version:.*default: '.*'/node-version:\n        type: string\n        default: '$NODE_VERSION'/g")
+        sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST.tmp"
+        
+        # Node (Targeting the default: line specifically for node-version)
+        # We use a range pattern to match the correct default
+        sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST.tmp"
+        
         # Python
-        CONTENT=$(echo "$CONTENT" | sed "s/python-version:.*default: '.*'/python-version:\n        type: string\n        default: '$PYTHON_VERSION'/g")
+        sed -i "/python-version:/,/default:/s/default: '.*'/default: '$PYTHON_VERSION'/" "$DEST.tmp"
     fi
 
-    echo "$CONTENT" > "$DEST"
+    mv "$DEST.tmp" "$DEST"
 done
 
 # 4. Handle version.json (Skip for Flutter)
