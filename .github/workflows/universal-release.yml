@@ -89,7 +89,7 @@ jobs:
 
   # --- 1. CHECKS (Lint, Test, Build) ---
   checks:
-    needs: telemetry
+    # telemetry is optional tracking, don't block checks on it
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +103,7 @@ jobs:
 
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
-    needs: telemetry
+    needs: checks
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
@@ -202,7 +202,7 @@ jobs:
 
   # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
-    needs: telemetry
+    needs: checks
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     permissions:
@@ -392,8 +392,9 @@ jobs:
   # --- 3. THE RELEASE JOB ---
   release:
     needs: [checks, build-windows]
-    # Run if checks passed, even if build-windows was skipped
-    if: needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
+    # Standard GHA behavior: runs if all needs are success or skipped.
+    # We use always() to ensure it runs even if build-windows was skipped (which it often is)
+    if: always() && needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
