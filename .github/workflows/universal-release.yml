@@ -522,14 +522,20 @@ jobs:
                 sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
               fi
               
-              # Commit and Push Change
-              git config user.name "Release Bot"
-              git config user.email "bot@rokct.ai"
-              git add "$FILE"
-              git commit -m "chore: bump version to $NEW_VER [skip ci]" || echo "No version change to commit"
-              git push origin HEAD:${{ github.ref_name }}
-              
-              VER="$NEW_VER"
+               # --- PINNING: Snapshot internal calls for the release tag ---
+               echo "📌 Pinning internal workflow references to v$VER..."
+               # Find all YAML files in .github/workflows (exclude examples/ and README)
+               find .github/workflows -maxdepth 1 -name "*.yml" -exec sed -i "s/@main/@v$VER/g" {} +
+               find .github/workflows -maxdepth 1 -name "*.yml" -exec sed -i "s/@latest/@v$VER/g" {} +
+
+               # Commit and Push Change (The "Pinned" state)
+               git config user.name "Release Bot"
+               git config user.email "bot@rokct.ai"
+               git add .github/workflows/*.yml "$FILE"
+               git commit -m "chore: bump version to $NEW_VER and pin references [skip ci]" || echo "No version change to commit"
+               git push origin HEAD:${{ github.ref_name }}
+               
+               VER="$NEW_VER"
            else
               VER="${{ steps.version.outputs.version }}"
               echo "⚠️ No version file found. Using existing version: $VER"
@@ -549,9 +555,16 @@ jobs:
            git tag "v$VER" "$LATEST_RC"
            git push origin "v$VER"
            
-           # Set environment for downstream steps
-           echo "TAG_NAME=v$VER" >> $GITHUB_ENV
-           echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+            # Set environment for downstream steps
+            echo "TAG_NAME=v$VER" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+
+            # --- REVERT: Restore @main on branch for development ---
+            echo "🔄 Reverting internal workflow references back to @main..."
+            find .github/workflows -maxdepth 1 -name "*.yml" -exec sed -i "s/@v$VER/@main/g" {} +
+            git add .github/workflows/*.yml
+            git commit -m "chore: restore @main references for development [skip ci]" || echo "No pinned references to revert"
+            git push origin HEAD:${{ github.ref_name }}
            
            # --- CLEANUP: Delete all RC releases and tags for this version ---
            if [[ "${{ inputs.cleanup_rc_releases }}" == "true" ]]; then
