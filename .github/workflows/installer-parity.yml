@@ -1,0 +1,52 @@
+name: Installer Parity Check
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'examples/**'
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  parity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Bash Installer (Customized)
+        run: |
+          mkdir out-bash
+          cd out-bash
+          git init
+          # y (Customize) -> 4 (Node) -> 1.2.3 (Ver) -> 2 (Weekly) -> 0 0 * * * (Cron) -> 20 (Node) -> 3.12 (Python)
+          printf "y\n4\n1.2.3\n2\n0 0 * * *\n20\n3.12\n" | bash ../install.sh --local
+      
+      - name: Run PowerShell Installer (Customized)
+        shell: pwsh
+        run: |
+          mkdir out-ps
+          cd out-ps
+          git init
+          # Same inputs
+          @("y", "4", "1.2.3", "2", "0 0 * * *", "20", "3.12") | pwsh ../install.ps1 -LocalMode
+      
+      - name: Verify Parity (Zero Drift)
+        run: |
+          # Compare .github folders
+          # We use diff -r and exclude some minor variance if any (like line endings if not handled)
+          # But our scripts force UTF8 No BOM for both.
+          
+          # Fix line ending variance for the diff (Unix runners might treat strings differently)
+          find out-bash/.github -type f -exec sed -i 's/\r//g' {} +
+          find out-ps/.github -type f -exec sed -i 's/\r//g' {} +
+          
+          echo "Comparing Bash vs PowerShell outputs..."
+          diff -rq out-bash/.github out-ps/.github
+          
+          echo "Comparing version.json..."
+          diff out-bash/version.json out-ps/version.json
+          
+          echo "✅ Parity Confirmed! Bash and PowerShell installers are perfectly aligned."
