@@ -803,7 +803,7 @@ jobs:
            if [ -z "$PREV_TAG" ]; then
               LOG="Initial Release"
            else
-              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)")
+              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E 's/by @mergify //')
            fi
            
            if [ ! -z "$BRAIN_ENDPOINT" ]; then
@@ -839,17 +839,17 @@ jobs:
               if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]]; then
                  echo "⚠️ Brain Writer Failed. Falling back to git log."
                  echo "Error: $RESPONSE"
-                 echo "$LOG" >> changelog.txt
+                 echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
               else
                  MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
                  if [[ "$MSG" == "Invalid JSON" ]]; then
-                    echo "$LOG" >> changelog.txt
+                    echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
                  else
                     echo "$MSG" > changelog.txt
                  fi
               fi
            else
-              echo "$LOG" >> changelog.txt
+              echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
            fi
            echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
