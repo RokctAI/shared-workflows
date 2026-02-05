@@ -9,6 +9,8 @@
 A library of reusable GitHub Actions for "Universal" CI/CD.
 Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **Documentation** projects.
 
+![All Checks Passed](./images/checks_passed.png)
+
 ## Features
 
 *   **🛡️ CI-Gate Orchestration**: The new `universal-pipeline.yml` chains `Security` -> `Lint` -> `CI` -> `Release` sequentially. Tags are only created if all quality checks pass.
@@ -23,15 +25,27 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 
 All repositories in the fleet should typically have the standard set of workflows.
 
-### 1. Setup
-Simply copy the entire `examples/workflows` directory to your repository:
+### 1. Simple Bootstrap (Recommended)
 
+Run our interactive one-liner from the root of your repository. It will prompt you for your project type, release strategy, and versioning preferences (or you can press enter to use defaults):
+
+**Windows (PowerShell):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/RokctAI/shared-workflows/main/install.ps1 | iex
+```
+
+**Linux / macOS (Bash):**
 ```bash
-# Run from the root of your new repo
+curl -sSL https://raw.githubusercontent.com/RokctAI/shared-workflows/main/install.sh | bash
+```
+
+### 2. Manual Copy
+If you prefer to copy files manually from a local clone:
+```bash
 cp -r ../shared-workflows/examples/workflows .github/workflows
 ```
 
-### 2. What you get
+### 3. What you get
 This installs **"The Unified Fleet"**:
 
 | Workflow | Purpose | Orcherstration ⛓️ |
