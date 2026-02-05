@@ -854,8 +854,7 @@ jobs:
             
             # Extract Contributors (Inspired by Frappe)
             if [ ! -z "$PREV_TAG" ]; then
-               echo -e "
-### 🤝 Contributors" >> changelog.txt
+               echo -e "\\n### 🤝 Contributors" >> changelog.txt
                gh api "repos/${{ github.repository }}/compare/${PREV_TAG}...${TAG}" --jq '.commits[].author.login' | sort -u | while read -r user; do
                   if [ "$user" != "null" ] && [ ! -z "$user" ]; then
                      echo "* @$user" >> changelog.txt
