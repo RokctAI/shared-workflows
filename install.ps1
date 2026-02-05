@@ -1,5 +1,6 @@
 param (
-    [string]$ProjectName = "smart"
+    [string]$ProjectName = "smart",
+    [switch]$LocalMode
 )
 
 # Set Console Encoding to UTF8 for clean icons
@@ -32,7 +33,13 @@ $pythonVersion = "3.14"
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
 
 # --- 1. Interaction ---
-$customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
+if ($null -eq $env:GITHUB_ACTIONS) {
+    $customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
+}
+else {
+    $customize = "n" # Default for CI unless piped
+}
+
 if ($customize -eq 'y' -or $customize -eq 'Y') {
     Write-Host "`n🛠️ Customizing Setup... (Press Enter to keep the [default] value)`n" -ForegroundColor Yellow
     
@@ -95,45 +102,51 @@ if (!(Test-Path $targetPath)) {
 
 # 3. Download and Patch
 foreach ($wf in $vitalWorkflows) {
-    # Workflows are in examples/workflows/, Dependabot is in examples/
-    if ($wf -eq "dependabot.yml") {
-        $url = "$baseUrl/examples/$wf"
-        $dest = Join-Path ".github" $wf
+    if ($LocalMode) {
+        if ($wf -eq "dependabot.yml") {
+            $content = Get-Content "../examples/$wf" -Raw
+        }
+        else {
+            $content = Get-Content "../$workflowDir/$wf" -Raw
+        }
     }
     else {
-        $url = "$baseUrl/$workflowDir/$wf"
-        $dest = Join-Path $targetPath $wf
-    }
-
-    Write-Host "📥 Fetching and Patching ${wf}..."
-    try {
-        $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
-        
-        # Patching (Robust multi-line replacements)
-        if ($wf -eq "build.yml" -or $wf -eq "release.yml") {
-            # Project Type
-            if ($projectType -ne "smart") {
-                $content = $content -replace "(project_type: )'[^']+'", "`$1'$projectType'"
-            }
-            # Strategy
-            $content = $content -replace "(release_strategy: )'[^']+'", "`$1'$releaseStrategy'"
-            
-            # Cron Schedule
-            $content = $content -replace "(cron: )'[^']+'", "`$1'$cronSchedule'"
-
-            # Node (Multi-line target: node-version: \s+ type: string \s+ default: '24')
-            $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
-            
-            # Python
-            $content = $content -replace "(?s)(python-version:.*?default: )'[^']+'", "`${1}'$pythonVersion'"
+        if ($wf -eq "dependabot.yml") {
+            $url = "$baseUrl/examples/$wf"
         }
+        else {
+            $url = "$baseUrl/$workflowDir/$wf"
+        }
+        Write-Host "📥 Fetching and Patching ${wf}..."
+        try {
+            $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
+        }
+        catch {
+            Write-Host "❌ Failed to fetch ${wf}: $($_.Exception.Message)" -ForegroundColor Red
+            continue
+        }
+    }
 
-        # Save file with UTF8 encoding (No BOM)
-        $content | Set-Content -Path $dest -Encoding utf8
+    $dest = if ($wf -eq "dependabot.yml") { Join-Path ".github" $wf } else { Join-Path $targetPath $wf }
+
+    # Patching (Robust multi-line replacements)
+    if ($wf -eq "build.yml" -or $wf -eq "release.yml") {
+        # Project Type
+        if ($projectType -ne "smart") {
+            $content = $content -replace "(project_type: )'[^']+'", "`$1'$projectType'"
+        }
+        # Strategy
+        $content = $content -replace "(release_strategy: )'[^']+'", "`$1'$releaseStrategy'"
+        # Cron Schedule
+        $content = $content -replace "(cron: )'[^']+'", "`$1'$cronSchedule'"
+        # Node
+        $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
+        # Python
+        $content = $content -replace "(?s)(python-version:.*?default: )'[^']+'", "`${1}'$pythonVersion'"
     }
-    catch {
-        Write-Host "❌ Failed to process ${wf}: $($_.Exception.Message)" -ForegroundColor Red
-    }
+
+    # Save file with UTF8 encoding (No BOM)
+    $content | Set-Content -Path $dest -Encoding utf8
 }
 
 # 4. Handle version.json (Skip for Flutter)
@@ -145,7 +158,4 @@ if ($projectType -ne "flutter") {
     }
 }
 
-Write-Host "`n✅ Installation Complete! Your repo is now part of the Rokct fleet.`n" -ForegroundColor Green
-Write-Host "Next steps:" -ForegroundColor Gray
-Write-Host "1. Verify .github/workflows for your customized settings." -ForegroundColor Gray
-Write-Host "2. Commit and push the new workflows.`n" -ForegroundColor Gray
+Write-Host "`n✅ Installation Complete!" -ForegroundColor Green
