@@ -44,7 +44,7 @@ jobs:
     if: needs.check-quota.outputs.should_run == 'true' && (!github.event.release.prerelease)
     permissions:
       contents: write
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@latest
     with:
       build-type: ios
       upload-artifact: true 
@@ -67,3 +67,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ios_build/*.ipa
+
