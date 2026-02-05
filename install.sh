@@ -35,15 +35,12 @@ done
 echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
-# In CI, we only read if stdin is not a terminal (piped)
 if [ -t 0 ] || [ -n "$GITHUB_ACTIONS" ]; then
-    # We want to allow reading from a pipe in CI
     read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
 else
     CUSTOMIZE="n"
 fi
 
-# Fallback for headless CI with no pipe
 if [ -z "$CUSTOMIZE" ] && [ -n "$GITHUB_ACTIONS" ]; then
     CUSTOMIZE="n"
 fi
@@ -133,19 +130,22 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         curl -sSL "$URL" -o "$DEST_FINAL.tmp"
     fi
     
+    # Ensure Unix line endings before hatching
+    sed -i 's/\r//g' "$DEST_FINAL.tmp"
+
     if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
-        # Project Type
+        # Project Type - using a more specific regex to preserve comments
         if [ "$PROJECT_TYPE" != "smart" ]; then
-            sed -i "s/project_type: '.*'/project_type: '$PROJECT_TYPE'/g" "$DEST_FINAL.tmp"
+            sed -i "s/project_type: '[^']*'/project_type: '$PROJECT_TYPE'/g" "$DEST_FINAL.tmp"
         fi
         # Strategy
-        sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST_FINAL.tmp"
+        sed -i "s/release_strategy: '[^']*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST_FINAL.tmp"
         # Cron Schedule
-        sed -i "s/cron: '.*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
-        # Node
-        sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
+        sed -i "s/cron: '[^']*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
+        # Node (Multi-line aware sed)
+        sed -i "/node-version:/,/default:/s/default: '[^']*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
         # Python
-        sed -i "/python-version:/,/default:/s/default: '.*'/default: '$PYTHON_VERSION'/" "$DEST_FINAL.tmp"
+        sed -i "/python-version:/,/default:/s/default: '[^']*'/default: '$PYTHON_VERSION'/" "$DEST_FINAL.tmp"
     fi
 
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
