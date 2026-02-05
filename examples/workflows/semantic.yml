@@ -5,5 +5,6 @@ on:
 
 jobs:
   semantic:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-semantic.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-semantic.yml@latest
     secrets: inherit
+
