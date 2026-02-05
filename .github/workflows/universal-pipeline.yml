@@ -20,7 +20,7 @@ on:
       # Node.js
       node-version:
         type: string
-        default: '22'
+        default: '24'
       package-manager:
         type: string
         default: 'pnpm'
