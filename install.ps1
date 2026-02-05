@@ -33,10 +33,8 @@ $pythonVersion = "3.14"
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
 
 # --- 1. Interaction ---
-# In CI, we want to allow piped input if provided, otherwise bypass
 $customize = "n"
 if ($null -eq $env:GITHUB_ACTIONS -or [Console]::IsInputRedirected) {
-    # Check if there's actually input waiting if redirected
     try {
         $customize = Read-Host "Do you want to customize your workflow setup? (y/N - Press Enter for No)"
     }
@@ -108,23 +106,16 @@ if (!(Test-Path $targetPath)) {
 # 3. Download and Patch
 foreach ($wf in $vitalWorkflows) {
     if ($LocalMode) {
-        if ($wf -eq "dependabot.yml") {
-            $content = Get-Content "../examples/$wf" -Raw
-        }
-        else {
-            $content = Get-Content "../$workflowDir/$wf" -Raw
-        }
+        $src = if ($wf -eq "dependabot.yml") { "../examples/$wf" } else { "../$workflowDir/$wf" }
+        # Read as single string, ensure Unix line endings
+        $content = (Get-Content $src -Raw) -replace "`r`n", "`n"
     }
     else {
-        if ($wf -eq "dependabot.yml") {
-            $url = "$baseUrl/examples/$wf"
-        }
-        else {
-            $url = "$baseUrl/$workflowDir/$wf"
-        }
+        $url = if ($wf -eq "dependabot.yml") { "$baseUrl/examples/$wf" } else { "$baseUrl/$workflowDir/$wf" }
         Write-Host "📥 Fetching and Patching ${wf}..."
         try {
             $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
+            $content = $content -replace "`r`n", "`n"
         }
         catch {
             Write-Host "❌ Failed to fetch ${wf}: $($_.Exception.Message)" -ForegroundColor Red
@@ -134,16 +125,16 @@ foreach ($wf in $vitalWorkflows) {
 
     $dest = if ($wf -eq "dependabot.yml") { Join-Path ".github" $wf } else { Join-Path $targetPath $wf }
 
-    # Patching (Robust multi-line replacements)
+    # Patching
     if ($wf -eq "build.yml" -or $wf -eq "release.yml") {
         # Project Type
         if ($projectType -ne "smart") {
-            $content = $content -replace "(project_type: )'[^']+'", "`$1'$projectType'"
+            $content = $content -replace "project_type: '[^']+'", "project_type: '$projectType'"
         }
         # Strategy
-        $content = $content -replace "(release_strategy: )'[^']+'", "`$1'$releaseStrategy'"
+        $content = $content -replace "release_strategy: '[^']+'", "release_strategy: '$releaseStrategy'"
         # Cron Schedule
-        $content = $content -replace "(cron: )'[^']+'", "`$1'$cronSchedule'"
+        $content = $content -replace "cron: '[^']+'", "cron: '$cronSchedule'"
         # Node
         $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
         # Python
@@ -151,11 +142,12 @@ foreach ($wf in $vitalWorkflows) {
     }
 
     # Save file with UTF8 encoding (No BOM) and Unix-style line endings (LF)
-    $content = $content -replace "`r`n", "`n"
-    [System.IO.File]::WriteAllText((Get-Item -LiteralPath $dest -ErrorAction SilentlyContinue).FullName, $content, (New-Object System.Text.UTF8Encoding $false))
-    if (!(Test-Path $dest)) {
-        [System.IO.File]::WriteAllText($dest, $content, (New-Object System.Text.UTF8Encoding $false))
-    }
+    # Get physical path for WriteAllText
+    $fullDest = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $dest))
+    $dir = [System.IO.Path]::GetDirectoryName($fullDest)
+    if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    
+    [System.IO.File]::WriteAllText($fullDest, $content, (New-Object System.Text.UTF8Encoding $false))
 }
 
 # 4. Handle version.json (Skip for Flutter)
