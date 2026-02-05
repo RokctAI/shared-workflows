@@ -167,9 +167,30 @@ if ($projectType -ne "flutter") {
 # 5. Handle CODEOWNERS (Governance - Custom Setup Only)
 if ($customize -eq 'y' -or $customize -eq 'Y') {
     if (!(Test-Path ".github/CODEOWNERS")) {
-        Write-Host "`n🛡️ Creating .github/CODEOWNERS..." -ForegroundColor Yellow
+        Write-Host "`n🛡️ Fetching and Patching .github/CODEOWNERS..." -ForegroundColor Yellow
         if (!(Test-Path ".github")) { New-Item -ItemType Directory -Path ".github" -Force | Out-Null }
-        "# All files are owned by $ghHandle`n*       $ghHandle" | Set-Content -Path ".github/CODEOWNERS" -Encoding utf8
+        
+        if ($LocalMode) {
+            $src = "../examples/CODEOWNERS"
+            $content = (Get-Content $src -Raw) -replace "`r`n", "`n"
+        }
+        else {
+            $url = "$baseUrl/examples/CODEOWNERS"
+            try {
+                $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
+                $content = $content -replace "`r`n", "`n"
+            }
+            catch {
+                Write-Host "❌ Failed to fetch CODEOWNERS: $($_.Exception.Message)" -ForegroundColor Red
+                $content = $null
+            }
+        }
+
+        if ($null -ne $content) {
+            $content = $content -replace "{{HANDLE}}", $ghHandle
+            $fullDest = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) ".github/CODEOWNERS"))
+            [System.IO.File]::WriteAllText($fullDest, $content, (New-Object System.Text.UTF8Encoding $false))
+        }
     }
 }
 
