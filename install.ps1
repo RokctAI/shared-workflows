@@ -25,6 +25,7 @@ $vitalWorkflows = @(
 $projectType = "smart"
 $startingVersion = "0.0.1"
 $releaseStrategy = "immediate"
+$cronSchedule = "0 23 * * 5"
 $nodeVersion = "24"
 $pythonVersion = "3.14"
 
@@ -65,6 +66,12 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
         "2" { $releaseStrategy = "weekly" }
         "3" { $releaseStrategy = "weekly-rc" }
         Default { $releaseStrategy = "immediate" }
+    }
+
+    # Cron Schedule (Only for weekly)
+    if ($releaseStrategy -like "weekly*") {
+        $cronInput = Read-Host "Cron schedule [$cronSchedule] (e.g., '0 23 * * 5' for Friday 11PM)"
+        if (![string]::IsNullOrWhiteSpace($cronInput)) { $cronSchedule = $cronInput }
     }
 
     # Dependency Versions
@@ -111,6 +118,9 @@ foreach ($wf in $vitalWorkflows) {
             # Strategy
             $content = $content -replace "(release_strategy: )'[^']+'", "`$1'$releaseStrategy'"
             
+            # Cron Schedule
+            $content = $content -replace "(cron: )'[^']+'", "`$1'$cronSchedule'"
+
             # Node (Multi-line target: node-version: \s+ type: string \s+ default: '24')
             $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
             
