@@ -6,5 +6,6 @@ on:
 
 jobs:
   scan:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@latest
     secrets: inherit
+
