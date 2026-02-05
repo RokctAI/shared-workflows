@@ -42,9 +42,13 @@ iwr -useb https://raw.githubusercontent.com/RokctAI/shared-workflows/main/instal
 curl -sSL https://raw.githubusercontent.com/RokctAI/shared-workflows/main/install.sh | bash
 ```
 
-### 2. Manual Copy
-If you prefer to copy files manually from a local clone:
+### 2. Manual Copy (Local Development)
+If you have `shared-workflows` cloned locally as a sibling to your current project, you can copy the files directly:
+
 ```bash
+# Assumes your folders are: 
+# /Work/shared-workflows/
+# /Work/your-project/ <--- Run from here
 cp -r ../shared-workflows/examples/workflows .github/workflows
 ```
 
