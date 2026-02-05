@@ -5,7 +5,8 @@ on:
 
 jobs:
   assign:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@latest
     permissions:
       pull-requests: write
     secrets: inherit
+
