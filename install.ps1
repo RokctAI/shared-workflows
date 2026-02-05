@@ -64,14 +64,15 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     }
 
     # Dependency Versions
-    $nodeVersion = Read-Host "Default Node.js version [$nodeVersion]"
-    if ([string]::IsNullOrWhiteSpace($nodeVersion)) { $nodeVersion = "24" }
+    Write-Host "`nDefault Dependency Versions:"
+    $nodeVersionInput = Read-Host "Node.js version [$nodeVersion]"
+    if (![string]::IsNullOrWhiteSpace($nodeVersionInput)) { $nodeVersion = $nodeVersionInput }
     
-    $pythonVersion = Read-Host "Default Python version [$pythonVersion]"
-    if ([string]::IsNullOrWhiteSpace($pythonVersion)) { $pythonVersion = "3.14" }
+    $pythonVersionInput = Read-Host "Python version [$pythonVersion]"
+    if (![string]::IsNullOrWhiteSpace($pythonVersionInput)) { $pythonVersion = $pythonVersionInput }
 }
 else {
-    Write-Host "`n⏩ Using standard fleet defaults." -ForegroundColor Gray
+    Write-Host "`n⏩ Using standard fleet defaults (Standard Installation)." -ForegroundColor Gray
 }
 
 # --- 2. Preparing Files ---
@@ -104,7 +105,11 @@ foreach ($wf in $vitalWorkflows) {
             $content = $content -replace "python-version:.*default: '.*'", "python-version:`r`n        type: string`r`n        default: '$pythonVersion'"
         }
 
-        $content | Set-Content -Path $dest -Encoding utf8
+        # Keep encoding consistent
+        [System.IO.File]::WriteAllText((Get-Item -Path $dest -ErrorAction SilentlyContinue).FullName, $content, (New-Object System.Text.UTF8Encoding $false))
+        if (!(Test-Path $dest)) {
+            $content | Set-Content -Path $dest -Encoding utf8
+        }
     }
     catch {
         Write-Host "❌ Failed to process $wf: $($_.Exception.Message)" -ForegroundColor Red
