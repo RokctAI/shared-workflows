@@ -165,9 +165,14 @@ fi
 
 # 5. Handle CODEOWNERS (Governance - Custom Setup Only)
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
-    echo -e "\n\033[0;33m🛡️ Creating .github/CODEOWNERS..."
+    echo -e "\n\033[0;33m🛡️ Fetching and Patching .github/CODEOWNERS..."
     mkdir -p ".github"
-    echo -e "# All files are owned by $GH_HANDLE\n*       $GH_HANDLE" > .github/CODEOWNERS
+    if [ "$LOCAL_MODE" = true ]; then
+        cp "../examples/CODEOWNERS" ".github/CODEOWNERS"
+    else
+        curl -sSL "$BASE_URL/examples/CODEOWNERS" -o ".github/CODEOWNERS"
+    fi
+    sed -i "s/{{HANDLE}}/$GH_HANDLE/g" ".github/CODEOWNERS"
 fi
 
 echo -e "\n\033[0;32m✅ Installation Complete!\033[0m\n"
