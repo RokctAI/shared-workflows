@@ -150,12 +150,13 @@ foreach ($wf in $vitalWorkflows) {
     [System.IO.File]::WriteAllText($fullDest, $content, (New-Object System.Text.UTF8Encoding $false))
 }
 
-# 4. Handle version.json (Skip for Flutter)
+# 4. Handle versions.json (Skip for Flutter)
 if ($projectType -ne "flutter") {
-    if (!(Test-Path "version.json")) {
-        Write-Host "`n📝 Creating version.json ($startingVersion)..." -ForegroundColor Yellow
-        $json = @{ version = $startingVersion } | ConvertTo-Json
-        $json | Set-Content -Path "version.json" -Encoding utf8
+    if (!(Test-Path "versions.json")) {
+        Write-Host "`n📝 Creating versions.json ($startingVersion)..." -ForegroundColor Yellow
+        # Create pluralized structure: { "project": "ver" }
+        $json = @{ $ProjectName = $startingVersion } | ConvertTo-Json
+        $json | Set-Content -Path "versions.json" -Encoding utf8
     }
 }
 
