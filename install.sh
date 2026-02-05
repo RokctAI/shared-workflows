@@ -62,13 +62,14 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
     esac
 
     # Dependency Versions
-    read -p "Default Node.js version [$NODE_VERSION]: " INPUT_NODE
+    echo -e "\nDefault Dependency Versions:"
+    read -p "Node.js version [$NODE_VERSION]: " INPUT_NODE
     NODE_VERSION=${INPUT_NODE:-$NODE_VERSION}
     
-    read -p "Default Python version [$PYTHON_VERSION]: " INPUT_PYTHON
+    read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
     PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
 else
-    echo -e "\n\033[0;90m⏩ Using standard fleet defaults.\033[0m"
+    echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Standard Installation).\033[0m"
 fi
 
 # --- 2. Preparing Files ---
