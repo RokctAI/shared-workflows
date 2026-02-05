@@ -35,18 +35,25 @@ jobs:
       
       - name: Verify Parity (Zero Drift)
         run: |
-          # Compare .github folders
-          # We use diff -r and exclude some minor variance if any (like line endings if not handled)
-          # But our scripts force UTF8 No BOM for both.
-          
-          # Fix line ending variance for the diff (Unix runners might treat strings differently)
-          find out-bash/.github -type f -exec sed -i 's/\r//g' {} +
-          find out-ps/.github -type f -exec sed -i 's/\r//g' {} +
+          # Cleanup environment variance (should be 0 anyway now)
+          # find out-bash/.github -type f -exec sed -i 's/\r//g' {} +
+          # find out-ps/.github -type f -exec sed -i 's/\r//g' {} +
           
           echo "Comparing Bash vs PowerShell outputs..."
-          diff -rq out-bash/.github out-ps/.github
           
-          echo "Comparing version.json..."
+          # We use diff -ruN (recursive, unified, treat missing as empty)
+          # We expect ZERO difference.
+          DIFF=$(diff -ruN out-bash/.github out-ps/.github || true)
+          
+          if [ -n "$DIFF" ]; then
+            echo "❌ PARITY FAILURE! The Bash and PowerShell installers produced different outputs."
+            echo ""
+            echo "Detailed Diff:"
+            echo "$DIFF"
+            exit 1
+          fi
+          
+          # Check version.json
           diff out-bash/version.json out-ps/version.json
           
           echo "✅ Parity Confirmed! Bash and PowerShell installers are perfectly aligned."
