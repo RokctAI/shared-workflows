@@ -6,5 +6,6 @@ on:
 
 jobs:
   lint:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@latest
     secrets: inherit
+
