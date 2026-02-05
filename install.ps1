@@ -86,7 +86,7 @@ if (!(Test-Path $targetPath)) {
 foreach ($wf in $vitalWorkflows) {
     $url = "$baseUrl/$workflowDir/$wf"
     $dest = Join-Path $targetPath $wf
-    Write-Host "📥 Fetching and Patching $wf..."
+    Write-Host "📥 Fetching and Patching ${wf}..."
     try {
         $content = (Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop).Content
         
@@ -105,14 +105,11 @@ foreach ($wf in $vitalWorkflows) {
             $content = $content -replace "python-version:.*default: '.*'", "python-version:`r`n        type: string`r`n        default: '$pythonVersion'"
         }
 
-        # Keep encoding consistent
-        [System.IO.File]::WriteAllText((Get-Item -Path $dest -ErrorAction SilentlyContinue).FullName, $content, (New-Object System.Text.UTF8Encoding $false))
-        if (!(Test-Path $dest)) {
-            $content | Set-Content -Path $dest -Encoding utf8
-        }
+        # Save file with UTF8 encoding (No BOM)
+        $content | Set-Content -Path $dest -Encoding utf8
     }
     catch {
-        Write-Host "❌ Failed to process $wf: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "❌ Failed to process ${wf}: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
