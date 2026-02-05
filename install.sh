@@ -23,11 +23,24 @@ RELEASE_STRATEGY="immediate"
 CRON_SCHEDULE="0 23 * * 5"
 NODE_VERSION="24"
 PYTHON_VERSION="3.14"
+LOCAL_MODE=false
+
+# Check for --local flag
+for arg in "$@"; do
+    if [ "$arg" == "--local" ]; then
+        LOCAL_MODE=true
+    fi
+done
 
 echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
-read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
+if [ -z "$GITHUB_ACTIONS" ]; then
+    read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
+else
+    CUSTOMIZE="n"
+fi
+
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
     echo -e "\n\033[0;33m🛠️ Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
     
@@ -89,19 +102,29 @@ fi
 
 # 3. Download and Patch
 for wf in "${VITAL_WORKFLOWS[@]}"; do
-    # Workflows are in examples/workflows/, Dependabot is in examples/
-    if [ "$wf" == "dependabot.yml" ]; then
-        URL="$BASE_URL/examples/$wf"
-        DEST=".github/$wf"
+    if [ "$LOCAL_MODE" = true ]; then
+        if [ "$wf" == "dependabot.yml" ]; then
+            SRC="../examples/$wf"
+        else
+            SRC="../$WORKFLOW_DIR/$wf"
+        fi
+        cp "$SRC" "$DEST.tmp"
     else
-        URL="$BASE_URL/$workflowDir/$wf"
-        DEST="$TARGET_PATH/$wf"
+        if [ "$wf" == "dependabot.yml" ]; then
+            URL="$BASE_URL/examples/$wf"
+        else
+            URL="$BASE_URL/$WORKFLOW_DIR/$wf"
+        fi
+        echo "📥 Fetching and Patching $wf..."
+        curl -sSL "$URL" -o "$DEST.tmp"
     fi
 
-    echo "📥 Fetching and Patching $wf..."
-    
-    # Download content to a temporary file for processing
-    curl -sSL "$URL" -o "$DEST.tmp"
+    DEST_FINAL=""
+    if [ "$wf" == "dependabot.yml" ]; then
+        DEST_FINAL=".github/$wf"
+    else
+        DEST_FINAL="$TARGET_PATH/$wf"
+    fi
     
     if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
         # Project Type
@@ -110,18 +133,15 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         fi
         # Strategy
         sed -i "s/release_strategy: '.*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST.tmp"
-        
         # Cron Schedule
         sed -i "s/cron: '.*'/cron: '$CRON_SCHEDULE'/g" "$DEST.tmp"
-
-        # Node (Targeting the default: line specifically for node-version)
+        # Node
         sed -i "/node-version:/,/default:/s/default: '.*'/default: '$NODE_VERSION'/" "$DEST.tmp"
-        
         # Python
         sed -i "/python-version:/,/default:/s/default: '.*'/default: '$PYTHON_VERSION'/" "$DEST.tmp"
     fi
 
-    mv "$DEST.tmp" "$DEST"
+    mv "$DEST.tmp" "$DEST_FINAL"
 done
 
 # 4. Handle version.json (Skip for Flutter)
@@ -132,7 +152,4 @@ if [ "$PROJECT_TYPE" != "flutter" ]; then
     fi
 fi
 
-echo -e "\n\033[0;32m✅ Installation Complete! Your repo is now part of the Rokct fleet.\033[0m\n"
-echo -e "\033[0;90mNext steps:\033[0m"
-echo -e "\033[0;90m1. Verify .github/workflows for your customized settings.\033[0m"
-echo -e "\033[0;90m2. Commit and push the new workflows.\033[0m\n"
+echo -e "\n\033[0;32m✅ Installation Complete!\033[0m\n"
