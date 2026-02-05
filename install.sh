@@ -151,12 +151,11 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
 
-# 4. Handle versions.json (Skip for Flutter)
+# 4. Handle version.json (Skip for Flutter)
 if [ "$PROJECT_TYPE" != "flutter" ]; then
-    if [ ! -f "versions.json" ]; then
-        echo -e "\n\033[0;33m📝 Creating versions.json ($STARTING_VERSION)...\033[0m"
-        # Create pluralized structure: { "project": "ver" }
-        echo -e "{\n  \"$PROJECT_TYPE\": \"$STARTING_VERSION\"\n}" > versions.json
+    if [ ! -f "version.json" ]; then
+        echo -e "\n\033[0;33m📝 Creating version.json ($STARTING_VERSION)...\033[0m"
+        echo -e "{\n  \"version\": \"$STARTING_VERSION\"\n}" > version.json
     fi
 fi
 
