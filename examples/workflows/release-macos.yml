@@ -51,7 +51,7 @@ jobs:
     if: needs.check-quota.outputs.should_run == 'true' && (github.event_name == 'workflow_dispatch' || !github.event.release.prerelease)
     permissions:
       contents: write
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@latest
     with:
       build-type: macos
       upload-artifact: true 
@@ -74,3 +74,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: macos_build/*.zip
+
