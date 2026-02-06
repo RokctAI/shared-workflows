@@ -2,6 +2,11 @@ name: Sync Stable Tag
 on:
   release:
     types: [published]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
     inputs:
       target_tag:
@@ -11,8 +16,14 @@ on:
 
 jobs:
   sync-tag:
-    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    # Trigger on release (if not pre-release), manual dispatch, or push to main
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      github.event_name == 'push' ||
+      (github.event_name == 'release' && !github.event.release.prerelease)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,29 +35,27 @@ jobs:
           # Ensure all tags are available for resolution
           git fetch --tags --force
           
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            INPUT_TAG="${{ inputs.target_tag }}"
-            if [ -z "$INPUT_TAG" ]; then
-              echo "🔍 Calculating latest stable tag..."
-              # Simplified grep for maximum portability across shell environments
-              LATEST=$(git tag --sort=-v:refname | grep -v "\-rc" | grep -v "\-beta" | grep -v "\-alpha" | grep -v "\-dev" | head -n 1)
-              echo "✅ Found: $LATEST"
-              echo "target=$LATEST" >> $GITHUB_OUTPUT
-            else
-              # Robust check for 'v' prefix if direct resolution fails
-              if git rev-parse "$INPUT_TAG" >/dev/null 2>&1; then
-                echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
-              elif git rev-parse "v$INPUT_TAG" >/dev/null 2>&1; then
-                echo "✅ Resolved $INPUT_TAG to v$INPUT_TAG"
-                echo "target=v$INPUT_TAG" >> $GITHUB_OUTPUT
-              else
-                echo "❌ Failed to resolve '$INPUT_TAG' or 'v$INPUT_TAG' as a valid ref."
-                exit 1
-              fi
-            fi
-          else
+          if [ "${{ github.event_name }}" == "release" ]; then
             echo "Using release tag: ${{ github.event.release.tag_name }}"
             echo "target=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ ! -z "${{ inputs.target_tag }}" ]; then
+            INPUT_TAG="${{ inputs.target_tag }}"
+            # Robust check for 'v' prefix
+            if git rev-parse "$INPUT_TAG" >/dev/null 2>&1; then
+              echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
+            elif git rev-parse "v$INPUT_TAG" >/dev/null 2>&1; then
+              echo "✅ Resolved $INPUT_TAG to v$INPUT_TAG"
+              echo "target=v$INPUT_TAG" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to resolve '$INPUT_TAG' or 'v$INPUT_TAG' as a valid ref."
+              exit 1
+            fi
+          else
+            echo "🔍 Calculating latest stable tag from history..."
+            # Simplified grep for maximum portability
+            LATEST=$(git tag --sort=-v:refname | grep -v "\-rc" | grep -v "\-beta" | grep -v "\-alpha" | grep -v "\-dev" | head -n 1)
+            echo "✅ Found: $LATEST"
+            echo "target=$LATEST" >> $GITHUB_OUTPUT
           fi
 
       - name: Sync stable tag
@@ -54,7 +63,16 @@ jobs:
           TARGET="${{ steps.resolve.outputs.target }}"
           if [ -z "$TARGET" ]; then
             echo "❌ No stable tag found to sync."
-            exit 1
+            exit 0 # Exit gracefully if no tag found during push
+          fi
+          
+          # Check if 'stable' already points to this target to avoid redundant pushes
+          CURRENT_STABLE_REF=$(git rev-parse stable 2>/dev/null || echo "none")
+          TARGET_REF=$(git rev-parse "$TARGET")
+          
+          if [ "$CURRENT_STABLE_REF" == "$TARGET_REF" ]; then
+            echo "✅ 'stable' tag is already up to date at $TARGET ($TARGET_REF)."
+            exit 0
           fi
           
           git config --global user.name "github-actions[bot]"
@@ -62,4 +80,5 @@ jobs:
           
           echo "🚀 Pointing 'stable' to $TARGET..."
           git tag -f stable "$TARGET"
+          # Use GITHUB_TOKEN for authentication in push
           git push origin stable --force
