@@ -39,6 +39,10 @@ on:
         required: false
         type: boolean
         default: false
+      bootstrap:
+        required: false
+        type: boolean
+        default: false
 
     secrets:
       COUNTER_API_KEY:
@@ -108,11 +112,28 @@ jobs:
              sudo apt-get install -y postgresql-client
           fi
 
-      - name: Install Frappe Bench
+      - name: Install Frappe Bench (Manual)
+        if: inputs.bootstrap == false
         run: |
           npm install -g yarn
           pip install frappe-bench
           bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+
+      - name: Install RPanel via Bootstrap Script
+        if: inputs.bootstrap == true
+        run: |
+          # Download and run the official installer
+          wget https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh
+          chmod +x install.sh
+          # Run as root in CI mode
+          sudo CI=true ./install.sh
+          
+          # move frappe-bench to standard location if needed by later steps
+          # install.sh uses /home/frappe/frappe-bench
+          if [ -d "/home/frappe/frappe-bench" ]; then
+             sudo ln -s /home/frappe/frappe-bench ./frappe-bench
+             sudo chown -R $USER:$USER /home/frappe/frappe-bench
+          fi
 
       - name: Install App & Run Tests
         working-directory: frappe-bench
@@ -127,13 +148,13 @@ jobs:
           bench pip install setuptools
 
           # Install Payments if requested (Required by some apps like rcore)
-          if [ "${{ inputs.install-payments }}" == "true" ]; then
+          if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
              echo "Installing Payments App..."
              bench get-app payments --branch version-15 --resolve-deps --skip-assets
           fi
 
           # Install ERPNext if requested
-          if [ "${{ inputs.install-erpnext }}" == "true" ]; then
+          if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
              echo "Installing ERPNext..."
              bench get-app erpnext --resolve-deps --skip-assets
           fi
@@ -142,8 +163,10 @@ jobs:
           git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
           
           # Fetch key app (the repo calling this workflow)
-          # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
-          bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
+             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
+          fi
           
           # Detect actual app directory and name
           # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
@@ -235,6 +258,43 @@ jobs:
           # Use tee to capture stdout/stderr for annotation processing
           bench --site test_site install-app $APP_NAME
           bench --site test_site run-tests --app $APP_NAME 2>&1 | tee test_output.log
+
+      - name: Extended Platform Integration (Trick in a Trick) 🎩✨
+        if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
+        working-directory: frappe-bench
+        shell: bash
+        run: |
+          echo "Registry detected as RokctAI. Triggering extended platform integration..."
+          
+          # 1. Setup SSH for private Control app
+          # Note: Expects SSH_PRIVATE_KEY secret to be available
+          if [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+             mkdir -p ~/.ssh
+             echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+             chmod 600 ~/.ssh/id_rsa
+             ssh-keyscan github.com >> ~/.ssh/known_hosts
+             echo "SSH key configured for private repos."
+          fi
+          
+          # 2. Install ERPNext
+          echo "Installing ERPNext (latest)..."
+          bench get-app erpnext --resolve-deps --skip-assets
+          
+          # 3. Install Control (Private)
+          echo "Installing Control Panel..."
+          # If SSH key is set, bench will use it automatically via git
+          bench get-app git@github.com:RokctAI/control.git --resolve-deps --skip-assets
+          
+          # 4. Integrate into site
+          SITE_NAME=$(ls sites | grep .local | head -n 1)
+          SITE_NAME=${SITE_NAME:-test_site}
+          echo "Integrating into site: $SITE_NAME"
+          
+          bench --site $SITE_NAME install-app erpnext control
+          
+          # 5. Verify Installation
+          echo "Verifying platform bundle..."
+          bench --site $SITE_NAME execute frappe.get_installed_apps
 
       - name: Process Annotations
         if: always()
