@@ -815,6 +815,7 @@ jobs:
         env:
            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
            BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
