@@ -60,6 +60,8 @@ jobs:
           fi
 
       - name: Sync stable tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TARGET="${{ steps.resolve.outputs.target }}"
           if [ -z "$TARGET" ]; then
@@ -67,19 +69,20 @@ jobs:
             exit 0 # Exit gracefully if no tag found during push
           fi
           
-          # Check if 'stable' already points to this target to avoid redundant pushes
-          CURRENT_STABLE_REF=$(git rev-parse stable 2>/dev/null || echo "none")
-          TARGET_REF=$(git rev-parse "$TARGET")
+          # Get SHA of target
+          TARGET_SHA=$(git rev-parse "$TARGET")
+          echo "🚀 Pointing 'stable' to $TARGET ($TARGET_SHA)..."
           
-          if [ "$CURRENT_STABLE_REF" == "$TARGET_REF" ]; then
-            echo "✅ 'stable' tag is already up to date at $TARGET ($TARGET_REF)."
-            exit 0
+          # Check if 'stable' already exists
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/stable")
+          
+          if [ "$HTTP_CODE" == "200" ]; then
+            echo "Updating existing 'stable' tag..."
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/stable" -f sha="$TARGET_SHA" -f force=true
+          else
+            echo "Creating new 'stable' tag..."
+            gh api -X POST "repos/${{ github.repository }}/git/refs/tags/stable" -f ref="refs/tags/stable" -f sha="$TARGET_SHA"
           fi
           
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          echo "🚀 Pointing 'stable' to $TARGET..."
-          git tag -f stable "$TARGET"
-          # Use GITHUB_TOKEN for authentication in push
-          git push origin stable --force
+          echo "✅ Tag sync complete."
