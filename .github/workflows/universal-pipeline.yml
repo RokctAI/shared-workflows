@@ -89,21 +89,21 @@ jobs:
   # 1. SECURITY
   security:
     if: inputs.run_security
-    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    uses: ./.github/workflows/universal-security.yml
     secrets: inherit
 
   # 2. LINT
   lint:
     needs: security
     if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint
-    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
+    uses: ./.github/workflows/universal-linter.yml
     secrets: inherit
 
   # 3. CI / BUILD (Project Specific Jobs)
   ci-frappe:
     needs: lint
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
+    uses: ./.github/workflows/universal-frappe-ci.yml
     with:
       python-version: ${{ inputs.python-version }}
       mariadb-version: ${{ inputs.mariadb-version }}
@@ -119,7 +119,7 @@ jobs:
   ci-node:
     needs: lint
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'node'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
+    uses: ./.github/workflows/universal-node-ci.yml
     with:
       node-version: ${{ inputs.node-version }}
       package-manager: ${{ inputs.package-manager }}
@@ -128,7 +128,7 @@ jobs:
   ci-flutter:
     needs: lint
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'flutter'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: ./.github/workflows/universal-flutter-build.yml
     with:
       # Note: build-type here for CI is usually 'apk' or similar to verify compilation
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
@@ -147,7 +147,7 @@ jobs:
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
         (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped')
       ))
-    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    uses: ./.github/workflows/universal-release.yml
     with:
       release_strategy: ${{ inputs.release_strategy }}
       version_file: ${{ inputs.version_file }}
