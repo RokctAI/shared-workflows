@@ -31,7 +31,8 @@ jobs:
       contents: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
-      project_type: 'frappe' # shared-workflows doesn't have a specific type, but frappe defaults works
+      project_type: 'node' # No longer pretending to be frappe
+      run_ci: false       # Skip bench install/tests for this library
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
 
