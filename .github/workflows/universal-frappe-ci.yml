@@ -44,9 +44,6 @@ on:
       COUNTER_API_KEY:
         required: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-ci
-  cancel-in-progress: true
 
 jobs:
   # --- 0. TELEMETRY (Usage Tracking) ---
