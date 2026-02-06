@@ -79,6 +79,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start Database Service
+        if: inputs.bootstrap == false
         run: |
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
@@ -103,6 +104,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
       - name: Install System Dependencies
+        if: inputs.bootstrap == false
         run: |
           sudo apt-get update
           sudo apt-get install -y wkhtmltopdf
@@ -139,10 +141,12 @@ jobs:
         working-directory: frappe-bench
         run: |
           # Configure Bench to use the service DB/Redis
-          bench set-config -g db_host 127.0.0.1
-          bench set-config -g redis_cache redis://127.0.0.1:6379
-          bench set-config -g redis_queue redis://127.0.0.1:6379
-          bench set-config -g redis_socketio redis://127.0.0.1:6379
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench set-config -g db_host 127.0.0.1
+             bench set-config -g redis_cache redis://127.0.0.1:6379
+             bench set-config -g redis_queue redis://127.0.0.1:6379
+             bench set-config -g redis_socketio redis://127.0.0.1:6379
+          fi
 
           # Fix for Missing pkg_resources in payments app
           bench pip install setuptools
@@ -233,11 +237,21 @@ jobs:
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-             bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+                bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+             else
+                bench new-site test_site --db-type postgres --db-root-password ${{ inputs.db-password }} --admin-password admin
+             fi
+             SITE_NAME="test_site"
           else
-             bench new-site test_site --db-type postgres --db-root-password ${{ inputs.db-password }} --admin-password admin
+             # Use site created by bootstrap (defaults to rpanel.local)
+             # Extract from sites folder if not found
+             SITE_NAME=$(ls sites | grep .local | head -n 1)
+             SITE_NAME=${SITE_NAME:-rpanel.local}
           fi
+          
+          echo "Using Site: $SITE_NAME"
           
           # Ensure app is in apps.txt (required for install-app)
           # Use printf to ensure valid newline handling
@@ -256,8 +270,10 @@ jobs:
 
           # Install App & Run Tests
           # Use tee to capture stdout/stderr for annotation processing
-          bench --site test_site install-app $APP_NAME
-          bench --site test_site run-tests --app $APP_NAME 2>&1 | tee test_output.log
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench --site $SITE_NAME install-app $APP_NAME
+          fi
+          bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
         if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
