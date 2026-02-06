@@ -368,6 +368,12 @@ jobs:
              exit 0 
           }
 
+          # Check for Windows directory existence
+          if (!(Test-Path "windows")) {
+             Write-Output "Skipping: windows/ directory not found. Not a Windows-ready project."
+             exit 0
+          }
+
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
           flutter build windows --release
@@ -707,16 +713,35 @@ jobs:
       # Decode Google Services JSON if provided
       - name: Decode Google Services JSON
         if: inputs.build_android == true && env.GOOGLE_SERVICES_JSON != ''
-        run: echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+        run: |
+          if [ -d "android" ]; then
+             mkdir -p android/app
+             if [ ! -f "android/app/google-services.json" ]; then
+                echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+             else
+                echo "✅ Using existing android/app/google-services.json from repository."
+             fi
+          else
+             echo "Skipping: android/ directory not found. Not a mobile project."
+          fi
 
       - name: Decode Keystore
         if: inputs.build_android == true && env.KEY_JKS != ''
         run: |
-          echo "$KEY_JKS" | base64 --decode > android/app/key.jks
-          echo "storePassword=$KEY_PASSWORD" > android/key.properties
-          echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
-          echo "keyAlias=upload" >> android/key.properties
-          echo "storeFile=key.jks" >> android/key.properties
+          if [ -d "android" ]; then
+            mkdir -p android/app
+            if [ ! -f "android/key.properties" ]; then
+              echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+              echo "storePassword=$KEY_PASSWORD" > android/key.properties
+              echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
+              echo "keyAlias=upload" >> android/key.properties
+              echo "storeFile=key.jks" >> android/key.properties
+            else
+              echo "✅ Using existing android/key.properties from repository."
+            fi
+          else
+            echo "Skipping: android/ directory not found. Not a mobile project."
+          fi
 
       - name: Build Android APK
         # Build for Dev, Promote (Stable), and Immediate Stable. Exclude RC.
