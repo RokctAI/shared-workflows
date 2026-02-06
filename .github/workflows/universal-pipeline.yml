@@ -1,8 +1,5 @@
 name: Universal Pipeline Orchestrator
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-pipeline
-  cancel-in-progress: true
 
 on:
   workflow_call:
