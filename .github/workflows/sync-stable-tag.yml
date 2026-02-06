@@ -70,19 +70,39 @@ jobs:
             exit 0
           fi
           
-          echo "🚀 Pointing '@stable' to $TARGET..."
-          
           # Check if 'stable' already points here
           CURRENT_STABLE=$(git rev-parse stable 2>/dev/null || echo "none")
           TARGET_SHA=$(git rev-parse "$TARGET")
           
           if [ "$CURRENT_STABLE" == "$TARGET_SHA" ]; then
-            echo "✅ '@stable' is already up to date."
+            echo "✅ '@stable' is already up to date at $TARGET."
             exit 0
           fi
 
-          # Use git push approach - will work for future non-workflow changes
+          echo "🚀 Attempting to move '@stable' to $TARGET..."
+          
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git tag -f stable "$TARGET"
-          git push origin stable --force
+          
+          # Attempt push and catch workflow permission error
+          if git push origin stable --force 2>push_error.txt; then
+            echo "✅ '@stable' successfully updated to $TARGET."
+          else
+            ERROR_MSG=$(cat push_error.txt)
+            echo "❌ Push failed: $ERROR_MSG"
+            if [[ "$ERROR_MSG" == *"without workflows permission"* ]]; then
+               echo "--------------------------------------------------------"
+               echo "⚠️ SECURITY BLOCK: GitHub prevents bots from pushing tags to"
+               echo "commits that modify workflow files (.github/workflows/*.yml)."
+               echo ""
+               echo "FIX: Please move the tag manually once to get past this commit:"
+               echo "git fetch --tags"
+               echo "git tag -f stable $TARGET"
+               echo "git push origin stable --force"
+               echo "--------------------------------------------------------"
+               exit 1
+            else
+               exit 1
+            fi
+          fi
