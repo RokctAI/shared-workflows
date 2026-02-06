@@ -1,4 +1,7 @@
 name: Auto Release (Weekly)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-release
+  cancel-in-progress: true
 on:
   push:
     branches: [main, develop]
@@ -8,7 +11,7 @@ on:
     inputs:
       node-version:
         type: string
-        default: '22'
+        default: '24'
       python-version:
         type: string
         default: '3.14'
@@ -46,7 +49,7 @@ jobs:
       # Build APK
       build_android: true
       # Environment configuration
-      node-version: ${{ inputs.node-version || '22' }}
+      node-version: ${{ inputs.node-version || '24' }}
       python-version: ${{ inputs.python-version || '3.14' }}
       mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
       postgres-version: ${{ inputs.postgres-version || '15' }}
