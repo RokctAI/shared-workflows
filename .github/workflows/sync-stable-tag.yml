@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,10 +31,9 @@ jobs:
       
       - name: Resolve Target Tag
         id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Ensure all tags are available for resolution
-          git fetch --tags --force
-          
           if [ "${{ github.event_name }}" == "release" ]; then
             echo "Using release tag: ${{ github.event.release.tag_name }}"
             echo "target=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
@@ -45,16 +43,19 @@ jobs:
             if git rev-parse "$INPUT_TAG" >/dev/null 2>&1; then
               echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
             elif git rev-parse "v$INPUT_TAG" >/dev/null 2>&1; then
-              echo "✅ Resolved $INPUT_TAG to v$INPUT_TAG"
               echo "target=v$INPUT_TAG" >> $GITHUB_OUTPUT
             else
-              echo "❌ Failed to resolve '$INPUT_TAG' or 'v$INPUT_TAG' as a valid ref."
+              echo "❌ Failed to resolve '$INPUT_TAG' as a valid ref."
               exit 1
             fi
           else
-            echo "🔍 Calculating latest stable tag from history..."
-            # Simplified grep for maximum portability
-            LATEST=$(git tag --sort=-v:refname | grep -v "\-rc" | grep -v "\-beta" | grep -v "\-alpha" | grep -v "\-dev" | head -n 1)
+            echo "🔍 Finding latest stable release using GitHub labels..."
+            # 🎯 Finds the latest release NOT marked as a pre-release
+            LATEST=$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName' || echo "")
+            if [ -z "$LATEST" ]; then
+               # Fallback to git tags if no releases found
+               LATEST=$(git tag --sort=-v:refname | grep -vE "-(rc|beta|alpha|dev)" | head -n 1 || echo "")
+            fi
             echo "✅ Found: $LATEST"
             echo "target=$LATEST" >> $GITHUB_OUTPUT
           fi
@@ -69,19 +70,19 @@ jobs:
             exit 0
           fi
           
-          echo "🚀 Pointing '@stable' pointer to $TARGET..."
+          echo "🚀 Pointing '@stable' to $TARGET..."
           
-          # Use high-level 'gh release' which is often more privileged than 'git push' 
-          # for workflow-related commits.
+          # Check if 'stable' already points here
+          CURRENT_STABLE=$(git rev-parse stable 2>/dev/null || echo "none")
+          TARGET_SHA=$(git rev-parse "$TARGET")
           
-          # 1. Delete existing 'stable' release/tag if it exists
-          gh release delete stable --yes --cleanup-tag 2>/dev/null || echo "Stable release not found, creating new..."
-          
-          # 2. Create new release named 'stable' pointing to our target
-          # This automatically creates the 'stable' tag at the same commit as $TARGET
-          gh release create stable --target "$TARGET" \
-            --title "Stable Pointer" \
-            --notes "This is an automated pointer for the fleet. Current version: $TARGET" \
-            --prerelease=false
-          
-          echo "✅ '@stable' pointer successfully updated to $TARGET."
+          if [ "$CURRENT_STABLE" == "$TARGET_SHA" ]; then
+            echo "✅ '@stable' is already up to date."
+            exit 0
+          fi
+
+          # Use git push approach - will work for future non-workflow changes
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f stable "$TARGET"
+          git push origin stable --force
