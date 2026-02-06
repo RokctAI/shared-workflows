@@ -66,23 +66,22 @@ jobs:
           TARGET="${{ steps.resolve.outputs.target }}"
           if [ -z "$TARGET" ]; then
             echo "❌ No stable tag found to sync."
-            exit 0 # Exit gracefully if no tag found during push
+            exit 0
           fi
           
-          # Get SHA of target
-          TARGET_SHA=$(git rev-parse "$TARGET")
-          echo "🚀 Pointing 'stable' to $TARGET ($TARGET_SHA)..."
+          echo "🚀 Pointing '@stable' pointer to $TARGET..."
           
-          # Check if 'stable' already exists
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/stable")
+          # Use high-level 'gh release' which is often more privileged than 'git push' 
+          # for workflow-related commits.
           
-          if [ "$HTTP_CODE" == "200" ]; then
-            echo "Updating existing 'stable' tag..."
-            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/stable" -f sha="$TARGET_SHA" -f force=true
-          else
-            echo "Creating new 'stable' tag..."
-            gh api -X POST "repos/${{ github.repository }}/git/refs/tags/stable" -f ref="refs/tags/stable" -f sha="$TARGET_SHA"
-          fi
+          # 1. Delete existing 'stable' release/tag if it exists
+          gh release delete stable --yes --cleanup-tag 2>/dev/null || echo "Stable release not found, creating new..."
           
-          echo "✅ Tag sync complete."
+          # 2. Create new release named 'stable' pointing to our target
+          # This automatically creates the 'stable' tag at the same commit as $TARGET
+          gh release create stable --target "$TARGET" \
+            --title "Stable Pointer" \
+            --notes "This is an automated pointer for the fleet. Current version: $TARGET" \
+            --prerelease=false
+          
+          echo "✅ '@stable' pointer successfully updated to $TARGET."
