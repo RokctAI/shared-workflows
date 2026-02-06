@@ -48,6 +48,9 @@ on:
       install-payments:
         type: boolean
         default: false
+      bootstrap:
+        type: boolean
+        default: false
       # Flutter
       flutter-channel:
         type: string
@@ -110,6 +113,7 @@ jobs:
       node-version: ${{ inputs.node-version }}
       install-erpnext: ${{ inputs.install-erpnext }}
       install-payments: ${{ inputs.install-payments }}
+      bootstrap: ${{ inputs.bootstrap }}
     secrets: inherit
 
   ci-node:
