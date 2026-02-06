@@ -2,20 +2,53 @@ name: Sync Stable Tag
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: "Tag to point 'stable' to (Auto-calculated if empty)"
+        required: false
+        type: string
 
 jobs:
   sync-tag:
-    if: "!github.event.release.prerelease"
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
+      - name: Resolve Target Tag
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            INPUT_TAG="${{ inputs.target_tag }}"
+            if [ -z "$INPUT_TAG" ]; then
+              echo "Calculating latest stable tag..."
+              # Find latest tag that doesn't contain -rc, -beta, -alpha, etc.
+              LATEST=$(git tag --sort=-v:refname | grep -vE "-(rc|beta|alpha|dev)" | head -n 1)
+              echo "Found: $LATEST"
+              echo "target=$LATEST" >> $GITHUB_OUTPUT
+            else
+              echo "Using input tag: $INPUT_TAG"
+              echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Using release tag: ${{ github.event.release.tag_name }}"
+            echo "target=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Sync stable tag
         run: |
+          TARGET="${{ steps.resolve.outputs.target }}"
+          if [ -z "$TARGET" ]; then
+            echo "❌ No stable tag found to sync."
+            exit 1
+          fi
+          
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git tag -f stable ${{ github.event.release.tag_name }}
+          echo "Pointing 'stable' to $TARGET..."
+          git tag -f stable "$TARGET"
           git push origin stable --force
