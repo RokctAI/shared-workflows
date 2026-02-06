@@ -1,0 +1,21 @@
+name: Sync Stable Tag
+on:
+  release:
+    types: [published]
+
+jobs:
+  sync-tag:
+    if: "!github.event.release.prerelease"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Sync stable tag
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag -f stable ${{ github.event.release.tag_name }}
+          git push origin stable --force
