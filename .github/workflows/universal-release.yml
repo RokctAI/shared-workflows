@@ -843,31 +843,37 @@ jobs:
               if [ -z "$BRAIN_TOKEN" ]; then
                  # No token - call without Authorization header
                  echo "Calling Brain API without token..."
-                 RESPONSE=$(curl -v -m 30 -X POST "$BRAIN_ENDPOINT" \
+                 RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" \
                    -H "Content-Type: application/json" \
-                   -d "$JSON_PAYLOAD" 2>&1 || echo "Curl Failed")
+                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
               else
                  # Token provided - include Authorization header
                  echo "Calling Brain API with token..."
-                 RESPONSE=$(curl -v -m 30 -X POST "$BRAIN_ENDPOINT" \
+                 RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" \
                    -H "Content-Type: application/json" \
                    -H "Authorization: $BRAIN_TOKEN" \
-                   -d "$JSON_PAYLOAD" 2>&1 || echo "Curl Failed")
-              fi
+                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+               fi
               
               echo "Response: $RESPONSE"
 
               # Check response
-              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]]; then
+              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]] || [[ -z "$RESPONSE" ]]; then
                  echo "⚠️ Brain Writer Failed. Falling back to git log."
-                 echo "Error: $RESPONSE"
+                 echo "Error Content: $RESPONSE"
                  echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
               else
-                 MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
-                 if [[ "$MSG" == "Invalid JSON" ]]; then
-                    echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
+                 # Validate JSON before parsing
+                 if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
+                    MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
+                    if [[ "$MSG" == "Invalid JSON" ]]; then
+                       echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
+                    else
+                       echo "$MSG" > changelog.txt
+                    fi
                  else
-                    echo "$MSG" > changelog.txt
+                    echo "⚠️ Invalid JSON response from Brain. Falling back."
+                    echo "$LOG" >> changelog.txt
                  fi
               fi
            else
@@ -882,8 +888,8 @@ jobs:
                 REVIEWERS=""
                 SEEN_PRS=""
                 
-                # Get all SHAs between tags
-                SHAS=$(git log "${PREV_TAG}..${TAG}" --pretty=format:%H)
+                # Get all SHAs between tags (Use HEAD as target since TAG may not exist yet)
+                SHAS=$(git log "${PREV_TAG}..HEAD" --pretty=format:%H)
                 
                 for sha in $SHAS; do
                    # Find PR associated with this commit
