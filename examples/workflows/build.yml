@@ -46,25 +46,20 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     outputs:
-      is_flutter: ${{ steps.check.outputs.is_flutter }}
-      is_node: ${{ steps.check.outputs.is_node }}
+      type: ${{ steps.check.outputs.type }}
     steps:
       - uses: actions/checkout@v4
       - name: Check Project Type
         id: check
         run: |
           if [ -f "pubspec.yaml" ]; then
-             echo "Flutter project detected."
-             echo "is_flutter=true" >> $GITHUB_OUTPUT
-             echo "is_node=false" >> $GITHUB_OUTPUT
+             echo "type=flutter" >> $GITHUB_OUTPUT
           elif [ -f "package.json" ]; then
-             echo "Node.js project detected."
-             echo "is_flutter=false" >> $GITHUB_OUTPUT
-             echo "is_node=true" >> $GITHUB_OUTPUT
+             echo "type=node" >> $GITHUB_OUTPUT
+          elif [ -f "requirements.txt" ] || [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
+             echo "type=frappe" >> $GITHUB_OUTPUT
           else
-             echo "Unknown project type. Skipping builds."
-             echo "is_flutter=false" >> $GITHUB_OUTPUT
-             echo "is_node=false" >> $GITHUB_OUTPUT
+             echo "type=none" >> $GITHUB_OUTPUT
           fi
 
   # --- 2. UNIFIED PIPELINE (Smart) ---
@@ -72,11 +67,11 @@ jobs:
     needs: detect
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@latest
     with:
-      project_type: ${{ needs.detect.outputs.is_flutter == 'true' && 'flutter' || (needs.detect.outputs.is_node == 'true' && 'node' || 'frappe') }}
+      project_type: ${{ needs.detect.outputs.type }}
       # Quality Gate Toggles
       run_security: true
       run_lint: true
-      run_ci: true
+      run_ci: ${{ needs.detect.outputs.type != 'none' }}
       # Deployment Configuration (Immediate release on Main)
       release_strategy: 'immediate'
       # Environment configuration
