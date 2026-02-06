@@ -1,8 +1,5 @@
 name: Universal Release Workflow
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-release
-  cancel-in-progress: true
 
 on:
   workflow_call:
