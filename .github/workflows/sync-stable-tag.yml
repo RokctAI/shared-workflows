@@ -16,7 +16,7 @@ on:
 
 jobs:
   sync-tag:
-    # Trigger on release (if not pre-release), manual dispatch, or push to main
+    # Trigger on release (if not pre-release), manual dispatch, or push to main 
     if: |
       github.event_name == 'workflow_dispatch' || 
       github.event_name == 'push' ||
