@@ -21,8 +21,8 @@ jobs:
           mkdir out-bash
           cd out-bash
           git init
-          # y (Customize) -> 4 (Node) -> 1.2.3 (Ver) -> 2 (Weekly) -> 0 0 * * * (Cron) -> 20 (Node) -> 3.12 (Python)
-          printf "y\n4\n1.2.3\n2\n0 0 * * *\n20\n3.12\n" | bash ../install.sh --local
+          # y (Customize) -> 4 (Node) -> 1.2.3 (Ver) -> 2 (Weekly) -> 0 0 * * * (Cron) -> 24 (Node) -> 3.14 (Python) -> @RendaniSinyage (Handle)
+          printf "y\n4\n1.2.3\n2\n0 0 * * *\n24\n3.14\n@RendaniSinyage\n" | bash ../install.sh --local
       
       - name: Run PowerShell Installer (Customized)
         shell: pwsh
@@ -31,7 +31,7 @@ jobs:
           cd out-ps
           git init
           # Same inputs
-          @("y", "4", "1.2.3", "2", "0 0 * * *", "20", "3.12") | pwsh ../install.ps1 -LocalMode
+          @("y", "4", "1.2.3", "2", "0 0 * * *", "24", "3.14", "@RendaniSinyage") | pwsh ../install.ps1 -LocalMode
       
       - name: Verify Parity (Zero Drift)
         run: |
