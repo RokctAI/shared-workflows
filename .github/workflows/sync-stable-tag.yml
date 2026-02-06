@@ -21,17 +21,28 @@ jobs:
       - name: Resolve Target Tag
         id: resolve
         run: |
+          # Ensure all tags are available for resolution
+          git fetch --tags --force
+          
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             INPUT_TAG="${{ inputs.target_tag }}"
             if [ -z "$INPUT_TAG" ]; then
-              echo "Calculating latest stable tag..."
+              echo "🔍 Calculating latest stable tag..."
               # Find latest tag that doesn't contain -rc, -beta, -alpha, etc.
               LATEST=$(git tag --sort=-v:refname | grep -vE "-(rc|beta|alpha|dev)" | head -n 1)
-              echo "Found: $LATEST"
+              echo "✅ Found: $LATEST"
               echo "target=$LATEST" >> $GITHUB_OUTPUT
             else
-              echo "Using input tag: $INPUT_TAG"
-              echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
+              # Robust check for 'v' prefix if direct resolution fails
+              if git rev-parse "$INPUT_TAG" >/dev/null 2>&1; then
+                echo "target=$INPUT_TAG" >> $GITHUB_OUTPUT
+              elif git rev-parse "v$INPUT_TAG" >/dev/null 2>&1; then
+                echo "✅ Resolved $INPUT_TAG to v$INPUT_TAG"
+                echo "target=v$INPUT_TAG" >> $GITHUB_OUTPUT
+              else
+                echo "❌ Failed to resolve '$INPUT_TAG' or 'v$INPUT_TAG' as a valid ref."
+                exit 1
+              fi
             fi
           else
             echo "Using release tag: ${{ github.event.release.tag_name }}"
@@ -49,6 +60,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          echo "Pointing 'stable' to $TARGET..."
+          echo "🚀 Pointing 'stable' to $TARGET..."
           git tag -f stable "$TARGET"
           git push origin stable --force
