@@ -1,4 +1,7 @@
 name: Auto Release (Weekly)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-release
+  cancel-in-progress: true
 on:
   push:
     branches: [main, develop]
