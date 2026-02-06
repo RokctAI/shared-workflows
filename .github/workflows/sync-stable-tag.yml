@@ -28,8 +28,8 @@ jobs:
             INPUT_TAG="${{ inputs.target_tag }}"
             if [ -z "$INPUT_TAG" ]; then
               echo "🔍 Calculating latest stable tag..."
-              # Find latest tag that doesn't contain -rc, -beta, -alpha, etc.
-              LATEST=$(git tag --sort=-v:refname | grep -vE "-(rc|beta|alpha|dev)" | head -n 1)
+              # Simplified grep for maximum portability across shell environments
+              LATEST=$(git tag --sort=-v:refname | grep -v "\-rc" | grep -v "\-beta" | grep -v "\-alpha" | grep -v "\-dev" | head -n 1)
               echo "✅ Found: $LATEST"
               echo "target=$LATEST" >> $GITHUB_OUTPUT
             else
