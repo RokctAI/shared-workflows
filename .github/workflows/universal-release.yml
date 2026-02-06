@@ -815,6 +815,7 @@ jobs:
         env:
            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
            BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
            TAG="${{ env.TAG_NAME }}"
@@ -829,57 +830,81 @@ jobs:
               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E 's/by @mergify //')
            fi
            
-           if [ ! -z "$BRAIN_ENDPOINT" ]; then
-              echo "🧠 Calling Brain Writer API..."
-              
-              # Format JSON payload
-              JSON_PAYLOAD=$(jq -n \
-               --arg repo "${{ github.server_url }}/${{ github.repository }}" \
-               --arg ver "$TAG" \
-               --arg log "$LOG" \
-               '{repo_url: $repo, version_name: $ver, commit_log: $log}')
-              
-              # Call API
-              # Increase robustness (timeout, fail-safe)
-              if [ -z "$BRAIN_TOKEN" ]; then
-                 # No token - call without Authorization header
-                 echo "Calling Brain API without token..."
-                 RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" \
-                   -H "Content-Type: application/json" \
-                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
-              else
-                 # Token provided - include Authorization header
-                 echo "Calling Brain API with token..."
-                 RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" \
-                   -H "Content-Type: application/json" \
-                   -H "Authorization: $BRAIN_TOKEN" \
-                   -d "$JSON_PAYLOAD" || echo "Curl Failed")
+            AI_SUCCESS=false
+            
+            # --- TIER 1: BRAIN API ---
+            if [ ! -z "$BRAIN_ENDPOINT" ]; then
+               echo "🧠 Calling Brain Writer API..."
+               
+               JSON_PAYLOAD=$(jq -n \
+                --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+                --arg ver "$TAG" \
+                --arg log "$LOG" \
+                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+               
+               if [ -z "$BRAIN_TOKEN" ]; then
+                  RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -d "$JSON_PAYLOAD" || echo "Curl Failed")
+               else
+                  RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
                fi
-              
-              echo "Response: $RESPONSE"
+               
+               if [[ "$RESPONSE" != *"AI Error"* ]] && [[ "$RESPONSE" != *"Traceback"* ]] && [[ "$RESPONSE" != "Curl Failed" ]] && [[ ! -z "$RESPONSE" ]]; then
+                  if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
+                     MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
+                     if [[ "$MSG" != "Invalid JSON" ]]; then
+                        echo "$MSG" > changelog.txt
+                        AI_SUCCESS=true
+                     fi
+                  fi
+               fi
+               
+               if [ "$AI_SUCCESS" = false ]; then
+                  echo "⚠️ Brain Writer Failed."
+               fi
+            fi
 
-              # Check response
-              if [[ "$RESPONSE" == *"AI Error"* ]] || [[ "$RESPONSE" == *"Traceback"* ]] || [[ "$RESPONSE" == "Curl Failed" ]] || [[ -z "$RESPONSE" ]]; then
-                 echo "⚠️ Brain Writer Failed. Falling back to git log."
-                 echo "Error Content: $RESPONSE"
-                 echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
-              else
-                 # Validate JSON before parsing
-                 if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
-                    MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
-                    if [[ "$MSG" == "Invalid JSON" ]]; then
-                       echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
-                    else
-                       echo "$MSG" > changelog.txt
-                    fi
-                 else
-                    echo "⚠️ Invalid JSON response from Brain. Falling back."
-                    echo "$LOG" >> changelog.txt
-                 fi
-              fi
-           else
-              echo "No AI Endpoint. Using Denoised Git Log..."; echo "$LOG" >> changelog.txt
-           fi
+            # --- TIER 2: GROQ AI FALLBACK ---
+            if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API_KEY" ]; then
+               echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
+               
+               # System Prompt for Groq
+               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Categorize changes (Features, Fixes, Improvements). Keep it concise and professional. Do not include introductory text like 'Here are the release notes'."
+               
+               GROQ_PAYLOAD=$(jq -n \
+                 --arg model "llama-3.3-70b-versatile" \
+                 --arg system "$SYSTEM_PROMPT" \
+                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG" \
+                 '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                 
+               GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" \
+                 -H "Content-Type: application/json" \
+                 -H "Authorization: Bearer $GROQ_API_KEY" \
+                 -d "$GROQ_PAYLOAD" || echo "Groq Failed")
+                 
+               if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
+                  MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content' || echo "Groq Error")
+                  if [[ "$MSG" != "Groq Error" ]] && [[ "$MSG" != "null" ]]; then
+                     echo "## 🚀 Release $TAG" > changelog.txt
+                     echo "" >> changelog.txt
+                     echo "$MSG" >> changelog.txt
+                     AI_SUCCESS=true
+                  fi
+               fi
+               
+               if [ "$AI_SUCCESS" = false ]; then
+                  echo "⚠️ Groq AI Failed."
+               fi
+            fi
+
+            # --- TIER 3: DENOISED GIT LOG FALLBACK ---
+            if [ "$AI_SUCCESS" = false ]; then
+               echo "📝 Using Denoised Git Log fallback..."
+               # Re-verify changelog.txt start (it might have been cleared by failed AI attempts)
+               echo "## 🚀 Release $TAG" > changelog.txt
+               echo "" >> changelog.txt
+               echo "### 📦 Changes" >> changelog.txt
+               echo "$LOG" >> changelog.txt
+            fi
             
              # Extract Contributors (Inspired by Frappe)
              if [ ! -z "$PREV_TAG" ]; then
