@@ -1,11 +1,12 @@
 name: Universal Node.js CI
+
 on:
   workflow_call:
     inputs:
       node-version:
         required: false
         type: string
-        default: '22'
+        default: '24'
       run-test:
         required: false
         type: boolean
