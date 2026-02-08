@@ -41,6 +41,8 @@ on:
         required: false
       COUNTER_API_KEY:
         required: false
+      PRODUCTION_ENV:
+        required: false
 
 jobs:
   telemetry:
@@ -69,6 +71,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Resolve Dynamic Client
+        id: client
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          CLIENT=""
+          if [[ "$BRANCH" == build_* ]]; then
+            # Extract client: build_wrapzo-v1 -> WRAPZO
+            CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+          fi
+          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
+          [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -86,10 +100,34 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      # Decode Google Services JSON if provided
+      # Decode Google Services JSON if provided (Dynamic Resolution)
       - name: Decode Google Services JSON
-        if: env.GOOGLE_SERVICES_JSON != ''
-        run: echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+        env:
+          CLIENT_JSON: ${{ secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] }}
+          DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        if: env.CLIENT_JSON != '' || env.DEFAULT_JSON != ''
+        run: |
+          JSON_CONTENT="$DEFAULT_JSON"
+          if [ ! -z "$CLIENT_JSON" ]; then
+             echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${{ steps.client.outputs.client_upper }}"
+             JSON_CONTENT="$CLIENT_JSON"
+          fi
+          echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
+
+      # Decode Production Environment if provided (Dynamic Resolution)
+      - name: Decode Production Environment
+        env:
+          CLIENT_ENV: ${{ secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] }}
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+        if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
+        run: |
+          ENV_CONTENT="$DEFAULT_ENV"
+          if [ ! -z "$CLIENT_ENV" ]; then
+             echo "✅ Using client-specific secret: PRODUCTION_ENV_${{ steps.client.outputs.client_upper }}"
+             ENV_CONTENT="$CLIENT_ENV"
+          fi
+          mkdir -p .env
+          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
 
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
@@ -167,10 +205,46 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Decode GoogleService-Info.plist if provided (For iOS Firebase)
+      - name: Resolve Dynamic Client
+        id: client
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          CLIENT=""
+          if [[ "$BRANCH" == build_* ]]; then
+            # Extract client: build_wrapzo-v1 -> WRAPZO
+            CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+          fi
+          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
+          [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+
+      # Decode GoogleService-Info.plist if provided (Dynamic Resolution)
       - name: Decode GoogleService-Info.plist
-        if: env.IOS_GOOGLE_SERVICE_INFO_PLIST != ''
-        run: echo "$IOS_GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > ios/Runner/GoogleService-Info.plist
+        env:
+          CLIENT_PLIST: ${{ secrets[format('IOS_GOOGLE_SERVICE_INFO_PLIST_{0}', steps.client.outputs.client_upper)] }}
+          DEFAULT_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        if: env.CLIENT_PLIST != '' || env.DEFAULT_PLIST != ''
+        run: |
+           PLIST_CONTENT="$DEFAULT_PLIST"
+           if [ ! -z "$CLIENT_PLIST" ]; then
+              echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${{ steps.client.outputs.client_upper }}"
+              PLIST_CONTENT="$CLIENT_PLIST"
+           fi
+           echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
+
+      # Decode Production Environment if provided (Dynamic Resolution)
+      - name: Decode Production Environment
+        env:
+          CLIENT_ENV: ${{ secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] }}
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+        if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
+        run: |
+          ENV_CONTENT="$DEFAULT_ENV"
+          if [ ! -z "$CLIENT_ENV" ]; then
+             echo "✅ Using client-specific secret: PRODUCTION_ENV_${{ steps.client.outputs.client_upper }}"
+             ENV_CONTENT="$CLIENT_ENV"
+          fi
+          mkdir -p .env
+          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
