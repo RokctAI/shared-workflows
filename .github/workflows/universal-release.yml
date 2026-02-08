@@ -434,7 +434,7 @@ jobs:
 
       - name: Get Version
         id: version
-        uses: ./.github/actions/check-version
+        uses: RokctAI/shared-workflows/.github/actions/check-version@main
         with:
            file_path: ${{ inputs.version_file }}
 
