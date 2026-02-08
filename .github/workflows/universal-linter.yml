@@ -67,7 +67,6 @@ jobs:
     needs: telemetry
     name: 🐦 Flutter Analyze
     runs-on: ubuntu-latest
-    continue-on-error: true # Don't block builds on linting warnings for now
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -100,7 +99,7 @@ jobs:
         run: |
           flutter config --no-analytics
           flutter pub get
-          flutter analyze .
+          flutter analyze . --no-fatal-warnings
 
   lint-node:
     needs: telemetry
