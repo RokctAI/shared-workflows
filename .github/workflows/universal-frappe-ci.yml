@@ -125,12 +125,14 @@ jobs:
 
       - name: Install RPanel via Bootstrap Script
         if: inputs.bootstrap == true
+        env:
+          DB_TYPE: ${{ inputs.db-type }}
         run: |
           # Download and run the official installer
           wget https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh
           chmod +x install.sh
           # Run as root in CI mode
-          sudo CI=true ./install.sh
+          sudo CI=true DB_TYPE=$DB_TYPE ./install.sh
           
           # move frappe-bench to standard location if needed by later steps
           # install.sh uses /home/frappe/frappe-bench
