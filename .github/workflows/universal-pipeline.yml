@@ -107,12 +107,12 @@ jobs:
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe'
     uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
     with:
-      python-version: ${{ inputs.python-version }}
-      mariadb-version: ${{ inputs.mariadb-version }}
-      postgres-version: ${{ inputs.postgres-version }}
-      db-type: ${{ inputs.db-type }}
-      redis-version: ${{ inputs.redis-version }}
-      node-version: ${{ inputs.node-version }}
+      python-version: ${{ inputs.python-version || '3.14' }}
+      mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
+      postgres-version: ${{ inputs.postgres-version || '15' }}
+      db-type: ${{ inputs.db-type || 'mariadb' }}
+      redis-version: ${{ inputs.redis-version || '6.0' }}
+      node-version: ${{ inputs.node-version || '24' }}
       install-erpnext: ${{ inputs.install-erpnext }}
       install-payments: ${{ inputs.install-payments }}
       bootstrap: ${{ inputs.bootstrap }}
@@ -123,8 +123,8 @@ jobs:
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'node'
     uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
     with:
-      node-version: ${{ inputs.node-version }}
-      package-manager: ${{ inputs.package-manager }}
+      node-version: ${{ inputs.node-version || '24' }}
+      package-manager: ${{ inputs.package-manager || 'pnpm' }}
     secrets: inherit
 
   ci-flutter:
@@ -134,8 +134,8 @@ jobs:
     with:
       # Note: build-type here for CI is usually 'apk' or similar to verify compilation
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
-      flutter-channel: ${{ inputs.flutter-channel }}
-      java-version: ${{ inputs.java-version }}
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      java-version: ${{ inputs.java-version || '17' }}
     secrets: inherit
 
   # 4. RELEASE (The Gate)
@@ -151,17 +151,17 @@ jobs:
       ))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
-      release_strategy: ${{ inputs.release_strategy }}
-      version_file: ${{ inputs.version_file }}
-      version_format: ${{ inputs.version_format }}
+      release_strategy: ${{ inputs.release_strategy || 'immediate' }}
+      version_file: ${{ inputs.version_file || 'version.json' }}
+      version_format: ${{ inputs.version_format || '##.##.##' }}
       brain_endpoint: ${{ inputs.brain_endpoint }}
       build_android: ${{ inputs.build_android }}
       build_windows: ${{ inputs.build_windows }}
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
       # Environment 
-      node-version: ${{ inputs.node-version }}
-      flutter-channel: ${{ inputs.flutter-channel }}
-      java-version: ${{ inputs.java-version }}
-      python-version: ${{ inputs.python-version }}
+      node-version: ${{ inputs.node-version || '24' }}
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      java-version: ${{ inputs.java-version || '17' }}
+      python-version: ${{ inputs.python-version || '3.14' }}
     secrets: inherit
