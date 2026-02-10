@@ -109,7 +109,8 @@ jobs:
         run: |
           JSON_CONTENT="$DEFAULT_JSON"
           if [ ! -z "$CLIENT_JSON" ]; then
-             echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${{ steps.client.outputs.client_upper }}"
+             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+             echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_SUFFIX}"
              JSON_CONTENT="$CLIENT_JSON"
           fi
           echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
@@ -123,7 +124,8 @@ jobs:
         run: |
           ENV_CONTENT="$DEFAULT_ENV"
           if [ ! -z "$CLIENT_ENV" ]; then
-             echo "✅ Using client-specific secret: PRODUCTION_ENV_${{ steps.client.outputs.client_upper }}"
+             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
              ENV_CONTENT="$CLIENT_ENV"
           fi
           mkdir -p .env
@@ -226,7 +228,8 @@ jobs:
         run: |
            PLIST_CONTENT="$DEFAULT_PLIST"
            if [ ! -z "$CLIENT_PLIST" ]; then
-              echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${{ steps.client.outputs.client_upper }}"
+              CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+              echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${CLIENT_SUFFIX}"
               PLIST_CONTENT="$CLIENT_PLIST"
            fi
            echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
