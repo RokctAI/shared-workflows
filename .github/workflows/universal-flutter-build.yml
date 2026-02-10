@@ -103,7 +103,7 @@ jobs:
       # Decode Google Services JSON if provided (Dynamic Resolution)
       - name: Decode Google Services JSON
         env:
-          CLIENT_JSON: ${{ secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] }}
+          CLIENT_JSON: ${{ steps.client.outputs.client_upper != '' && secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         if: env.CLIENT_JSON != '' || env.DEFAULT_JSON != ''
         run: |
@@ -118,7 +118,7 @@ jobs:
       # Decode Production Environment if provided (Dynamic Resolution)
       - name: Decode Production Environment
         env:
-          CLIENT_ENV: ${{ secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] }}
+          CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
         if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
         run: |
@@ -222,7 +222,7 @@ jobs:
       # Decode GoogleService-Info.plist if provided (Dynamic Resolution)
       - name: Decode GoogleService-Info.plist
         env:
-          CLIENT_PLIST: ${{ secrets[format('IOS_GOOGLE_SERVICE_INFO_PLIST_{0}', steps.client.outputs.client_upper)] }}
+          CLIENT_PLIST: ${{ steps.client.outputs.client_upper != '' && secrets[format('IOS_GOOGLE_SERVICE_INFO_PLIST_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
         if: env.CLIENT_PLIST != '' || env.DEFAULT_PLIST != ''
         run: |
@@ -237,13 +237,14 @@ jobs:
       # Decode Production Environment if provided (Dynamic Resolution)
       - name: Decode Production Environment
         env:
-          CLIENT_ENV: ${{ secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] }}
+          CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
         if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
         run: |
           ENV_CONTENT="$DEFAULT_ENV"
           if [ ! -z "$CLIENT_ENV" ]; then
-             echo "✅ Using client-specific secret: PRODUCTION_ENV_${{ steps.client.outputs.client_upper }}"
+             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
              ENV_CONTENT="$CLIENT_ENV"
           fi
           mkdir -p .env
