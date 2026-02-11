@@ -17,6 +17,10 @@ on:
         required: false
         type: string
         default: 'stable'
+      flutter-version:
+        required: false
+        type: string
+        default: ''
       java-version:
         required: false
         type: string
@@ -97,6 +101,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
       - name: Get Dependencies
