@@ -18,6 +18,8 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 *   **📦 Universal Release**: One workflow (`release.yml`) handles Semantic Versioning, AI Release Notes, and Git Tagging for ALL project types, protected by the CI-Gate.
 *   **📱 Multi-Platform**: Supports Android (APK/Bundle), iOS (IPA), macOS (.app), Windows (Zip), and Web.
 *   **🧹 Maintenance Bots**: Auto-merge Dependabot, Stale issue closer, PR Assignee, Labeler, and more.
+*   **⚡ Dynamic Source Rename**: Transparently rebrands Android source paths (e.g., `com.example` -> `com.juvo.runner`) on the fly for client builds, based on an explicit `app-type` input.
+*   **🤫 Silent Transformation**: Perfroms all renames and package updates without exposing original vendor names in the CI logs.
 
 ---
 
@@ -113,6 +115,44 @@ Ensure these secrets are set in your Repository (or Org) settings. **All workflo
 
 ### 3. Telemetry 📡
 *   **`COUNTER_API_KEY`**: Key for the `counterapi.dev` badge. All standard workflows will try to ping this if present.
+
+---
+
+## ⚙️ Dynamic Configuration (Flutter)
+
+The shared Flutter workflow (`universal-flutter-build.yml`) supports dynamic rebranding on the fly. This is useful for building different client versions (Customer, Driver, Shopper, etc.) from the same vendor source code.
+
+### 1. The `app-type` Input
+In your local `build.yml`, pass an `app-type` (e.g., `shopper`):
+```yaml
+with:
+  app-type: 'shopper'
+```
+
+### 2. Environment Variables
+The CI will automatically look for `${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME` in your `.env/production.env`:
+```env
+SHOPPER_ANDROID_PACKAGE_NAME=com.juvo.shopper
+```
+
+### 3. The Transformation
+- **Auto-Detection**: The CI finds your current package by reading `android/app/src/debug/AndroidManifest.xml`.
+- **Rename**: It moves the source folders (e.g. `com/vendor/app` -> `com/juvo/shopper`).
+- **Injection**: It updates `MainActivity.kt` and all manifests to use the new package name.
+- **Privacy**: The logs will **not** show the original vendor name or paths.
+
+---
+
+## 🛡️ Hardened Configuration Policy
+
+To balance security and flexibility, we follow a strict **"Respect Local, Overwrite Global"** policy:
+
+| File | Policy | Reasoning |
+| :--- | :--- | :--- |
+| **`.env/production.env`** | **Always Overwrite** | Ensures the CI uses the latest production variables from GitHub Secrets. |
+| **`google-services.json`**| **Skip if Present** | Respects locally committed Firebase config. |
+| **`key.properties`** | **Skip if Present** | Respects custom keystore names/configs in the repo. |
+| **`key.jks`** | **Skip if Present** | Preserves local keys if `key.properties` is found. |
 
 ---
 
