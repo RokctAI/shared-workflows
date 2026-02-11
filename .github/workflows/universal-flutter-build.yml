@@ -21,6 +21,10 @@ on:
         required: false
         type: string
         default: '17'
+      app-type:
+        required: false
+        type: string
+        description: "App role: customer, driver, manager, pos"
     secrets:
       KEY_JKS:
         required: false
@@ -107,20 +111,25 @@ jobs:
           DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         if: env.CLIENT_JSON != '' || env.DEFAULT_JSON != ''
         run: |
-          JSON_CONTENT="$DEFAULT_JSON"
-          if [ ! -z "$CLIENT_JSON" ]; then
-             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-             echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_SUFFIX}"
-             JSON_CONTENT="$CLIENT_JSON"
+          if [ -f android/app/google-services.json ]; then
+             echo "✅ android/app/google-services.json already exists. Skipping decode."
+          else
+             echo "🔑 Decoding Google Services JSON..."
+             JSON_CONTENT="$DEFAULT_JSON"
+             if [ ! -z "$CLIENT_JSON" ]; then
+                CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+                echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_SUFFIX}"
+                JSON_CONTENT="$CLIENT_JSON"
+             fi
+             echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
           fi
-          echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
 
-      # Decode Production Environment if provided (Dynamic Resolution)
+      # Decode Production Environment (Skip on develop)
       - name: Decode Production Environment
         env:
           CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
-        if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
+        if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
         run: |
           ENV_CONTENT="$DEFAULT_ENV"
           if [ ! -z "$CLIENT_ENV" ]; then
@@ -131,15 +140,145 @@ jobs:
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
 
+      # Dynamic Source Rename (Skip on develop)
+      - name: Dynamic Source Rename
+        if: github.ref_name != 'develop'
+        run: |
+          # 1. Load Environment Variables
+          if [ -f .env/production.env ]; then
+             echo "Loading .env/production.env..."
+             set -a
+             source .env/production.env
+             set +a
+          else
+             echo "⚠️ No .env/production.env found. Skipping rename."
+             exit 0
+          fi
+
+          # 2. Construct Target Package Variable Name
+          APP_TYPE="${{ inputs.app-type }}"
+          if [ -z "$APP_TYPE" ]; then
+             echo "⚠️ No 'app-type' input provided. Skipping rename."
+             exit 0
+          fi
+
+          # Construct environment variable name (e.g. SHOPPER -> SHOPPER_ANDROID_PACKAGE_NAME)
+          APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
+          ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
+          
+          # Indirect reference to get value
+          TARGET_PACKAGE="${!ENV_VAR_NAME}"
+          
+          echo "🔧 App Type: $APP_TYPE"
+          echo "🔑 Looking for: $ENV_VAR_NAME"
+          echo "🎯 Target Package: $TARGET_PACKAGE"
+
+          if [ -z "$TARGET_PACKAGE" ]; then
+             echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
+             exit 1
+          fi
+
+          BASE_DIR="android/app/src/main/kotlin"
+          TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
+          
+          # 3. Check if Target Exists (Idempotent)
+          if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
+             echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
+             # We assume if dir exists, files are likely updated, but we could double check files if paranoid.
+             # For now, we trust the directory presence.
+          else
+             echo "🔄 Target not found. Detecting current vendor source..."
+             
+             # 4. Auto-Detect Current Vendor Source (from AndroidManifest.xml)
+             # We check debug first, then main, as debug is often where the dev/vendor package is set
+             MANIFEST_FILE="android/app/src/debug/AndroidManifest.xml"
+             if [ ! -f "$MANIFEST_FILE" ]; then
+                 MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+             fi
+
+             if [ ! -f "$MANIFEST_FILE" ]; then
+                 echo "❌ Error: No AndroidManifest.xml found to detect package!"
+                 exit 1
+             fi
+
+             # Extract package="..." value
+             # grep -oP 'package="\K[^"]+' is great but -P (Perl) might not be on all minimal images.
+             # using sed instead
+             VENDOR_PACKAGE=$(grep 'package=' "$MANIFEST_FILE" | head -n 1 | sed 's/.*package="\([^"]*\)".*/\1/')
+             
+             if [ -z "$VENDOR_PACKAGE" ]; then
+                 echo "❌ Error: Could not extract package from $MANIFEST_FILE"
+                 exit 1
+             fi
+
+             # Convert package to path
+             VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
+
+             echo "📦 Initializing source transformation..."
+
+             if [ "$VENDOR_PACKAGE" == "$TARGET_PACKAGE" ]; then
+                 echo "✅ Source matches target. Nothing to do."
+                 exit 0
+             fi
+
+             # 5. Move Directories
+             echo "🚀 Applying directory structure..."
+             mkdir -p "$BASE_DIR/$TARGET_PATH"
+             
+             if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
+                 mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
+                 
+                 # Optional: Remove empty vendor dirs if they are empty
+                 # rmdir -p "$BASE_DIR/$VENDOR_PATH" 2>/dev/null || true
+             else
+                 echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
+                 exit 1
+             fi
+
+          # 6. Update File Content (MainActivity & Manifests)
+          # We check the file at the TARGET location now
+          MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
+          
+          if [ -f "$MAIN_ACTIVITY" ]; then
+             # Check if we need to update package declaration
+             if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
+                 echo "✏️ Updating MainActivity.kt package declaration..."
+                 # We simply replace the line starting with 'package '
+                 sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+             else
+                 echo "✅ MainActivity.kt is correct."
+             fi
+          fi
+
+          # Update Manifests
+          for manifest in android/app/src/debug/AndroidManifest.xml android/app/src/profile/AndroidManifest.xml; do
+             if [ -f "$manifest" ]; then
+                if ! grep -q "package=\"$TARGET_PACKAGE\"" "$manifest"; then
+                   echo "✏️ Updating $manifest..."
+                   # Replace any package="..." attribute
+                   sed -i "s/package=\"[^\"]*\"/package=\"$TARGET_PACKAGE\"/" "$manifest"
+                else
+                   echo "✅ $manifest is correct."
+                fi
+             fi
+          done
+
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
         if: env.KEY_JKS != ''
         run: |
-          echo "$KEY_JKS" | base64 --decode > android/app/key.jks
-          echo "storePassword=$KEY_PASSWORD" > android/key.properties
-          echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
-          echo "keyAlias=upload" >> android/key.properties
-          echo "storeFile=key.jks" >> android/key.properties
+          if [ -f android/key.properties ]; then
+             echo "✅ android/key.properties already exists. Skipping keystore setup."
+          else
+             echo "🔑 Decoding Keystore..."
+             echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+             
+             echo "📝 Creating key.properties..."
+             echo "storePassword=$KEY_PASSWORD" > android/key.properties
+             echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
+             echo "keyAlias=upload" >> android/key.properties
+             echo "storeFile=key.jks" >> android/key.properties
+          fi
 
       - name: Build APK
         if: inputs.build-type == 'apk'
