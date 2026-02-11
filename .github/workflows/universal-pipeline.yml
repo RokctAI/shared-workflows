@@ -59,6 +59,9 @@ on:
       flutter-channel:
         type: string
         default: 'stable'
+      flutter-version:
+        type: string
+        default: ''
       java-version:
         type: string
         default: '17'
@@ -139,6 +142,7 @@ jobs:
       # Note: build-type here for CI is usually 'apk' or similar to verify compilation
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
       app-type: ${{ inputs.app-type }}
     secrets: inherit
@@ -167,6 +171,7 @@ jobs:
       # Environment 
       node-version: ${{ inputs.node-version || '24' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
       python-version: ${{ inputs.python-version || '3.14' }}
     secrets: inherit
