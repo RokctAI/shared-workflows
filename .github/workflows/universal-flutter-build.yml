@@ -287,11 +287,21 @@ jobs:
 
       - name: Build APK
         if: inputs.build-type == 'apk'
-        run: flutter build apk --release
+        run: |
+          BUILD_ARGS="--release"
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
+          fi
+          flutter build apk $BUILD_ARGS
 
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle'
-        run: flutter build appbundle --release
+        run: |
+          BUILD_ARGS="--release"
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
+          fi
+          flutter build appbundle $BUILD_ARGS
 
       - name: Upload Artifact (APK)
         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
