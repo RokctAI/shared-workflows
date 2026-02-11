@@ -139,6 +139,8 @@ jobs:
           fi
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          # Normalize line endings (CRLF -> LF) to prevent Bash errors
+          sed -i 's/\r$//' .env/production.env
 
       # Dynamic Source Rename (Skip on develop)
       - name: Dynamic Source Rename
