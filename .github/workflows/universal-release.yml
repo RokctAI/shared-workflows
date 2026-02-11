@@ -48,6 +48,9 @@ on:
       flutter-channel:
         type: string
         default: 'stable'
+      flutter-version:
+        type: string
+        default: ''
       java-version:
         type: string
         default: '17'
@@ -348,6 +351,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
       - name: Build Windows
@@ -783,6 +787,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
            channel: ${{ inputs.flutter-channel }}
+           flutter-version: ${{ inputs.flutter-version }}
            cache: true
 
       # Decode Google Services JSON if provided
