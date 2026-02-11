@@ -8,6 +8,10 @@ on:
         required: true
         type: string
         description: "Project type: 'frappe', 'node', or 'flutter'"
+      app-type:
+        required: false
+        type: string
+        description: "App role: customer, driver, manager, pos (Flutter only)"
       run_security:
         type: boolean
         default: true
@@ -136,6 +140,7 @@ jobs:
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       java-version: ${{ inputs.java-version || '17' }}
+      app-type: ${{ inputs.app-type }}
     secrets: inherit
 
   # 4. RELEASE (The Gate)
