@@ -238,6 +238,7 @@ jobs:
                  echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
                  exit 1
              fi
+          fi
 
           # 6. Update File Content (MainActivity & Manifests)
           # We check the file at the TARGET location now
