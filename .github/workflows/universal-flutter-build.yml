@@ -147,6 +147,8 @@ jobs:
           # 1. Load Environment Variables
           if [ -f .env/production.env ]; then
              echo "Loading .env/production.env..."
+             # Normalize line endings (CRLF -> LF) to prevent Bash errors
+             sed -i 's/\r$//' .env/production.env
              set -a
              source .env/production.env
              set +a
