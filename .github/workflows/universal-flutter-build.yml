@@ -136,6 +136,11 @@ jobs:
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
         if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
         run: |
+          if [ -f .env/production.env ]; then
+             echo "📡 Existing local .env/production.env found (Size: $(wc -c < .env/production.env) bytes)."
+          else
+             echo "📂 No existing .env/production.env found. Creating new one from secret."
+          fi
           ENV_CONTENT="$DEFAULT_ENV"
           if [ ! -z "$CLIENT_ENV" ]; then
              CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
@@ -144,6 +149,7 @@ jobs:
           fi
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          echo "🚀 .env/production.env has been written (New Size: $(wc -c < .env/production.env) bytes)."
           # Normalize line endings (CRLF -> LF) to prevent Bash errors
           sed -i 's/\r$//' .env/production.env
 
@@ -153,12 +159,15 @@ jobs:
         run: |
           # 1. Load Environment Variables
           if [ -f .env/production.env ]; then
-             echo "Loading .env/production.env..."
+             echo "📝 Loading .env/production.env for source transformation..."
              # Normalize line endings (CRLF -> LF) to prevent Bash errors
              sed -i 's/\r$//' .env/production.env
              set -a
              source .env/production.env
              set +a
+             echo "✅ Environment variables loaded."
+             # Debug specific critical keys (Names only, values will show in constructing Target Package below)
+             if [ ! -z "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."; else echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."; fi
           else
              echo "⚠️ No .env/production.env found. Skipping rename."
              exit 0
@@ -183,6 +192,20 @@ jobs:
           echo "🎯 Target Package: $TARGET_PACKAGE"
           echo "📊 Current .env package settings:"
           grep "_ANDROID_PACKAGE_NAME" .env/production.env || echo "No package settings found in .env"
+
+          # 2b. Validate against google-services.json
+          GS_JSON="android/app/google-services.json"
+          if [ -f "$GS_JSON" ]; then
+             echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
+             if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+                echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
+                echo "📄 Clients found in JSON:"
+                grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+                exit 1
+             else
+                echo "✅ Package match confirmed in google-services.json."
+             fi
+          fi
 
           if [ -z "$TARGET_PACKAGE" ]; then
              echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
