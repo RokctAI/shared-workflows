@@ -477,11 +477,13 @@ jobs:
                     NEXT_RC=$((EXISTING + 1))
                     SUFFIX="-rc${NEXT_RC}"
                 elif [[ "$BRANCH" == build_* ]]; then
-                    MODE="rc"
+                    MODE="client"
                     # Extract client: build_wrapzo-custom-tag -> wrapzo
                     CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:upper:]' '[:lower:]')
                     SUFFIX="-$CLIENT"
                     echo "🚀 Client build detected: $CLIENT (Suffix: $SUFFIX)"
+                    CLIENT_UPPER=$(echo "$CLIENT" | tr '[:lower:]' '[:upper:]')
+                    echo "client_upper=$CLIENT_UPPER" >> $GITHUB_OUTPUT
                 else
                     echo "Branch $BRANCH ignored for weekly strategy."
                     exit 0 
@@ -699,7 +701,7 @@ jobs:
 
       # --- PATH 2: CREATE TAG (RC, DEV, OR STABLE) ---
       - name: Create New Tag (Dry Run)
-        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev'
+        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
         id: create_tag
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
@@ -709,8 +711,8 @@ jobs:
            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
               echo "Tag $TAG exists."
               
-              if [[ "$MODE" == "rc" || "$MODE" == "dev" ]]; then
-                 echo "⚠️ RC/Dev Mode Detected. Performing Nuclear Cleanup."
+               if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
+                  echo "⚠️ RC/Dev/Client Mode Detected. Performing Nuclear Cleanup."
                  echo "Deleting remote tag $TAG to force fresh release..."
                  git push origin --delete "$TAG" || true
                  git tag -d "$TAG" || true
@@ -727,7 +729,7 @@ jobs:
            
            echo "TAG_NAME=$TAG" >> $GITHUB_ENV
            
-           if [[ "$MODE" == "rc" || "$MODE" == "dev" ]]; then
+           if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
               echo "IS_PRERELEASE=true" >> $GITHUB_ENV
            else
               echo "IS_PRERELEASE=false" >> $GITHUB_ENV
@@ -776,56 +778,85 @@ jobs:
 
       # --- ANDROID BUILD (Optional) ---
       - name: Setup Java
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc')
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: ${{ inputs.java-version || '17' }}
 
       - name: Helper - Subosito Flutter
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc')
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
         uses: subosito/flutter-action@v2
         with:
            channel: ${{ inputs.flutter-channel }}
            flutter-version: ${{ inputs.flutter-version }}
            cache: true
 
+      # --- ENV SETUP (Critical for Client Config) ---
+      - name: Decode Production Environment
+        if: inputs.build_android == true || inputs.build_windows == true
+        env:
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+          CLIENT_ENV: ${{ steps.mode.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.mode.outputs.client_upper)] || '' }}
+        run: |
+          # Clean start
+          rm -rf .env
+          mkdir -p .env
+          
+          ENV_CONTENT="$DEFAULT_ENV"
+          # Typically release workflow implies we might want the default unless client specific logic is handled elsewhere.
+          # But for build_* branches (Client Mode), we might need client env.
+          # We use the client_upper output from the 'mode' step to fetch the correct secret.
+          
+          if [ -z "$ENV_CONTENT" ]; then
+             echo "❌ Error: Environment secret is empty."
+             exit 1
+          fi
+          
+          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          echo "✅ .env/production.env written."
+          
+          # Normalize line endings
+          sed -i 's/\r$//' .env/production.env
+
       # Decode Google Services JSON if provided
       - name: Decode Google Services JSON
         if: inputs.build_android == true && env.GOOGLE_SERVICES_JSON != ''
         run: |
-          if [ -d "android" ]; then
-             mkdir -p android/app
-             if [ ! -f "android/app/google-services.json" ]; then
-                echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
-             else
-                echo "✅ Using existing android/app/google-services.json from repository."
-             fi
-          else
-             echo "Skipping: android/ directory not found. Not a mobile project."
-          fi
+           if [ -d "android" ]; then
+              mkdir -p android/app
+              if [ ! -f "android/app/google-services.json" ]; then
+                 echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+                 echo "✅ Generated android/app/google-services.json from secret."
+              else
+                 echo "✅ Using existing android/app/google-services.json from repository."
+              fi
+           else
+              echo "Skipping: android/ directory not found. Not a mobile project."
+           fi
 
       - name: Decode Keystore
         if: inputs.build_android == true && env.KEY_JKS != ''
         run: |
-          if [ -d "android" ]; then
-            mkdir -p android/app
-            if [ ! -f "android/key.properties" ]; then
-              echo "$KEY_JKS" | base64 --decode > android/app/key.jks
-              echo "storePassword=$KEY_PASSWORD" > android/key.properties
-              echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
-              echo "keyAlias=upload" >> android/key.properties
-              echo "storeFile=key.jks" >> android/key.properties
-            else
-              echo "✅ Using existing android/key.properties from repository."
-            fi
-          else
-            echo "Skipping: android/ directory not found. Not a mobile project."
-          fi
+           if [ -d "android" ]; then
+             mkdir -p android/app
+             if [ ! -f "android/key.properties" ]; then
+               echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+               echo "storePassword=$KEY_PASSWORD" > android/key.properties
+               echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
+               echo "keyAlias=upload" >> android/key.properties
+               echo "storeFile=key.jks" >> android/key.properties
+               echo "✅ Generated Android signing config from secrets."
+             else
+               echo "✅ Using existing android/key.properties from repository."
+             fi
+           else
+             echo "Skipping: android/ directory not found. Not a mobile project."
+           fi
 
       - name: Build Android APK
-        # Build for Dev, Promote (Stable), and Immediate Stable. Exclude RC.
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc')
+        # Build for Dev, Promote (Stable), Immediate Stable, and Client. Exclude RC (Main).
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
         id: build_apk
         run: |
            echo "Building Android APK..."
