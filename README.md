@@ -75,6 +75,7 @@ After copying, check these files:
 *   **Flutter**: Set `build_android: true` if you want APKs.
 *   **AI Notes**: Update `brain_endpoint` or remove if not using AI.
 *   **Version Format**: Use `version_format` (e.g., `'##.##.##'`) to control how the automated bumper behaves.
+*   **Flutter Version**: We recommend **pinning** the Flutter version (e.g., `flutter-version: '3.24.0'`) to ensuring build stability and preventing unexpected compiler issues with dependencies like `google_fonts`.
 
 ---
 
