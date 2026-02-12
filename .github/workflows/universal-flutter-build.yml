@@ -136,40 +136,24 @@ jobs:
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
         if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
         run: |
-          echo "🧹 TOTAL CLEANUP: Deleting .env directory as requested."
+          # Clean start
           rm -rf .env
           mkdir -p .env
           
           ENV_CONTENT="$DEFAULT_ENV"
-          SECRET_NAME="PRODUCTION_ENV"
-          
           if [ ! -z "$CLIENT_ENV" ]; then
              CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
              echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
              ENV_CONTENT="$CLIENT_ENV"
-             SECRET_NAME="PRODUCTION_ENV_${CLIENT_SUFFIX}"
           fi
           
-          # Diagnostic: Check raw string length
-          RAW_LEN=${#ENV_CONTENT}
-          echo "📏 Secret '$SECRET_NAME' raw length: $RAW_LEN characters."
-          
-          if [ $RAW_LEN -eq 0 ]; then
-             echo "❌ CRITICAL ERROR: Secret '$SECRET_NAME' is EMPTY in the CI environment!"
+          if [ -z "$ENV_CONTENT" ]; then
+             echo "❌ Error: Environment secret is empty."
              exit 1
           fi
           
-          echo "🚀 Writing .env/production.env..."
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
-          
-          FINAL_SIZE=$(wc -c < .env/production.env)
-          echo "📊 Final file size on disk: $FINAL_SIZE bytes."
-          
-          echo "🔍 FULL CONTENT VERIFICATION (REDACT LATER):"
-          cat .env/production.env
-          
-          echo "🔍 Content verification (Package names in file):"
-          grep "_PACKAGE_NAME" .env/production.env || echo "No package names found."
+          echo "✅ .env/production.env written."
           
           # Normalize line endings (CRLF -> LF) to prevent Bash errors
           sed -i 's/\r$//' .env/production.env
