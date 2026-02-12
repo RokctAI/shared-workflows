@@ -81,6 +81,8 @@ jobs:
       postgres-version: ${{ inputs.postgres-version }}
       db-type: ${{ inputs.db-type }}
       flutter-channel: ${{ inputs.flutter-channel }}
+      # Recommended: Pin to 3.24.0 to avoid google_fonts/kotlin errors
+      flutter-version: ${{ inputs.flutter-version || '3.24.0' }}
       java-version: ${{ inputs.java-version }}
       version_format: ${{ inputs.version_format || '##.##.##' }}
     secrets: inherit
