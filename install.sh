@@ -23,6 +23,7 @@ RELEASE_STRATEGY="immediate"
 CRON_SCHEDULE="0 23 * * 5"
 NODE_VERSION="24"
 PYTHON_VERSION="3.14"
+FLUTTER_VERSION="3.24.0"
 LOCAL_MODE=false
 GH_HANDLE="@RendaniSinyage"
 
@@ -94,6 +95,9 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
     
     read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
     PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
+    
+    read -p "Flutter version [$FLUTTER_VERSION]: " INPUT_FLUTTER
+    FLUTTER_VERSION=${INPUT_FLUTTER:-$FLUTTER_VERSION}
     # CODEOWNERS Handle
     read -p "GitHub handle for CODEOWNERS [$GH_HANDLE]: " INPUT_HANDLE
     GH_HANDLE=${INPUT_HANDLE:-$GH_HANDLE}
@@ -150,6 +154,10 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         sed -i "/node-version:/,/default:/s/default: '[^']*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
         # Python
         sed -i "/python-version:/,/default:/s/default: '[^']*'/default: '$PYTHON_VERSION'/" "$DEST_FINAL.tmp"
+        # Flutter
+        sed -i "/flutter-version:/,/default:/s/default: '[^']*'/default: '$FLUTTER_VERSION'/" "$DEST_FINAL.tmp"
+        # Smart Flutter Pin replacement
+        sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
     fi
 
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
