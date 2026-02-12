@@ -138,6 +138,8 @@ jobs:
         run: |
           if [ -f .env/production.env ]; then
              echo "📡 Existing local .env/production.env found (Size: $(wc -c < .env/production.env) bytes)."
+             echo "🔍 CONTENT BEFORE REPLACEMENT:"
+             cat .env/production.env
           else
              echo "📂 No existing .env/production.env found. Creating new one from secret."
           fi
