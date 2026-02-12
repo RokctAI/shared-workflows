@@ -451,6 +451,9 @@ jobs:
           
           STRAT="${{ inputs.release_strategy }}"
           EVENT="${{ github.event_name }}"
+          BRANCH="${{ github.ref_name }}"
+          
+          echo "🔍 DEBUG: Strategy='$STRAT', Event='$EVENT', Branch='$BRANCH'"
           
           MODE="none"
           SUFFIX=""
@@ -804,9 +807,11 @@ jobs:
           mkdir -p .env
           
           ENV_CONTENT="$DEFAULT_ENV"
-          # Typically release workflow implies we might want the default unless client specific logic is handled elsewhere.
-          # But for build_* branches (Client Mode), we might need client env.
-          # We use the client_upper output from the 'mode' step to fetch the correct secret.
+          # Priority: Client Env > Default Env
+          if [ ! -z "$CLIENT_ENV" ]; then
+             echo "🚀 Using Client-Specific Environment Secret."
+             ENV_CONTENT="$CLIENT_ENV"
+          fi
           
           if [ -z "$ENV_CONTENT" ]; then
              echo "❌ Error: Environment secret is empty."
