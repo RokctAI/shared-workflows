@@ -181,6 +181,8 @@ jobs:
           echo "🔧 App Type: $APP_TYPE"
           echo "🔑 Looking for: $ENV_VAR_NAME"
           echo "🎯 Target Package: $TARGET_PACKAGE"
+          echo "📊 Current .env package settings:"
+          grep "_ANDROID_PACKAGE_NAME" .env/production.env || echo "No package settings found in .env"
 
           if [ -z "$TARGET_PACKAGE" ]; then
              echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
