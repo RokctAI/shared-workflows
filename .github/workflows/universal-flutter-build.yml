@@ -150,6 +150,8 @@ jobs:
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
           echo "🚀 .env/production.env has been written (New Size: $(wc -c < .env/production.env) bytes)."
+          echo "🔍 Content verification (Package names in file):"
+          grep "_PACKAGE_NAME" .env/production.env || echo "No package names found."
           # Normalize line endings (CRLF -> LF) to prevent Bash errors
           sed -i 's/\r$//' .env/production.env
 
