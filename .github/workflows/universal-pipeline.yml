@@ -157,7 +157,8 @@ jobs:
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
         (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped')
-      ))
+      )) &&
+      (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
       release_strategy: ${{ inputs.release_strategy || 'immediate' }}
