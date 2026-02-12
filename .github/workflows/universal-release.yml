@@ -1023,8 +1023,16 @@ jobs:
            # Only pass FILES if not empty
            echo "Files to upload: '$FILES'"
            
-           gh release create "$TAG" \
-             --title "$TAG" \
-             --notes-file "${{ steps.changelog.outputs.changelog_path }}" \
-             $PRERELEASE_FLAG \
-             $FILES
+           # Check if release exists
+           if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "✅ Release $TAG already exists. Updating release assets..."
+              # Upload files to existing release (clobber to overwrite)
+              gh release upload "$TAG" $FILES --clobber
+           else
+              echo "🆕 Creating new release $TAG..."
+              gh release create "$TAG" \
+                --title "$TAG" \
+                --notes-file "${{ steps.changelog.outputs.changelog_path }}" \
+                $PRERELEASE_FLAG \
+                $FILES
+           fi
