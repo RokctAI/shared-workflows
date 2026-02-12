@@ -29,6 +29,7 @@ $releaseStrategy = "immediate"
 $cronSchedule = "0 23 * * 5"
 $nodeVersion = "24"
 $pythonVersion = "3.14"
+$flutterVersion = "3.24.0"
 $ghHandle = "@RendaniSinyage"
 
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
@@ -93,6 +94,9 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     $pythonVersionInput = Read-Host "Python version [$pythonVersion]"
     if (![string]::IsNullOrWhiteSpace($pythonVersionInput)) { $pythonVersion = $pythonVersionInput }
 
+    $flutterVersionInput = Read-Host "Flutter version [$flutterVersion]"
+    if (![string]::IsNullOrWhiteSpace($flutterVersionInput)) { $flutterVersion = $flutterVersionInput }
+
     # CODEOWNERS Handle
     $ghHandleInput = Read-Host "GitHub handle for CODEOWNERS [$ghHandle]"
     if (![string]::IsNullOrWhiteSpace($ghHandleInput)) { $ghHandle = $ghHandleInput }
@@ -144,6 +148,10 @@ foreach ($wf in $vitalWorkflows) {
         $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
         # Python
         $content = $content -replace "(?s)(python-version:.*?default: )'[^']+'", "`${1}'$pythonVersion'"
+        # Flutter
+        $content = $content -replace "(?s)(flutter-version:.*?default: )'[^']+'", "`${1}'$flutterVersion'"
+        # Smart Flutter Pin (for direct 'flutter-version: ...' lines if they exist in templates)
+        $content = $content -replace "flutter-version: '[^']+'", "flutter-version: '$flutterVersion'"
     }
 
     # Save file with UTF8 encoding (No BOM) and Unix-style line endings (LF)
