@@ -272,19 +272,18 @@ jobs:
                 fi
              fi
           done
- 
-+          # Update build.gradle
-+          BUILD_GRADLE="android/app/build.gradle"
-+          if [ -f "$BUILD_GRADLE" ]; then
-+             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
-+                echo "✏️ Updating $BUILD_GRADLE..."
-+                # Replace applicationId and namespace
-+                sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-+                sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-+             else
-+                echo "✅ $BUILD_GRADLE is correct."
-+             fi
-+          fi
+          # Update build.gradle
+          BUILD_GRADLE="android/app/build.gradle"
+          if [ -f "$BUILD_GRADLE" ]; then
+             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
+                echo "✏️ Updating $BUILD_GRADLE..."
+                # Replace applicationId and namespace
+                sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+                sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+             else
+                echo "✅ $BUILD_GRADLE is correct."
+             fi
+          fi
 
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
