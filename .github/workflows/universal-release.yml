@@ -57,6 +57,9 @@ on:
       python-version:
         type: string
         default: '3.14'
+      app-type:
+        type: string
+        description: "App role: customer, driver, manager, pos"
     secrets:
       BRAIN_TOKEN:
         required: false
@@ -857,6 +860,77 @@ jobs:
              fi
            else
              echo "Skipping: android/ directory not found. Not a mobile project."
+           fi
+
+      # Dynamic Source Rename (Critical for Client Builds)
+      - name: Dynamic Source Rename
+        if: inputs.build_android == true && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        run: |
+           # 1. Load Environment Variables
+           if [ -f .env/production.env ]; then
+              echo "📝 Loading .env/production.env for source transformation..."
+              # Normalize line endings (CRLF -> LF) to prevent Bash errors
+              sed -i 's/\r$//' .env/production.env
+              set -a
+              source .env/production.env
+              set +a
+              echo "✅ Environment variables loaded."
+           else
+              echo "⚠️ No .env/production.env found. Skipping rename."
+              exit 0
+           fi
+
+           # 2. Construct Target Package Variable Name
+           APP_TYPE="${{ inputs.app-type }}"
+           if [ -z "$APP_TYPE" ]; then
+              echo "⚠️ No 'app-type' input provided. Skipping rename."
+              exit 0
+           fi
+
+           APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
+           ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
+           TARGET_PACKAGE="${!ENV_VAR_NAME}"
+           
+           echo "🔧 App Type: $APP_TYPE"
+           echo "🎯 Target Package: $TARGET_PACKAGE"
+           
+           if [ -z "$TARGET_PACKAGE" ]; then
+              echo "⚠️ $ENV_VAR_NAME is not set in production.env. Skipping rename."
+              exit 0
+           fi
+
+           BASE_DIR="android/app/src/main/kotlin"
+           TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
+           
+           if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
+              echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
+           else
+              echo "🔄 Target not found. Detecting current vendor source..."
+              MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+              if [ ! -f "$MANIFEST_FILE" ]; then exit 1; fi
+
+              VENDOR_PACKAGE=$(grep 'package=' "$MANIFEST_FILE" | head -n 1 | sed 's/.*package="\([^"]*\)".*/\1/')
+              VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
+
+              echo " From: $VENDOR_PACKAGE TO: $TARGET_PACKAGE"
+
+              mkdir -p "$BASE_DIR/$TARGET_PATH"
+              if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
+                  mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
+              fi
+           fi
+
+           # Update MainActivity
+           MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
+           if [ -f "$MAIN_ACTIVITY" ]; then
+              sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+           fi
+
+           # Update build.gradle
+           BUILD_GRADLE="android/app/build.gradle"
+           if [ -f "$BUILD_GRADLE" ]; then
+              sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+              sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
            fi
 
       - name: Build Android APK
