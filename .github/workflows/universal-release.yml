@@ -3,6 +3,7 @@ name: Universal Release Workflow
 
 on:
   workflow_call:
+  workflow_dispatch:
     inputs:
       release_strategy:
         required: true
@@ -1051,7 +1052,7 @@ jobs:
 
       - name: Build Android AppBundle
         # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable')
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
         id: build_aab
         run: |
            echo "Building Android AppBundle..."
