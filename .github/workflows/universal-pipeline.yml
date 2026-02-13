@@ -175,5 +175,4 @@ jobs:
       flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
       python-version: ${{ inputs.python-version || '3.14' }}
-      app-type: ${{ inputs.app-type }}
     secrets: inherit
