@@ -827,20 +827,29 @@ jobs:
           # Normalize line endings
           sed -i 's/\r$//' .env/production.env
 
-      # Decode Google Services JSON if provided
+      # Decode Google Services JSON if provided (Dynamic Resolution)
       - name: Decode Google Services JSON
-        if: inputs.build_android == true && env.GOOGLE_SERVICES_JSON != ''
+        if: inputs.build_android == true
+        env:
+          CLIENT_JSON: ${{ steps.mode.outputs.client_upper != '' && secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.mode.outputs.client_upper)] || '' }}
+          DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
            if [ -d "android" ]; then
               mkdir -p android/app
               if [ ! -f "android/app/google-services.json" ]; then
-                 echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
-                 echo "✅ Generated android/app/google-services.json from secret."
+                 JSON_CONTENT="$DEFAULT_JSON"
+                 if [ ! -z "$CLIENT_JSON" ]; then
+                    echo "🚀 Using Client-Specific Google Services JSON."
+                    JSON_CONTENT="$CLIENT_JSON"
+                 fi
+                 
+                 if [ ! -z "$JSON_CONTENT" ]; then
+                    echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
+                    echo "✅ Generated android/app/google-services.json."
+                 fi
               else
                  echo "✅ Using existing android/app/google-services.json from repository."
               fi
-           else
-              echo "Skipping: android/ directory not found. Not a mobile project."
            fi
 
       - name: Decode Keystore
