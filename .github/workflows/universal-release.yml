@@ -37,18 +37,6 @@ on:
          type: boolean
          default: false
          description: "Build Android APK and include in release"
-  workflow_dispatch:
-    inputs:
-      release_strategy:
-        required: true
-        type: string
-        default: "immediate"
-        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
-      build_android:
-         required: false
-         type: boolean
-         default: true
-         description: "Build Android APK and include in release"
       build_windows:
          required: false
          type: boolean
@@ -87,6 +75,24 @@ on:
         required: false
       COUNTER_API_KEY:
         required: false
+
+  workflow_dispatch:
+    inputs:
+      release_strategy:
+        required: true
+        type: string
+        default: "immediate"
+        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
+      build_android:
+         required: false
+         type: boolean
+         default: true
+         description: "Build Android APK and include in release"
+      build_windows:
+         required: false
+         type: boolean
+         default: false
+         description: "Build Windows App and include in release"
 
 jobs:
   # --- 0. TELEMETRY (Usage Tracking) ---
