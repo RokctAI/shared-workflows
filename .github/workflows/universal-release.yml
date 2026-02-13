@@ -3,7 +3,6 @@ name: Universal Release Workflow
 
 on:
   workflow_call:
-  workflow_dispatch:
     inputs:
       release_strategy:
         required: true
@@ -37,6 +36,18 @@ on:
          required: false
          type: boolean
          default: false
+         description: "Build Android APK and include in release"
+  workflow_dispatch:
+    inputs:
+      release_strategy:
+        required: true
+        type: string
+        default: "immediate"
+        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
+      build_android:
+         required: false
+         type: boolean
+         default: true
          description: "Build Android APK and include in release"
       build_windows:
          required: false
