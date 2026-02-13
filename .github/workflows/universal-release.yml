@@ -875,6 +875,8 @@ jobs:
               source .env/production.env
               set +a
               echo "✅ Environment variables loaded."
+              # Debug specific critical keys (Names only, values will show in constructing Target Package below)
+              if [ ! -z "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."; else echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."; fi
            else
               echo "⚠️ No .env/production.env found. Skipping rename."
               exit 0
@@ -887,50 +889,134 @@ jobs:
               exit 0
            fi
 
+           # Construct environment variable name (e.g. SHOPPER -> SHOPPER_ANDROID_PACKAGE_NAME)
            APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
            ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
+           
+           # Indirect reference to get value
            TARGET_PACKAGE="${!ENV_VAR_NAME}"
            
            echo "🔧 App Type: $APP_TYPE"
+           echo "🔑 Looking for: $ENV_VAR_NAME"
            echo "🎯 Target Package: $TARGET_PACKAGE"
-           
+           echo "📊 Current .env package settings:"
+           grep "_ANDROID_PACKAGE_NAME" .env/production.env || echo "No package settings found in .env"
+
+           # 2b. Validate against google-services.json
+           GS_JSON="android/app/google-services.json"
+           if [ -f "$GS_JSON" ]; then
+              echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
+              if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+                 echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
+                 echo "📄 Clients found in JSON:"
+                 grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+                 exit 1
+              else
+                 echo "✅ Package match confirmed in google-services.json."
+              fi
+           fi
+
            if [ -z "$TARGET_PACKAGE" ]; then
-              echo "⚠️ $ENV_VAR_NAME is not set in production.env. Skipping rename."
-              exit 0
+              echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
+              exit 1
            fi
 
            BASE_DIR="android/app/src/main/kotlin"
            TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
            
+           # 3. Check if Target Exists (Idempotent)
            if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
               echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
+              # We assume if dir exists, files are likely updated, but we could double check files if paranoid.
+              # For now, we trust the directory presence.
            else
               echo "🔄 Target not found. Detecting current vendor source..."
-              MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
-              if [ ! -f "$MANIFEST_FILE" ]; then exit 1; fi
+              
+              # 4. Auto-Detect Current Vendor Source (from AndroidManifest.xml)
+              # We check debug first, then main, as debug is often where the dev/vendor package is set
+              MANIFEST_FILE="android/app/src/debug/AndroidManifest.xml"
+              if [ ! -f "$MANIFEST_FILE" ]; then
+                  MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+              fi
 
+              if [ ! -f "$MANIFEST_FILE" ]; then
+                  echo "❌ Error: No AndroidManifest.xml found to detect package!"
+                  exit 1
+              fi
+
+              # Extract package="..." value
+              # grep -oP 'package="\K[^"]+' is great but -P (Perl) might not be on all minimal images.
+              # using sed instead
               VENDOR_PACKAGE=$(grep 'package=' "$MANIFEST_FILE" | head -n 1 | sed 's/.*package="\([^"]*\)".*/\1/')
+              
+              if [ -z "$VENDOR_PACKAGE" ]; then
+                  echo "❌ Error: Could not extract package from $MANIFEST_FILE"
+                  exit 1
+              fi
+
+              # Convert package to path
               VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
 
-              echo " From: $VENDOR_PACKAGE TO: $TARGET_PACKAGE"
+              echo "📦 Initializing source transformation..."
 
+              if [ "$VENDOR_PACKAGE" == "$TARGET_PACKAGE" ]; then
+                  echo "✅ Source matches target. Nothing to do."
+                  exit 0
+              fi
+
+              # 5. Move Directories
+              echo "🚀 Applying directory structure..."
               mkdir -p "$BASE_DIR/$TARGET_PATH"
+              
               if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
                   mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
+                  
+                  # Optional: Remove empty vendor dirs if they are empty
+                  # rmdir -p "$BASE_DIR/$VENDOR_PATH" 2>/dev/null || true
+              else
+                  echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
+                  exit 1
               fi
            fi
 
-           # Update MainActivity
+           # 6. Update File Content (MainActivity & Manifests)
+           # We check the file at the TARGET location now
            MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
+           
            if [ -f "$MAIN_ACTIVITY" ]; then
-              sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+              # Check if we need to update package declaration
+              if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
+                  echo "✏️ Updating MainActivity.kt package declaration..."
+                  # We simply replace the line starting with 'package '
+                  sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+              else
+                  echo "✅ MainActivity.kt is correct."
+              fi
            fi
 
+           # Update Manifests
+           for manifest in android/app/src/debug/AndroidManifest.xml android/app/src/profile/AndroidManifest.xml; do
+              if [ -f "$manifest" ]; then
+                 if ! grep -q "package=\"$TARGET_PACKAGE\"" "$manifest"; then
+                    echo "✏️ Updating $manifest..."
+                    # Replace any package="..." attribute
+                    sed -i "s/package=\"[^\"]*\"/package=\"$TARGET_PACKAGE\"/" "$manifest"
+                 else
+                    echo "✅ $manifest is correct."
+                 fi
+              fi
+           done
            # Update build.gradle
            BUILD_GRADLE="android/app/build.gradle"
            if [ -f "$BUILD_GRADLE" ]; then
-              sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-              sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+              if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
+                 echo "✏️ Updating $BUILD_GRADLE..."
+                 # Replace applicationId and namespace
+                 sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+                 sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+              else
+                 echo "✅ $BUILD_GRADLE is correct."
+              fi
            fi
 
       - name: Build Android APK
