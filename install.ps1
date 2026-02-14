@@ -166,13 +166,17 @@ foreach ($wf in $vitalWorkflows) {
 
     # Final normalization to LF and save with UTF8 (No BOM)
     # Full trim + single LF to match install.sh perfectly
-    $content = $content.Trim() + "`n"
-    $content = $content -replace "`r`n", "`n"
+    # 1. Strip BOM if present 2. Trim all whitespace 3. Add single LF 4. Normalize to LF
+    $content = $content.TrimStart(@([char]0xfeff))
+    $content = ($content.Trim() + "`n") -replace "`r`n", "`n"
+    
     $fullDest = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $dest))
     $dir = [System.IO.Path]::GetDirectoryName($fullDest)
     if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     
-    [System.IO.File]::WriteAllText($fullDest, $content, (New-Object System.Text.UTF8Encoding $false))
+    # Write as bytes to guarantee no BOM
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+    [System.IO.File]::WriteAllBytes($fullDest, $bytes)
 }
 
 # 4. Handle version.json (Skip for Flutter)
