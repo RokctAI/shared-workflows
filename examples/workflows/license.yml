@@ -1,9 +1,10 @@
-name: License Eye
+﻿name: License Eye
 on:
   pull_request:
 
 jobs:
   license:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-license.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-license.yml@main
     secrets: inherit
+
 
