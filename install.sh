@@ -168,11 +168,12 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
     fi
 
-    # Final normalization to LF (Full Trim + 1 Newline for Parity)
-    # 1. Remove CRLF 2. Strip all leading/trailing whitespace 3. Add single LF
+    # Final normalization for 100% Parity (BOM-less UTF-8, LF, Full Trim)
     sed -i 's/\r//g' "$DEST_FINAL.tmp"
-    perl -0777 -pi -e 's/^\s+//; s/\s+\z//' "$DEST_FINAL.tmp"
-    echo "" >> "$DEST_FINAL.tmp"
+    # Strip UTF-8 BOM if present, then trim all leading/trailing whitespace
+    perl -0777 -pi -e 's/^\xEF\xBB\xBF//; s/^\s+//; s/\s+\z//' "$DEST_FINAL.tmp"
+    # Ensure exactly one trailing newline
+    printf "\n" >> "$DEST_FINAL.tmp"
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
 
