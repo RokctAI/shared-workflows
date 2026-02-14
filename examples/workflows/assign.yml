@@ -1,12 +1,13 @@
-name: Auto Assign
+﻿name: Auto Assign
 on:
   pull_request:
     types: [opened]
 
 jobs:
   assign:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-assign.yml@main
     permissions:
       pull-requests: write
     secrets: inherit
+
 
