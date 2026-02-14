@@ -168,7 +168,9 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
     fi
 
-    # Final normalization to LF
+    # Final normalization to LF (Trim trailing whitespace and ensure one newline)
+    perl -i -pe 'chomp if eof' "$DEST_FINAL.tmp"
+    echo "" >> "$DEST_FINAL.tmp"
     sed -i 's/\r//g' "$DEST_FINAL.tmp"
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
