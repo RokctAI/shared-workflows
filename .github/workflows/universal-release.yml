@@ -708,14 +708,22 @@ jobs:
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
            
+           # Check for Ghost Release (Record exists but tag might not)
+           if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
+              if gh release view "$TAG" >/dev/null 2>&1; then
+                 echo "⚠️ Volatile Release $TAG record found. Purging for fresh release..."
+                 gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+              fi
+           fi
+
            # Check Local AND Remote
            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
               echo "Tag $TAG exists."
               
                if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
                   echo "⚠️ RC/Dev/Client Mode Detected. Performing Nuclear Cleanup."
-                  echo "Deleting remote tag and release $TAG to force fresh creation..."
-                  gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+                  echo "Deleting remote tag $TAG to force fresh creation..."
+                  git push origin --delete "$TAG" 2>/dev/null || true
                   git tag -d "$TAG" 2>/dev/null || true
                   echo "Cleanup complete. Proceeding to fresh creation."
                  echo "continue=true" >> $GITHUB_OUTPUT
