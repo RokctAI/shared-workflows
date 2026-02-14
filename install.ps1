@@ -165,6 +165,7 @@ foreach ($wf in $vitalWorkflows) {
     }
 
     # Final normalization to LF and save with UTF8 (No BOM)
+    # Full trim + single LF to match install.sh perfectly
     $content = $content.Trim() + "`n"
     $content = $content -replace "`r`n", "`n"
     $fullDest = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $dest))
