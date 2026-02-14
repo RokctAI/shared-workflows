@@ -1,4 +1,4 @@
-name: Build iOS (Stable Only)
+﻿name: Build iOS (Stable Only)
 
 on:
   release:
@@ -30,7 +30,7 @@ jobs:
           echo "Found $COUNT iOS releases this month."
           
           if [ "$COUNT" -ge "$LIMIT" ]; then
-             echo "❌ Quota Exceeded ($COUNT >= $LIMIT). Skipping Build."
+             echo "âŒ Quota Exceeded ($COUNT >= $LIMIT). Skipping Build."
              echo "should_run=false" >> $GITHUB_OUTPUT
              # We exit success (0) so the workflow doesn't fail red, but the next job will be skipped.
           else
@@ -44,7 +44,7 @@ jobs:
     if: needs.check-quota.outputs.should_run == 'true' && (!github.event.release.prerelease)
     permissions:
       contents: write
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
       build-type: ios
       upload-artifact: true 
@@ -67,4 +67,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ios_build/*.ipa
+
 
