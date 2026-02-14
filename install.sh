@@ -169,7 +169,7 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
     fi
 
     # Final normalization to LF (Trim ALL trailing whitespace/newlines and ensure exactly one newline)
-    sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$DEST_FINAL.tmp"
+    perl -0777 -pi -e 's/\s+\z//' "$DEST_FINAL.tmp"
     echo "" >> "$DEST_FINAL.tmp"
     sed -i 's/\r//g' "$DEST_FINAL.tmp"
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
