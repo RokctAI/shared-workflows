@@ -1,4 +1,4 @@
-name: Security Scan
+﻿name: Security Scan
 on:
   push:
     branches: [main]
@@ -6,6 +6,7 @@ on:
 
 jobs:
   scan:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
+
 
