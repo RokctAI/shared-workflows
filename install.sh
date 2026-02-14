@@ -148,8 +148,18 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         fi
         # Strategy
         sed -i "s/release_strategy: '[^']*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST_FINAL.tmp"
+        
+        # Cron Exclusion for Flutter
+        if [[ "$wf" == "release.yml" && "$PROJECT_TYPE" == "flutter" ]]; then
+            echo -e "\033[0;33m🛡️ Removing Friday Cron for Flutter project...\033[0m"
+            # Remove schedule: line and the next line (cron)
+            sed -i '/schedule:/,+1d' "$DEST_FINAL.tmp"
+        else
+            # Patch Cron Schedule
+            sed -i "s/cron: '[^']*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
+        fi
+
         # Cron Schedule
-        sed -i "s/cron: '[^']*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
         # Node (Multi-line aware sed)
         sed -i "/node-version:/,/default:/s/default: '[^']*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
         # Python
