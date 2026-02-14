@@ -1048,8 +1048,8 @@ jobs:
            fi
 
       - name: Build Android APK
-        # Build for Dev, Promote (Stable), Immediate Stable, and Client. Exclude RC (Main).
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
         id: build_apk
         run: |
            echo "Building Android APK..."
