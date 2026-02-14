@@ -142,8 +142,18 @@ foreach ($wf in $vitalWorkflows) {
         }
         # Strategy
         $content = $content -replace "release_strategy: '[^']+'", "release_strategy: '$releaseStrategy'"
+        
+        # Cron Exclusion for Flutter
+        if ($wf -eq "release.yml" -and $projectType -eq "flutter") {
+            Write-Host "🛡️ Removing Friday Cron for Flutter project..." -ForegroundColor Yellow
+            $content = $content -replace "(?m)^  schedule:\n    - cron: '.*?'\n", ""
+        }
+        else {
+            # Patch Cron Schedule (Only for non-flutter or if explicitly allowed)
+            $content = $content -replace "cron: '[^']+'", "cron: '$cronSchedule'"
+        }
+
         # Cron Schedule
-        $content = $content -replace "cron: '[^']+'", "cron: '$cronSchedule'"
         # Node
         $content = $content -replace "(?s)(node-version:.*?default: )'[^']+'", "`${1}'$nodeVersion'"
         # Python
