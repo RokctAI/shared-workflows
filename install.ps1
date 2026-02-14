@@ -164,8 +164,8 @@ foreach ($wf in $vitalWorkflows) {
         $content = $content -replace "flutter-version: '[^']+'", "flutter-version: '$flutterVersion'"
     }
 
-    # Save file with UTF8 encoding (No BOM) and Unix-style line endings (LF)
-    # Get physical path for WriteAllText
+    # Final normalization to LF and save with UTF8 (No BOM)
+    $content = $content -replace "`r`n", "`n"
     $fullDest = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $dest))
     $dir = [System.IO.Path]::GetDirectoryName($fullDest)
     if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
