@@ -1,4 +1,4 @@
-name: Code Quality
+﻿name: Code Quality
 on:
   push:
     branches: [main]
@@ -6,6 +6,7 @@ on:
 
 jobs:
   lint:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     secrets: inherit
+
 
