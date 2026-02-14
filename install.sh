@@ -138,8 +138,6 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         curl -sSL "$URL" -o "$DEST_FINAL.tmp"
     fi
     
-    # Ensure Unix line endings before hatching
-    sed -i 's/\r//g' "$DEST_FINAL.tmp"
 
     if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
         # Project Type - using a more specific regex to preserve comments
@@ -170,6 +168,8 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
         sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
     fi
 
+    # Final normalization to LF
+    sed -i 's/\r//g' "$DEST_FINAL.tmp"
     mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
 
