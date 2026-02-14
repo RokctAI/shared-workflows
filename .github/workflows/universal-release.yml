@@ -702,6 +702,8 @@ jobs:
       - name: Create New Tag (Dry Run)
         if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
         id: create_tag
+        env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
@@ -712,10 +714,10 @@ jobs:
               
                if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
                   echo "⚠️ RC/Dev/Client Mode Detected. Performing Nuclear Cleanup."
-                 echo "Deleting remote tag $TAG to force fresh release..."
-                 git push origin --delete "$TAG" || true
-                 git tag -d "$TAG" || true
-                 echo "Cleanup complete. Proceeding to fresh creation."
+                  echo "Deleting remote tag and release $TAG to force fresh creation..."
+                  gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+                  git tag -d "$TAG" 2>/dev/null || true
+                  echo "Cleanup complete. Proceeding to fresh creation."
                  echo "continue=true" >> $GITHUB_OUTPUT
               else
                  echo "Stable Mode. Preserving existing tag."
