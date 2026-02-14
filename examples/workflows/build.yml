@@ -1,4 +1,4 @@
-name: Build (Smart)
+﻿name: Build (Smart)
 
 on:
   push:
@@ -65,7 +65,7 @@ jobs:
   # --- 2. UNIFIED PIPELINE (Smart) ---
   pipeline:
     needs: detect
-    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@latest
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: ${{ needs.detect.outputs.type }}
       # Quality Gate Toggles
@@ -87,4 +87,5 @@ jobs:
       java-version: ${{ inputs.java-version }}
       version_format: ${{ inputs.version_format || '##.##.##' }}
     secrets: inherit
+
 
