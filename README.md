@@ -79,21 +79,15 @@ After copying, check these files:
 
 ---
 
-## 🏆 Stable Release Strategy (`@v###` vs `@latest`)
+## 🏆 Stable Release Strategy (`@v###` vs `@main`)
 
 To maintain a healthy balance between **speed** and **stability**, we use a tiered tagging strategy:
 
 | Tag Stage | Target Audience | Policy |
 | :--- | :--- | :--- |
-| **`@main`** | Core Developers | Bleeding edge. Updates on every push to `shared-workflows`. |
-| **`@latest`** | Fleet Applications | **Production Default.** Represents the latest *verified* stable release. |
+| **`@main`** | Fleet Applications | **Fleet Default.** Represents the latest code on the main branch. |
 | **`@v1.2.3`** | Mission Critical | **Pinned.** Locked to a specific snapshot. Never changes. |
 
-### 🔒 The "Immutable Snapshot" Logic
-When you promote an RC to Stable in this repository:
-1.  **Pinning**: The `universal-release` workflow automatically scans all internal calls and replaces `@main` or `@latest` with the **actual version tag** (e.g., `@v1.2.3`).
-2.  **Immutability**: This creates a 100% frozen environment for that version.
-3.  **Flexibility**: The `main` branch is immediately reverted back to `@main` for ongoing development.
 
 ---
 
