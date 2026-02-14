@@ -74,6 +74,7 @@ jobs:
       run_ci: ${{ needs.detect.outputs.type != 'none' }}
       # Deployment Configuration (Immediate release on Main)
       release_strategy: 'immediate'
+      build_android: true
       # Environment configuration
       node-version: ${{ inputs.node-version }}
       python-version: ${{ inputs.python-version }}
