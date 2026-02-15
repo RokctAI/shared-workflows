@@ -153,6 +153,8 @@ jobs:
   # 4. RELEASE (The Gate)
   release:
     needs: [ci-frappe, ci-node, ci-flutter]
+    permissions:
+      contents: write
     # Gate logic: SUCCESS or SKIPPED for all needs, OR Bypass if develop
     if: |
       always() && 
