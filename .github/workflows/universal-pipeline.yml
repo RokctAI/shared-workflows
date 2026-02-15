@@ -132,6 +132,9 @@ jobs:
     with:
       node-version: ${{ inputs.node-version || '24' }}
       package-manager: ${{ inputs.package-manager || 'pnpm' }}
+      # Dynamic command generation based on package manager
+      build-command: ${{ format('{0} run build', inputs.package-manager || 'pnpm') }}
+      test-command: ${{ format('{0} run test', inputs.package-manager || 'pnpm') }}
     secrets: inherit
 
   ci-flutter:
