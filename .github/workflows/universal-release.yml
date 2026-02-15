@@ -1235,14 +1235,18 @@ jobs:
            
            # Check if release exists
            if gh release view "$TAG" >/dev/null 2>&1; then
-              echo "✅ Release $TAG already exists. Updating release assets..."
-              # Upload files to existing release (clobber to overwrite)
-              gh release upload "$TAG" $FILES --clobber
+              echo "✅ Release $TAG already exists."
+              if [ ! -z "$FILES" ]; then
+                 echo "Updating release assets..."
+                 gh release upload "$TAG" $FILES --clobber
+              else
+                 echo "No assets to upload."
+              fi
            else
               echo "🆕 Creating new release $TAG..."
               gh release create "$TAG" \
                 --title "$TAG" \
-                --notes-file "${{ steps.changelog.outputs.changelog_path }}" \
+                --notes-file "changelog.txt" \
                 $PRERELEASE_FLAG \
                 $FILES
            fi
