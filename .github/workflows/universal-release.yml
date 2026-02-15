@@ -534,12 +534,18 @@ jobs:
           
           if [ ! -z "$PREV_STABLE" ]; then
              echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
+             RANGE="${PREV_STABLE}..HEAD"
+          else
+             echo "🔍 Extracting Authors and Reviewers from Initial Commit..."
+             RANGE="HEAD" # Will log all commits
+          fi
+          
              AUTHORS=""
              REVIEWERS=""
              SEEN_PRS=""
              
-             # Get all SHAs between last stable tag and HEAD
-             SHAS=$(git log "${PREV_STABLE}..HEAD" --pretty=format:%H)
+             # Get all SHAs
+             SHAS=$(git log $RANGE --pretty=format:%H)
              
              for sha in $SHAS; do
                 PR_DATA=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null || echo "null")
@@ -581,7 +587,6 @@ jobs:
                echo "$TRAILERS"
                echo "EOF"
              } >> $GITHUB_OUTPUT
-          fi
 
        # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
       - name: Promote RC to Stable
