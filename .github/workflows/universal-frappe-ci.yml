@@ -93,9 +93,11 @@ jobs:
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
-             # Pre-enable pgvector in template1 so all new bench sites have it
-             echo "Enabling pgvector in template1..."
+             # Pre-enable pgvector, cube, earthdistance in template1 so all new bench sites have them
+             echo "Enabling pgextensions in template1..."
              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
           fi
 
       - name: Setup Python
