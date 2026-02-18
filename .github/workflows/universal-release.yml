@@ -1202,11 +1202,13 @@ jobs:
             fi
             
              # Extract Contributors (Using step outputs)
-             if [ ! -z "${{ steps.contrib.outputs.authors }}" ]; then
-                echo -e "\n**Authors:** ${{ steps.contrib.outputs.authors }}" >> changelog.txt
+             AUTHORS="${{ steps.contrib.outputs.authors }}"
+             REVIEWERS="${{ steps.contrib.outputs.reviewers }}"
+             if [ ! -z "$AUTHORS" ]; then
+                echo -e "\n**Authors:** $AUTHORS" >> changelog.txt
              fi
-             if [ ! -z "${{ steps.contrib.outputs.reviewers }}" ]; then
-                echo -e "**Reviewers:** ${{ steps.contrib.outputs.reviewers }}" >> changelog.txt
+             if [ ! -z "$REVIEWERS" ]; then
+                echo -e "**Reviewers:** $REVIEWERS" >> changelog.txt
              fi
 
             echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
