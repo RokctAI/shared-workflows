@@ -87,9 +87,9 @@ jobs:
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service mysqladmin ping -p${{ inputs.db-password }} --silent; do echo "Waiting for MariaDB..."; sleep 2; done'
           else
-             echo "Starting PostgreSQL (ankane/pgvector)..."
-             # Standardized fleet database: ankane/pgvector
-             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ inputs.db-password }} -e POSTGRES_USER=postgres ankane/pgvector:latest
+             echo "Starting PostgreSQL (pgvector/pgvector)..."
+             # Standardized fleet database: pgvector/pgvector (Official)
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ inputs.db-password }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
           fi
