@@ -5,7 +5,7 @@ on:
       python-version:
         required: false
         type: string
-        default: '3.14'
+        default: '3.14.2'
       db-password:
         required: false
         type: string
@@ -123,11 +123,42 @@ jobs:
              sudo apt-get install -y postgresql-client
           fi
 
+      - name: Checkout Monorepo for Overrides
+        if: inputs.bootstrap == true
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/Monorepo
+          path: monorepo_overrides
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Frappe Bench (Manual)
         if: inputs.bootstrap == false
         run: |
           npm install -g yarn
           pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+
+      - name: Install Frappe Bench (Bootstrap with Overrides)
+        if: inputs.bootstrap == true
+        run: |
+          npm install -g yarn
+          # Install official bench first
+          pip install frappe-bench
+          
+          # PATCH: Override bench source code with Monorepo version
+          if [ -d "monorepo_overrides/bench" ]; then
+             echo "🔥 Applying Bench Overrides from Monorepo..."
+             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             echo "Target Bench Path: $BENCH_PATH"
+             
+             # Copy the inner 'bench' folder from monorepo/bench/bench to site-packages/bench
+             # Assuming Monorepo structure is: Monorepo/bench/bench/app.py
+             cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
+             echo "✅ Bench patches applied."
+          else
+             echo "⚠️ Monorepo bench folder not found. Skipping patch."
+          fi
+          
           bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
 
       - name: Install RPanel via Bootstrap Script
@@ -286,6 +317,14 @@ jobs:
           fi
           bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
 
+      - name: Archive Apps (Artifact)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frappe-apps-bundle
+          path: frappe-bench/apps
+          retention-days: 1
+
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
         if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
         working-directory: frappe-bench
@@ -312,10 +351,30 @@ jobs:
           # If SSH key is set, bench will use it automatically via git
           bench get-app git@github.com:RokctAI/control.git --resolve-deps --skip-assets
           
+          # --- BENCH RE-PATCH (Safety against install.sh usage) ---
+          if [ -d "../monorepo_overrides/bench" ]; then
+             echo "🔥 Re-Applying Bench Overrides (Safety)..."
+             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             cp -r "../monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+          fi
+          # --------------------------------------------------------
+
           # 4. Integrate into site
           SITE_NAME=$(ls sites | grep .local | head -n 1)
           SITE_NAME=${SITE_NAME:-test_site}
           echo "Integrating into site: $SITE_NAME"
+          
+          # --- MONOREPO OVERRIDES STAGING ---
+          # We move the Checked Out Monorepo to 'frappe-bench/monorepo_overrides'
+          # This allows 'control/install_stack.py' to find and apply dynamic app overrides during installation.
+          echo "🔥 Staging Monorepo Overrides for Install Stack..."
+          if [ -d "../monorepo_overrides" ]; then
+             cp -r "../monorepo_overrides" "monorepo_overrides"
+             echo "   ✅ Staged 'monorepo_overrides' into bench directory."
+          else
+             echo "⚠️ Monorepo overrides directory not found."
+          fi
+          # ----------------------------------
           
           bench --site $SITE_NAME install-app erpnext control
           
