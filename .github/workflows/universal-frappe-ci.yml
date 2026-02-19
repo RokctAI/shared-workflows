@@ -129,7 +129,7 @@ jobs:
         with:
           repository: RokctAI/Monorepo
           path: monorepo_overrides
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Install Frappe Bench (Manual)
         if: inputs.bootstrap == false
@@ -344,7 +344,7 @@ jobs:
           
           # 2. Install ERPNext
           echo "Installing ERPNext (latest)..."
-          bench get-app erpnext --resolve-deps --skip-assets
+          bench get-app erpnext --branch develop --resolve-deps --skip-assets
           
           # 3. Install Control (Private)
           echo "Installing Control Panel..."
