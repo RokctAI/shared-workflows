@@ -317,13 +317,7 @@ jobs:
           fi
           bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
 
-      - name: Archive Apps (Artifact)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: frappe-apps-bundle
-          path: frappe-bench/apps
-          retention-days: 1
+
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
         if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
@@ -360,8 +354,16 @@ jobs:
           # --------------------------------------------------------
 
           # 4. Integrate into site
-          SITE_NAME=$(ls sites | grep .local | head -n 1)
-          SITE_NAME=${SITE_NAME:-test_site}
+          ORIG_SITE=$(ls sites | grep .local | head -n 1)
+          ORIG_SITE=${ORIG_SITE:-test_site}
+          
+          SITE_NAME="platform.rokct.ai"
+          echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
+          mv "sites/$ORIG_SITE" "sites/$SITE_NAME"
+          
+          # Update current site txt
+          echo "$SITE_NAME" > sites/currentsite.txt
+          
           echo "Integrating into site: $SITE_NAME"
           
           # --- MONOREPO OVERRIDES STAGING ---
@@ -381,6 +383,29 @@ jobs:
           # 5. Verify Installation
           echo "Verifying platform bundle..."
           bench --site $SITE_NAME execute frappe.get_installed_apps
+          
+          # 6. Generate Golden Seed (Golden DB)
+          echo "Generating Golden DB Seed..."
+          bench --site $SITE_NAME backup
+          # Find the backup file (usually YYYYMMDD_HHMMSS-site_name-database.sql.gz)
+          # We use head -n 1 just in case, though there should be only one.
+          BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
+          if [ -f "$BACKUP_FILE" ]; then
+             echo "Backup found: $BACKUP_FILE"
+             mkdir -p apps/seed_data
+             cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
+             echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
+          else
+             echo "⚠️ Backup failed or file not found."
+          fi
+
+      - name: Archive Apps (Artifact)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frappe-apps-bundle
+          path: frappe-bench/apps
+          retention-days: 1
 
       - name: Process Annotations
         if: always()
