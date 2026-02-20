@@ -182,6 +182,15 @@ jobs:
       - name: Install App & Run Tests
         working-directory: frappe-bench
         run: |
+          # BOOTSTRAP PATH FIX: When using install.sh, bench is at /home/frappe/.local/bin
+          if [ "${{ inputs.bootstrap }}" == "true" ]; then
+             export PATH="/home/frappe/.local/bin:$PATH"
+             # Activate the bench virtualenv so bench commands find frappe modules
+             if [ -f "env/bin/activate" ]; then
+                source env/bin/activate
+             fi
+          fi
+
           # Configure Bench to use the service DB/Redis
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              bench set-config -g db_host 127.0.0.1
@@ -324,6 +333,10 @@ jobs:
         working-directory: frappe-bench
         shell: bash
         run: |
+          # BOOTSTRAP PATH FIX: bench is at /home/frappe/.local/bin
+          export PATH="/home/frappe/.local/bin:$PATH"
+          if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
+
           echo "Registry detected as RokctAI. Triggering extended platform integration..."
           
           # 1. Setup SSH for private Control app
