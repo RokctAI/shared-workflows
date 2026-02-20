@@ -43,6 +43,11 @@ on:
         type: string
         default: 'mariadb'
         description: "Database type: 'mariadb' or 'postgres'"
+      db-password:
+        required: false
+        type: string
+        default: 'travis'
+        description: "Password for the database service"
       redis-version:
         type: string
         default: '6.0'
@@ -118,6 +123,7 @@ jobs:
       mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
       postgres-version: ${{ inputs.postgres-version || '15' }}
       db-type: ${{ inputs.db-type || 'mariadb' }}
+      db-password: ${{ inputs.db-password || 'travis' }}
       redis-version: ${{ inputs.redis-version || '6.0' }}
       node-version: ${{ inputs.node-version || '24' }}
       install-erpnext: ${{ inputs.install-erpnext }}
