@@ -61,7 +61,7 @@ jobs:
           # E501: Line too long (We set 120, standard is 79)
           # W503: Line break before binary operator (New conventions allows this)
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --ignore=E501,W503,F401 --statistics
+          flake8 . --count --max-complexity=10 --max-line-length=120 --ignore=E501,W503,F401 --statistics
 
   lint-flutter:
     needs: telemetry
@@ -127,7 +127,7 @@ jobs:
 
       - name: Run ESLint
         if: steps.check_node.outputs.exists == 'true'
-        continue-on-error: true # Don't break build for now, just report
+        # Errors will fail the build
         run: |
           if npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx
