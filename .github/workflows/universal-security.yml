@@ -51,14 +51,11 @@ jobs:
       - name: Run Bandit (Code Analysis)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          #Recursive scan, skip hidden dirs, minimal confidence HIGH
-          bandit -r . --exclude ./.git,./node_modules,./venv --severity high --exit-zero
-          # Note: We use --exit-zero for now so it doesn't break builds immediately until user cleans up.
-          # To enforce blocking, remove --exit-zero.
+          # Recursive scan, skip hidden dirs, HIGH severity = blocking errors
+          bandit -r . --exclude ./.git,./node_modules,./venv --severity high
 
       - name: Run Pip Audit (Dependency Vulnerabilities)
         if: steps.check_python.outputs.exists == 'true'
-        continue-on-error: true # Report but don't fail build yet
         run: |
           if [ -f "requirements.txt" ]; then
             pip-audit -r requirements.txt
@@ -86,6 +83,5 @@ jobs:
 
       - name: Run NPM Audit
         if: steps.check_node.outputs.exists == 'true'
-        continue-on-error: true
         run: |
           npm audit --audit-level=high
