@@ -57,12 +57,9 @@ jobs:
       - name: Auto-fix Whitespace (excluding F401)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          echo "🧹 Running autopep8 auto-fixes..."
-          # Select E10, E11, E12, E13 (indentation), W2, W3 (trailing/blank lines)
-          # We explicitly do NOT include F401 or F841 as requested.
-          autopep8 --in-place --recursive --aggressive --aggressive \
-            --select=E10,E11,E12,E13,W2,W3,E2,E3,E4,E5,E7 \
-            .
+          # Run autopep8 to fix standard formatting issues (E1, E2, E3, W2, W3, etc.)
+          # This naturally excludes F401 (unused imports) as requested.
+          autopep8 --in-place --recursive --aggressive --aggressive .
 
       - name: Run Flake8
         if: steps.check_python.outputs.exists == 'true'
