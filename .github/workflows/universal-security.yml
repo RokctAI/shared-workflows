@@ -23,6 +23,8 @@ jobs:
     needs: telemetry
     name: 🐍 Python Security (Bandit & Pip Audit)
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -52,21 +54,55 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # Recursive scan, skip hidden dirs, HIGH severity = blocking errors
-          bandit -r . --exclude ./.git,./node_modules,./venv --severity high
+          bandit -r . --exclude ./.git,./node_modules,./venv --severity high > bandit_output.txt 2>&1
+
+      - name: Create Issue on Bandit Failure
+        if: failure() && steps.check_python.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 🐍 Python Security Scan Failure (Bandit)
+          **Commit:** ${{ github.sha }}
+          
+          #### Findings (High Severity):
+          \`\`\`
+          $(head -c 2000 bandit_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 Security: Bandit High Severity Findings" --body "$BODY" --label "Security" || echo "Issue already exists."
 
       - name: Run Pip Audit (Dependency Vulnerabilities)
         if: steps.check_python.outputs.exists == 'true'
         run: |
           if [ -f "requirements.txt" ]; then
-            pip-audit -r requirements.txt
+            pip-audit -r requirements.txt > pip_audit_output.txt 2>&1
           else
             echo "Skipping pip-audit (No requirements.txt found)"
+          fi
+
+      - name: Create Issue on Pip Audit Failure
+        if: failure() && steps.check_python.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f "pip_audit_output.txt" ]; then
+            BODY="### 🐍 Python Dependency Audit Failure
+            **Commit:** ${{ github.sha }}
+            
+            #### Findings:
+            \`\`\`
+            $(head -c 2000 pip_audit_output.txt)
+            \`\`\`
+            "
+            gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
           fi
 
   security-node:
     needs: telemetry
     name: 📦 Node Security (NPM Audit)
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -84,4 +120,19 @@ jobs:
       - name: Run NPM Audit
         if: steps.check_node.outputs.exists == 'true'
         run: |
-          npm audit --audit-level=high
+          npm audit --audit-level=high > npm_audit_output.txt 2>&1
+
+      - name: Create Issue on NPM Audit Failure
+        if: failure() && steps.check_node.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 📦 Node Security Audit Failure
+          **High/Critical vulnerabilities found.**
+          
+          #### Audit Summary:
+          \`\`\`
+          $(head -c 2000 npm_audit_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
