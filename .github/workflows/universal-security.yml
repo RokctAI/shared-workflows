@@ -53,11 +53,17 @@ jobs:
       - name: Run Bandit (Code Analysis)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          # Recursive scan, skip hidden dirs, HIGH severity = blocking errors
-          bandit -r . --exclude ./.git,./node_modules,./venv --severity high > bandit_output.txt 2>&1
+          # Recursive scan, skip hidden dirs, HIGH severity. Non-blocking exit.
+          bandit -r . --exclude ./.git,./node_modules,./venv --severity high > bandit_output.txt 2>&1 || true
+          
+          if [ -s bandit_output.txt ] && grep -q "Severity: High" bandit_output.txt; then
+             echo "bandit_findings=true" >> $GITHUB_ENV
+          else
+             echo "bandit_findings=false" >> $GITHUB_ENV
+          fi
 
-      - name: Create Issue on Bandit Failure
-        if: failure() && steps.check_python.outputs.exists == 'true'
+      - name: Create Issue on Bandit Findings
+        if: env.bandit_findings == 'true' && steps.check_python.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -75,13 +81,19 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           if [ -f "requirements.txt" ]; then
-            pip-audit -r requirements.txt > pip_audit_output.txt 2>&1
+            pip-audit -r requirements.txt > pip_audit_output.txt 2>&1 || true
+            if [ -s pip_audit_output.txt ] && grep -q "dependency" pip_audit_output.txt; then
+               echo "pip_audit_findings=true" >> $GITHUB_ENV
+            else
+               echo "pip_audit_findings=false" >> $GITHUB_ENV
+            fi
           else
             echo "Skipping pip-audit (No requirements.txt found)"
+            echo "pip_audit_findings=false" >> $GITHUB_ENV
           fi
 
-      - name: Create Issue on Pip Audit Failure
-        if: failure() && steps.check_python.outputs.exists == 'true'
+      - name: Create Issue on Pip Audit Findings
+        if: env.pip_audit_findings == 'true' && steps.check_python.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -120,10 +132,16 @@ jobs:
       - name: Run NPM Audit
         if: steps.check_node.outputs.exists == 'true'
         run: |
-          npm audit --audit-level=high > npm_audit_output.txt 2>&1
+          npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
+          
+          if grep -qEi "high|critical" npm_audit_output.txt; then
+             echo "npm_findings=true" >> $GITHUB_ENV
+          else
+             echo "npm_findings=false" >> $GITHUB_ENV
+          fi
 
-      - name: Create Issue on NPM Audit Failure
-        if: failure() && steps.check_node.outputs.exists == 'true'
+      - name: Create Issue on NPM Audit Findings
+        if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
