@@ -63,7 +63,8 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # Run autopep8 to fix standard formatting issues (E1, E2, E3, W2, W3, etc.)
-          autopep8 --in-place --recursive --aggressive --aggressive .
+          # Exclude .github directory to avoid permission issues with workflows
+          autopep8 --in-place --recursive --aggressive --aggressive --exclude .github .
 
       - name: Run Flake8
         if: steps.check_python.outputs.exists == 'true'
@@ -146,7 +147,10 @@ jobs:
       - name: Auto-fix Whitespace (Flutter)
         if: steps.check_flutter.outputs.exists == 'true'
         run: |
-          dart format .
+          # Format only lib, test, and other source dirs, avoiding .github
+          if [ -d "lib" ]; then dart format lib; fi
+          if [ -d "test" ]; then dart format test; fi
+          if [ -d "source" ]; then dart format source; fi
 
       - name: Run Flutter Analyze
         if: steps.check_flutter.outputs.exists == 'true'
@@ -224,9 +228,9 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           if npx prettier --version > /dev/null 2>&1; then
-             npx prettier --write .
+             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**'
           elif npm list eslint > /dev/null 2>&1; then
-             npx eslint . --ext .js,.jsx,.ts,.tsx --fix
+             npx eslint . --ext .js,.jsx,.ts,.tsx --fix --ignore-pattern ".github/workflows"
           fi
 
       - name: Run NPM Audit
