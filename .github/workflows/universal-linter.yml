@@ -31,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -62,27 +63,36 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # Run autopep8 to fix standard formatting issues (E1, E2, E3, W2, W3, etc.)
-          # This naturally excludes F401 (unused imports) as requested.
           autopep8 --in-place --recursive --aggressive --aggressive .
 
       - name: Run Flake8
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          # Pass 1: Critical syntax errors (always block)
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Pass 2: Code quality errors (block on real errors, ignore style/unused warnings)
-          # IGNORED:
-          #   E501: line too long | W503/W504: line break around operator
-          #   W191: tabs | W291-W293: trailing/blank whitespace | W391: blank line at EOF
-          #   E261/E265: comment spacing | E302/E303/E305: blank lines between defs
-          #   E111/E114/E116/E117: indentation | E127/E128: continuation indent
-          #   E225/E226: operator spacing | E401: multiple imports | F401: unused import
-          #   F841: unused variable (Keeping for context)
-          # BLOCKING (Real Errors):
-          #   E722: bare except | F541: broken f-string | F811: redefinition | C901: too complex
+          # Capture output to a file for issue reporting but still exit with correct code
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics > flake8_output.txt 2>&1 || true
           flake8 . --count --max-complexity=10 --max-line-length=120 \
             --ignore=E501,W503,W504,W191,W291,W292,W293,W391,E261,E265,E302,E303,E305,E111,E114,E116,E117,E127,E128,E225,E226,E401,F401,F841 \
-            --statistics
+            --statistics >> flake8_output.txt 2>&1
+          
+          cat flake8_output.txt
+          # Fail if the file contains any errors (lines with : )
+          if grep -q ":" flake8_output.txt; then exit 1; fi
+
+      - name: Create Issue on Failure
+        if: failure() && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 🐍 Python Lint Failure
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+          
+          #### Error Summary:
+          \`\`\`
+          $(head -c 2000 flake8_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 CI: Python Lint Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
 
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -103,6 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -131,19 +142,27 @@ jobs:
         run: |
           dart format .
 
-      - name: Run Build Runner
-        if: inputs.run-build-runner == true && steps.check_flutter.outputs.exists == 'true'
-        run: |
-          flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
-
       - name: Run Flutter Analyze
         if: steps.check_flutter.outputs.exists == 'true'
         run: |
-          # Use fatal-infos to be strict, but we use no-fatal-warnings for legacy compatibility
           flutter config --no-analytics
           flutter pub get
-          flutter analyze . --no-fatal-warnings
+          flutter analyze . --no-fatal-warnings > flutter_output.txt 2>&1
+
+      - name: Create Issue on Failure
+        if: failure() && steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 🐦 Flutter Analysis Failure
+          **Commit:** ${{ github.sha }}
+          
+          #### Output:
+          \`\`\`
+          $(head -c 2000 flutter_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 CI: Flutter Analysis Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists."
 
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -160,10 +179,11 @@ jobs:
 
   lint-node:
     needs: telemetry
-    name: 📦 JS/TS Lint (ESLint)
+    name: 📦 JS/TS Lint (ESLint & Security)
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -189,23 +209,37 @@ jobs:
       - name: Auto-fix Whitespace (Node)
         if: steps.check_node.outputs.exists == 'true'
         run: |
-          # Use Prettier for global whitespace fixes if available, fallback to eslint fix
           if npx prettier --version > /dev/null 2>&1; then
              npx prettier --write .
           elif npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx --fix
-          else
-             echo "No formatter (prettier/eslint) found. Skipping auto-fix."
           fi
+
+      - name: Run NPM Audit
+        if: steps.check_node.outputs.exists == 'true'
+        run: |
+          npm audit --audit-level=high > npm_audit_output.txt 2>&1
+
+      - name: Create Issue on Audit Failure
+        if: failure() && contains(github.job, 'lint-node') && steps.check_node.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 📦 Node Security Audit Failure
+          **High/Critical vulnerabilities found.**
+          
+          #### Audit Summary:
+          \`\`\`
+          $(head -c 2000 npm_audit_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 CI: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
 
       - name: Run ESLint
         if: steps.check_node.outputs.exists == 'true'
-        # Errors will fail the build
         run: |
           if npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx
-          else
-             echo "ESLint not installed in package.json. Skipping."
           fi
 
       - name: Commit Auto-fixes
