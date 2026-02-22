@@ -28,6 +28,7 @@ jobs:
   lint-python:
     needs: telemetry
     name: 🐍 Python Lint (Flake8)
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
