@@ -101,6 +101,9 @@ jobs:
   # 1. SECURITY
   security:
     if: inputs.run_security
+    permissions:
+      contents: write
+      issues: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
 
@@ -108,6 +111,9 @@ jobs:
   lint:
     needs: security
     if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint
+    permissions:
+      contents: write
+      issues: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     with:
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
