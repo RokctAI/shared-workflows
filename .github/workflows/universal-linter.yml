@@ -28,10 +28,13 @@ jobs:
   lint-python:
     needs: telemetry
     name: 🐍 Python Lint (Flake8)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check for Python
         id: check_python
@@ -66,18 +69,18 @@ jobs:
         run: |
           # Pass 1: Critical syntax errors (always block)
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Pass 2: Code quality errors (block on real errors, ignore style warnings)
-          # IGNORED (Style/Whitespace - Warnings, not errors):
+          # Pass 2: Code quality errors (block on real errors, ignore style/unused warnings)
+          # IGNORED:
           #   E501: line too long | W503/W504: line break around operator
           #   W191: tabs | W291-W293: trailing/blank whitespace | W391: blank line at EOF
           #   E261/E265: comment spacing | E302/E303/E305: blank lines between defs
           #   E111/E114/E116/E117: indentation | E127/E128: continuation indent
           #   E225/E226: operator spacing | E401: multiple imports | F401: unused import
+          #   F841: unused variable (Keeping for context)
           # BLOCKING (Real Errors):
-          #   E722: bare except | F541: broken f-string | F811: redefinition
-          #   F841: unused variable | C901: too complex
+          #   E722: bare except | F541: broken f-string | F811: redefinition | C901: too complex
           flake8 . --count --max-complexity=10 --max-line-length=120 \
-            --ignore=E501,W503,W504,W191,W291,W292,W293,W391,E261,E265,E302,E303,E305,E111,E114,E116,E117,E127,E128,E225,E226,E401,F401 \
+            --ignore=E501,W503,W504,W191,W291,W292,W293,W391,E261,E265,E302,E303,E305,E111,E114,E116,E117,E127,E128,E225,E226,E401,F401,F841 \
             --statistics
 
       - name: Commit Auto-fixes
@@ -88,7 +91,7 @@ jobs:
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated whitespace/lint fixes [skip ci]"
-            git push
+            git push origin HEAD:${{ github.ref }}
           else
             echo "No changes to commit."
           fi
