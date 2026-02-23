@@ -117,6 +117,8 @@ jobs:
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     with:
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      flutter-version: ${{ inputs.flutter-version }}
     secrets: inherit
 
   # 3. CI / BUILD (Project Specific Jobs)
