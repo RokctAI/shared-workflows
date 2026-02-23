@@ -3,6 +3,10 @@ on:
   pull_request:
     types: [opened, edited, synchronize]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   semantic:
     uses: RokctAI/shared-workflows/.github/workflows/universal-semantic.yml@main
