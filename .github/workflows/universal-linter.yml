@@ -12,6 +12,16 @@ on:
         type: boolean
         default: false
         description: "Run build_runner before analyzing Flutter code"
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+        description: "Flutter channel to use (default: stable)"
+      flutter-version:
+        required: false
+        type: string
+        default: ''
+        description: "Specific Flutter version to use (e.g. '3.24.5')"
     secrets:
       COUNTER_API_KEY:
         required: false
@@ -295,7 +305,8 @@ jobs:
         if: steps.check_flutter.outputs.exists == 'true'
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
       - name: Auto-fix Whitespace (Flutter)
