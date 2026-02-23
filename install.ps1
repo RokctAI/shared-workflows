@@ -59,7 +59,7 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
         "2" { $projectType = "flutter" }
         "3" { $projectType = "frappe" }
         "4" { $projectType = "node" }
-        Default { $projectType = "smart" }
+        default { $projectType = "smart" }
     }
 
     # Versioning (Skip for Flutter)
@@ -77,7 +77,7 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     switch ($strategyChoice) {
         "2" { $releaseStrategy = "weekly" }
         "3" { $releaseStrategy = "weekly-rc" }
-        Default { $releaseStrategy = "immediate" }
+        default { $releaseStrategy = "immediate" }
     }
 
     # Cron Schedule (Only for weekly)
