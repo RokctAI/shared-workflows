@@ -108,9 +108,10 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
+          # Clean up temporary findings files so they are not included in status check or commit
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+          
           if [[ -n $(git status -s) ]]; then
-            # Clean up temporary findings files to avoid committing them
-            rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
             git add .
             git commit -m "style: automated whitespace/lint fixes [skip ci]"
             git push origin HEAD:${{ github.ref }}
@@ -193,9 +194,10 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
+          # Clean up temporary findings files so they are not included in status check or commit
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+
           if [[ -n $(git status -s) ]]; then
-            # Clean up temporary findings files to avoid committing them
-            rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
             git add .
             git commit -m "style: automated flutter formatting [skip ci]"
             git push origin HEAD:${{ github.ref }}
@@ -282,9 +284,10 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
+          # Clean up temporary findings files so they are not included in status check or commit
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+
           if [[ -n $(git status -s) ]]; then
-            # Clean up temporary findings files to avoid committing them
-            rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
             git add .
             git commit -m "style: automated node formatting [skip ci]"
             git push origin HEAD:${{ github.ref }}
