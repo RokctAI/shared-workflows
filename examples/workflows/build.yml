@@ -41,6 +41,10 @@ on:
         default: '##.##.##'
         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
   detect:
