@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 env:
   # 🛑 Monthly Limit for iOS Builds (Cost Control)
   MAX_MONTHLY_BUILDS: 4
