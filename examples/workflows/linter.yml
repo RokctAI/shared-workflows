@@ -4,6 +4,10 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   lint:
     permissions:
