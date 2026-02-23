@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   # 🛑 Monthly Limit for macOS Builds (Cost Control)
   MAX_MONTHLY_BUILDS: 4
