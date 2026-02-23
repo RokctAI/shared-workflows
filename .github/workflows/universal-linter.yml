@@ -3,6 +3,10 @@ name: Universal Code Quality (Lint)
 on:
   workflow_call:
     inputs:
+      copyright-text:
+        required: false
+        type: string
+        description: "Standard copyright text to prepend to Python files (e.g., 'Rokct Intelligence'). The year is added automatically."
       run-build-runner:
         required: false
         type: boolean
@@ -67,12 +71,24 @@ jobs:
           autopep8 --in-place --recursive --aggressive --aggressive --exclude .github,.git,node_modules,env,venv,.venv,__pycache__,*.min.js .
 
       - name: Auto-Inject Frappe Copyright
-        if: steps.check_python.outputs.exists == 'true'
+        if: steps.check_python.outputs.exists == 'true' && inputs.copyright-text != ''
+        env:
+          COPYRIGHT_INPUT: ${{ inputs.copyright-text }}
         run: |
-          # Find all python files, explicitly ignoring __init__.py and common excluded folders
+          # The caller workflow provides the entity name/format. 
+          # The universal linter adds the dynamic year.
           CURRENT_YEAR=$(date +%Y)
-          HEADER="# Copyright (c) $CURRENT_YEAR, Rokct Holdings and contributors\n# For license information, please see license.txt\n"
           
+          # We construct the final header by taking the user's input and injecting the year
+          # Assuming the input looks something like: "Copyright (c) {YEAR}, Rokct Intelligence (pty) Ltd."
+          # If they just provided the name, we build the standard Frappe string.
+          # We will default to standard Frappe format:
+          HEADER="# Copyright (c) ${CURRENT_YEAR}, ${COPYRIGHT_INPUT}\n# For license information, please see license.txt\n"
+          
+          echo "Using copyright template:"
+          echo -e "$HEADER"
+          
+          # Find all python files, explicitly ignoring __init__.py and common excluded folders
           find . -name "*.py" -not -name "__init__.py" \
                -not -path "*/\.*" \
                -not -path "*/node_modules/*" \
@@ -80,11 +96,13 @@ jobs:
                -not -path "*/venv/*" \
                -not -path "*/tests/*" | while read -r file; do
              
-             # Check if file already has a copyright header (case-insensitive check for 'Copyright')
+             # Check if file already has a copyright header (case-insensitive check for 'Copyright' in first 5 lines)
              if ! head -n 5 "$file" | grep -qi "Copyright"; then
                  echo "Adding copyright to $file"
-                 # Use sed to prepend the header and an empty line
-                 sed -i "1s;^;${HEADER}\n;" "$file"
+                 # Escape the header for sed
+                 ESCAPED_HEADER=$(echo "$HEADER" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/$/\\n/g' )
+                 # Use awk to prepend the header block cleanly
+                 awk -v header="$HEADER" 'BEGIN{print header; print ""} {print}' "$file" > tmpfile && mv tmpfile "$file"
              fi
           done
 
