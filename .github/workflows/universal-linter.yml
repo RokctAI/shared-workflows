@@ -196,6 +196,65 @@ jobs:
             echo "No changes to commit."
           fi
 
+  lint-powershell:
+    needs: telemetry
+    name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Format PowerShell Scripts
+        shell: pwsh
+        run: |
+          # 1. Check if there are any .ps1 files we actually need to format
+          # (excluding node_modules, venv, and other common CI/hidden folders)
+          $psFiles = Get-ChildItem -Path . -Filter "*.ps1" -Recurse -File | Where-Object { 
+              $_.FullName -notmatch "\\node_modules\\" -and 
+              $_.FullName -notmatch "\\venv\\" -and 
+              $_.FullName -notmatch "\\env\\" -and
+              $_.FullName -notmatch "\\.venv\\" -and
+              $_.FullName -notmatch "\\\.git\\" 
+          }
+          
+          if ($psFiles.Count -eq 0) {
+              Write-Host "No PowerShell scripts found. Skipping."
+              exit 0
+          }
+          
+          Write-Host "Found $($psFiles.Count) PowerShell scripts. Installing PSScriptAnalyzer..."
+          
+          # 2. Install the formatter module automatically
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -AllowClobber
+          
+          # 3. Format each file and overwrite
+          foreach ($file in $psFiles) {
+              Write-Host "Formatting $($file.FullName)"
+              $formattedContent = Invoke-Formatter -ScriptDefinition (Get-Content $file.FullName -Raw)
+              # Save using UTF8 without BOM for Linux/cross-platform compatibility
+              $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding $False
+              [System.IO.File]::WriteAllText($file.FullName, $formattedContent, $Utf8NoBomEncoding)
+          }
+
+      - name: Setup Identity
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+
+      - name: Commit Auto-fixes
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "style: automated powershell script formatting [skip ci]"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "No changes to commit."
+          fi
+
   lint-flutter:
     needs: telemetry
     name: 🐦 Flutter Analyze
