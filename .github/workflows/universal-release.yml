@@ -188,8 +188,7 @@ jobs:
           
           echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
           
-          git config user.name "LTS Bot"
-          git config user.email "bot@rokct.ai"
+          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
           
           # Branch
           git branch "$BRANCH_NAME" HEAD^
@@ -346,8 +345,7 @@ jobs:
           echo "📝 Creating marker file to prevent future cleanups..."
           mkdir -p .github
           echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
-          git config user.name "Cleanup Bot"
-          git config user.email "bot@rokct.ai"
+          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
           git add .github/.rc-cleanup-done
           git commit -m "chore: mark RC cleanup as completed"
           
