@@ -35,6 +35,11 @@ on:
         default: '##.##.##'
         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
   detect:
