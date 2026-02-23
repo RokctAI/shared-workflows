@@ -70,15 +70,17 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install pnpm
+      - name: Setup pnpm
         if: inputs.package-manager == 'pnpm'
-        run: corepack enable && corepack prepare pnpm@latest --activate
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9 # Matches your ecosystem's typical version
 
       - name: Setup Cache
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-          cache: ${{ inputs.package-manager }}
+          cache: ${{ inputs.package-manager == 'pnpm' && 'pnpm' || inputs.package-manager }}
 
       - name: Install Dependencies
         run: ${{ inputs.package-manager }} install
