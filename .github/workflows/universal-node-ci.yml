@@ -93,6 +93,9 @@ jobs:
           DB_USERNAME: postgres
           DB_PASSWORD: password
           DB_DATABASE: test_db
+          # Standardized connection strings for migration scripts
+          POSTGRES_URL: postgres://postgres:password@localhost:5432/test_db
+          POSTGRES_URL_NON_POOLING: postgres://postgres:password@localhost:5432/test_db
         run: |
           if jq -e '.scripts.test' package.json > /dev/null; then
             echo "Test script detected. Running..."
@@ -103,4 +106,8 @@ jobs:
 
       - name: Run Build
         if: inputs.run-build == true
+        env:
+          # Inject DB vars specifically for projects that run migrations during build (e.g., RokctAI_frontend)
+          POSTGRES_URL: postgres://postgres:password@localhost:5432/test_db
+          POSTGRES_URL_NON_POOLING: postgres://postgres:password@localhost:5432/test_db
         run: ${{ inputs.build-command }}
