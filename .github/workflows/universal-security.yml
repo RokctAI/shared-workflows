@@ -24,6 +24,7 @@ jobs:
     name: 🐍 Python Security (Bandit & Pip Audit)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
       - name: Checkout Code
@@ -114,6 +115,7 @@ jobs:
     name: 📦 Node Security (NPM Audit)
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
       - name: Checkout Code
