@@ -9,6 +9,7 @@ jobs:
   welcome:
     uses: RokctAI/shared-workflows/.github/workflows/universal-welcome.yml@main
     permissions:
+      contents: read
       issues: write 
       pull-requests: write
     secrets: inherit
