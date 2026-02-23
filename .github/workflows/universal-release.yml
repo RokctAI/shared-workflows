@@ -567,15 +567,15 @@ jobs:
                 fi
              done
              
-             # Format for Changelog
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed 's/^/@/' | paste -sd ", " -)
+             # Format for Changelog (Normalize bots to @rokctbot, except dependabot)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
              
              echo "authors=$UNIQUE_AUTHORS" >> $GITHUB_OUTPUT
              echo "reviewers=$UNIQUE_REVIEWERS" >> $GITHUB_OUTPUT
              
              # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | while read user; do
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | while read user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
              
