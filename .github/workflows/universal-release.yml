@@ -801,7 +801,7 @@ jobs:
           java-version: ${{ inputs.java-version || '17' }}
 
       - name: Helper - Subosito Flutter
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
         uses: subosito/flutter-action@v2
         with:
            channel: ${{ inputs.flutter-channel }}
@@ -1223,35 +1223,40 @@ jobs:
            echo "Creating Release $TAG via gh CLI..."
            
            # Assets List
-           FILES=""
-           if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES="$FILES ${{ steps.delta_zip.outputs.zip_path }}"; fi
-           if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES="$FILES ${{ steps.dev_bundle.outputs.dev_pack_path }}"; fi
-           if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES="$FILES ${{ steps.build_apk.outputs.apk_path }}"; fi
-           if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES="$FILES ${{ steps.build_aab.outputs.aab_path }}"; fi
+           FILES=()
+           if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
+           if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
+           if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
+           if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
            
            # Rename Windows Zip with Tag
            if [ "${{ env.has_windows }}" == "true" ]; then
               mv windows_app.zip "app-windows-${TAG}.zip"
-              FILES="$FILES app-windows-${TAG}.zip"
+              FILES+=("app-windows-${TAG}.zip")
            fi
            
-           # Only pass FILES if not empty
-           echo "Files to upload: '$FILES'"
+           echo "Files to upload: ${FILES[*]}"
            
            # Check if release exists
            if gh release view "$TAG" >/dev/null 2>&1; then
               echo "✅ Release $TAG already exists."
-              if [ ! -z "$FILES" ]; then
+              if [ ${#FILES[@]} -gt 0 ]; then
                  echo "Updating release assets..."
-                 gh release upload "$TAG" $FILES --clobber
+                 gh release upload "$TAG" "${FILES[@]}" --clobber
               else
                  echo "No assets to upload."
               fi
            else
               echo "🆕 Creating new release $TAG..."
+              PRERELEASE_FLAG=""
+              if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+              
               gh release create "$TAG" \
                 --title "$TAG" \
                 --notes-file "changelog.txt" \
                 $PRERELEASE_FLAG \
-                $FILES
+                "${FILES[@]}" || {
+                  echo "⚠️ gh release create failed (might be immutable). Attempting upload fallback..."
+                  gh release upload "$TAG" "${FILES[@]}" --clobber || echo "❌ Fallback upload also failed."
+                }
            fi
