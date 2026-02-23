@@ -63,8 +63,8 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # Run autopep8 to fix standard formatting issues (E1, E2, E3, W2, W3, etc.)
-          # Exclude .github directory to avoid permission issues with workflows
-          autopep8 --in-place --recursive --aggressive --aggressive --exclude .github .
+          # Exclude .github directory, virtual environments, caches, and minified files
+          autopep8 --in-place --recursive --aggressive --aggressive --exclude .github,.git,node_modules,env,venv,.venv,__pycache__,*.min.js .
 
       - name: Run Flake8
         if: steps.check_python.outputs.exists == 'true'
@@ -114,6 +114,43 @@ jobs:
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated whitespace/lint fixes [skip ci]"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "No changes to commit."
+          fi
+
+  lint-shell:
+    needs: telemetry
+    name: 🐚 Shell Script Format (shfmt)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Format Shell Scripts
+        run: |
+          # Use dockerized shfmt for zero-dependency alpine formatting
+          # We check if there are any .sh files first to save time
+          if find . -name "*.sh" | grep -q .; then
+             docker run --rm -v $(pwd):/mnt mvdan/shfmt:latest -w -i 2 /mnt
+          else
+             echo "No shell scripts found. Skipping."
+          fi
+
+      - name: Setup Identity
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+
+      - name: Commit Auto-fixes
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "style: automated shell script formatting [skip ci]"
             git push origin HEAD:${{ github.ref }}
           else
             echo "No changes to commit."
@@ -238,7 +275,7 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           if npx prettier --version > /dev/null 2>&1; then
-             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**'
+             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**' '!**/*.md' '!**/*.svg' '!**/*.html' '!**/package-lock.json' '!**/*.env*'
           elif npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx --fix --ignore-pattern ".github/workflows"
           fi
