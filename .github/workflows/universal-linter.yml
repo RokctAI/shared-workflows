@@ -66,6 +66,28 @@ jobs:
           # Exclude .github directory, virtual environments, caches, and minified files
           autopep8 --in-place --recursive --aggressive --aggressive --exclude .github,.git,node_modules,env,venv,.venv,__pycache__,*.min.js .
 
+      - name: Auto-Inject Frappe Copyright
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          # Find all python files, explicitly ignoring __init__.py and common excluded folders
+          CURRENT_YEAR=$(date +%Y)
+          HEADER="# Copyright (c) $CURRENT_YEAR, Rokct Holdings and contributors\n# For license information, please see license.txt\n"
+          
+          find . -name "*.py" -not -name "__init__.py" \
+               -not -path "*/\.*" \
+               -not -path "*/node_modules/*" \
+               -not -path "*/env/*" \
+               -not -path "*/venv/*" \
+               -not -path "*/tests/*" | while read -r file; do
+             
+             # Check if file already has a copyright header (case-insensitive check for 'Copyright')
+             if ! head -n 5 "$file" | grep -qi "Copyright"; then
+                 echo "Adding copyright to $file"
+                 # Use sed to prepend the header and an empty line
+                 sed -i "1s;^;${HEADER}\n;" "$file"
+             fi
+          done
+
       - name: Run Flake8
         if: steps.check_python.outputs.exists == 'true'
         run: |
@@ -275,7 +297,7 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           if npx prettier --version > /dev/null 2>&1; then
-             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**' '!**/*.md' '!**/*.svg' '!**/*.html' '!**/package-lock.json' '!**/*.env*'
+             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**' '!**/*.md' '!**/*.svg' '!**/*.html' '!**/package-lock.json' '!**/*.env*' '!**/*production.env' '!**/*.env.local'
           elif npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx --fix --ignore-pattern ".github/workflows"
           fi
