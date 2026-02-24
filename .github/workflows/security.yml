@@ -6,5 +6,7 @@ on:
 
 jobs:
   scan:
+    permissions:
+      issues: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
