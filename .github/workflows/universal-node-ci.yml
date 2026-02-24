@@ -130,7 +130,17 @@ jobs:
             set +a
             envsubst < .env > .env.expanded
             mv .env.expanded .env
-            echo "Interpolation complete."
+            
+            # Sanitise: Keep ONLY NEXT_PUBLIC_ variables for Next.js security
+            if grep -q "^NEXT_PUBLIC_" .env; then
+               grep "^NEXT_PUBLIC_" .env > .env.public
+               mv .env.public .env
+               echo "Sanitised .env: Only NEXT_PUBLIC_ variables retained."
+            else
+               echo "No NEXT_PUBLIC_ variables found to extract."
+            fi
+            
+            echo "Interpolation & Extraction complete."
           fi
 
       - name: Run Tests
