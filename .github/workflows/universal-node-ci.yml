@@ -85,6 +85,54 @@ jobs:
       - name: Install Dependencies
         run: ${{ inputs.package-manager }} install
 
+      - name: Resolve Dynamic Client
+        id: client
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          CLIENT=""
+          if [[ "$REF_NAME" == build_* ]]; then
+            # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
+            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
+          fi
+          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
+          [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+
+      - name: Decode Production Environment
+        env:
+          CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+        if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
+        run: |
+          ENV_CONTENT="$DEFAULT_ENV"
+          if [ ! -z "$CLIENT_ENV" ]; then
+             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
+             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
+             ENV_CONTENT="$CLIENT_ENV"
+          fi
+          
+          if [ -n "$ENV_CONTENT" ]; then
+             echo "$ENV_CONTENT" | base64 --decode > .env.raw
+             # Normalize line endings
+             sed -i 's/\r$//' .env.raw
+             mv .env.raw .env
+             echo "✅ Client-specific .env vault decoded seamlessly."
+          fi
+
+      - name: Resolve Environment Variables
+        if: inputs.run-build == true || inputs.run-test == true
+        shell: bash
+        run: |
+          if [ -f ".env" ]; then
+            echo ".env file detected. Interpolating internal variables..."
+            set -a
+            source .env
+            set +a
+            envsubst < .env > .env.expanded
+            mv .env.expanded .env
+            echo "Interpolation complete."
+          fi
+
       - name: Run Tests
         if: inputs.run-test == true
         env:
