@@ -834,14 +834,14 @@ jobs:
             fi
           fi
 
-      # --- INJECT SAFE WEBAPP ENV ---
-      - name: Inject Safe WebApp Environment
+      # --- INJECT SAFE NEXT.JS ENV ---
+      - name: Inject Safe Next.js Environment
         if: env.TAG_NAME != '' && steps.delta_zip.outputs.zip_path != ''
         env:
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
           CLIENT_ENV: ${{ steps.mode.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.mode.outputs.client_upper)] || '' }}
         run: |
-          # If package.json exists and has next build scripts, it's likely a WebApp
+          # If package.json exists and has next build scripts, it's a Next.js project
           if [ -f "package.json" ] && grep -q '"next"' package.json; then
              echo "📦 Next.js project detected. Generating safe `.env` for release."
              
@@ -863,7 +863,7 @@ jobs:
                 envsubst < .env > .env.expanded
                 mv .env.expanded .env
                 
-                # Strip backend secrets, keeping only public WebApp variables
+                # Strip backend secrets, keeping only public Next.js variables
                 if grep -q "^NEXT_PUBLIC_" .env; then
                    grep "^NEXT_PUBLIC_" .env > .env.public
                    mv .env.public .env
