@@ -81,12 +81,13 @@ jobs:
 
       - name: Resolve Dynamic Client
         id: client
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          BRANCH="${{ github.ref_name }}"
           CLIENT=""
-          if [[ "$BRANCH" == build_* ]]; then
-            # Extract client: build_wrapzo-v1 -> WRAPZO
-            CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+          if [[ "$REF_NAME" == build_* ]]; then
+            # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
+            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
           echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
@@ -411,12 +412,13 @@ jobs:
 
       - name: Resolve Dynamic Client
         id: client
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          BRANCH="${{ github.ref_name }}"
           CLIENT=""
-          if [[ "$BRANCH" == build_* ]]; then
-            # Extract client: build_wrapzo-v1 -> WRAPZO
-            CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+          if [[ "$REF_NAME" == build_* ]]; then
+            # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
+            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
           echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
