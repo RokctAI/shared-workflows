@@ -224,7 +224,7 @@ jobs:
           # We also exclude node_modules and .git
           
           # We format the find output directly into a string that docker can use as arguments relative to /mnt
-          FILES_TO_FORMAT=$(find . -name "*.sh" -not -path "*/\.git/*" -not -path "*/node_modules/*" -not -path "*/ios/*" -not -path "*/macos/*" -not -path "*/android/*" -not -path "*/windows/*" -not -path "*/linux/*" | sed "s|^\./|/mnt/|")
+          FILES_TO_FORMAT=$(find . -name "*.sh" -not -path "*/\.git/*" -not -path "*/\.github/*" -not -path "*/node_modules/*" -not -path "*/ios/*" -not -path "*/macos/*" -not -path "*/android/*" -not -path "*/windows/*" -not -path "*/linux/*" | sed "s|^\./|/mnt/|")
           
           if [ -n "$FILES_TO_FORMAT" ]; then
              echo "Found shell scripts to format:"
@@ -300,7 +300,7 @@ jobs:
               $_.FullName -notmatch "\\venv\\" -and 
               $_.FullName -notmatch "\\env\\" -and
               $_.FullName -notmatch "\\.venv\\" -and
-              $_.FullName -notmatch "\\\.git\\" 
+              $_.FullName -notmatch "\\\.git\\" -and $_.FullName -notmatch "\\\.github\\" 
           }
           
           if ($psFiles.Count -eq 0) {
@@ -308,10 +308,13 @@ jobs:
               exit 0
           }
           
-          Write-Host "Found $($psFiles.Count) PowerShell scripts. Installing PSScriptAnalyzer..."
-          
-          # 2. Install the formatter module automatically
-          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -AllowClobber
+          # 2. Install the formatter module automatically ONLY if not already present
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+              Write-Host "PSScriptAnalyzer not found. Installing..."
+              Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -AllowClobber -ErrorAction SilentlyContinue
+          } else {
+              Write-Host "PSScriptAnalyzer already installed."
+          }
           
           # 3. Format each file and overwrite
           foreach ($file in $psFiles) {
@@ -510,7 +513,7 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           if npx prettier --version > /dev/null 2>&1; then
-             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/workflows/**' '!**/*.md' '!**/*.svg' '!**/*.html' '!**/package-lock.json' '!**/*.env*' '!**/*production.env' '!**/*.env.local'
+             npx prettier --write . --ignore-path .gitignore --plugin-search-dir=. --ignore-unknown . '!**/.github/**' '!**/*.md' '!**/*.svg' '!**/*.html' '!**/package-lock.json' '!**/*.env*' '!**/*production.env' '!**/*.env.local'
           elif npm list eslint > /dev/null 2>&1; then
              npx eslint . --ext .js,.jsx,.ts,.tsx --fix --ignore-pattern ".github/workflows"
           fi
