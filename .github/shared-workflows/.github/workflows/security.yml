@@ -1,0 +1,10 @@
+name: Security Scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    secrets: inherit

@@ -1,0 +1,77 @@
+name: Universal Issue Labeler
+on:
+  workflow_call:
+    secrets:
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  label-version:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from issue body
+        id: extract_version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            
+            // Look for checked version in the issue body
+            const versionMatch = body.match(/- \[x\] (v\d+\.\d+\.\d+)/i);
+            
+            if (versionMatch) {
+              const version = versionMatch[1];
+              console.log(`Found version: ${version}`);
+              return version;
+            }
+            
+            // Check for "main" branch
+            if (body.match(/- \[x\] main/i)) {
+              console.log('Found version: main');
+              return 'main';
+            }
+            
+            // Check for "Other" with custom version
+            const otherMatch = body.match(/- \[x\] Other.*?:\s*(v?\d+\.\d+\.\d+)/i);
+            if (otherMatch) {
+              const version = otherMatch[1].startsWith('v') ? otherMatch[1] : `v${otherMatch[1]}`;
+              console.log(`Found custom version: ${version}`);
+              return version;
+            }
+            
+            console.log('No version found');
+            return null;
+
+      - name: Add version label
+        if: steps.extract_version.outputs.result != 'null'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = ${{ steps.extract_version.outputs.result }};
+            
+            if (version) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: [version]
+                });
+                console.log(`Added label: ${version}`);
+              } catch (error) {
+                 console.log(`Error adding label (it might not exist): ${error}`);
+              }
+            }

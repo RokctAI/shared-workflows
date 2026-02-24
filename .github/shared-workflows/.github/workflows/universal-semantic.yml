@@ -1,0 +1,44 @@
+name: Universal Semantic PR
+
+on:
+  workflow_call:
+    secrets:
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  semantic-check:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          ignoreAuthors: |
+            dependabot[bot]
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          requireScope: false

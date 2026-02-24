@@ -1,0 +1,444 @@
+name: Frappe App Test
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.14.2'
+      db-password:
+        required: false
+        type: string
+        default: 'travis'
+      mariadb-version:
+        required: false
+        type: string
+        default: '10.6'
+      postgres-version:
+        required: false
+        type: string
+        default: '15'
+      db-type:
+        required: false
+        type: string
+        default: 'mariadb'
+        description: "Database type: 'mariadb' or 'postgres'"
+      redis-version:
+        required: false
+        type: string
+        default: '6.0'
+      node-version:
+        required: false
+        type: string
+        default: '24'
+      install-erpnext:
+        required: false
+        type: boolean
+        default: false
+      install-payments:
+        required: false
+        type: boolean
+        default: false
+      bootstrap:
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      COUNTER_API_KEY:
+        required: false
+
+
+jobs:
+  # --- 0. TELEMETRY (Usage Tracking) ---
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage (CounterAPI)
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  test:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      redis:
+        image: redis:${{ inputs.redis-version }}
+        ports:
+          - 6379:6379
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=2s --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Database Service
+        if: inputs.bootstrap == false
+        run: |
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             echo "Starting MariaDB..."
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ inputs.db-password }} mariadb:${{ inputs.mariadb-version }}
+             # Wait for health
+             timeout 60s bash -c 'until docker exec db-service mysqladmin ping -p${{ inputs.db-password }} --silent; do echo "Waiting for MariaDB..."; sleep 2; done'
+          else
+             echo "Starting PostgreSQL (pgvector/pgvector)..."
+             # Standardized fleet database: pgvector/pgvector (Official)
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ inputs.db-password }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             # Wait for health
+             timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+             
+             # Pre-enable pgvector, cube, earthdistance in template1 so all new bench sites have them
+             echo "Enabling pgextensions in template1..."
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+          fi
+
+      - name: Setup Python
+        if: inputs.bootstrap == false
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Setup Node
+        if: inputs.bootstrap == false
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install System Dependencies
+        if: inputs.bootstrap == false
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wkhtmltopdf
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             sudo apt-get install -y mariadb-client
+          else
+             sudo apt-get install -y postgresql-client
+          fi
+
+      - name: Checkout Monorepo for Overrides
+        if: inputs.bootstrap == true
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/Monorepo
+          path: monorepo_overrides
+          token: ${{ secrets.MONOREPO_PAT }}
+
+      - name: Install Frappe Bench (Manual)
+        if: inputs.bootstrap == false
+        run: |
+          npm install -g yarn
+          pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+
+      - name: Install Frappe Bench (Bootstrap with Overrides)
+        if: inputs.bootstrap == true
+        run: |
+          npm install -g yarn
+          # Install official bench first
+          pip install frappe-bench
+          
+          # PATCH: Override bench source code with Monorepo version
+          if [ -d "monorepo_overrides/bench" ]; then
+             echo "🔥 Applying Bench Overrides from Monorepo..."
+             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             echo "Target Bench Path: $BENCH_PATH"
+             
+             # Copy the inner 'bench' folder from monorepo/bench/bench to site-packages/bench
+             # Assuming Monorepo structure is: Monorepo/bench/bench/app.py
+             cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
+             echo "✅ Bench patches applied."
+          else
+             echo "⚠️ Monorepo bench folder not found. Skipping patch."
+          fi
+          
+          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+
+      - name: Install RPanel via Bootstrap Script
+        if: inputs.bootstrap == true
+        env:
+          DB_TYPE: ${{ inputs.db-type }}
+        run: |
+          # Download and run the official installer
+          wget https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh
+          chmod +x install.sh
+          # Run as root in CI mode
+          sudo CI=true DB_TYPE=$DB_TYPE ./install.sh
+          
+          # move frappe-bench to standard location if needed by later steps
+          # install.sh uses /home/frappe/frappe-bench
+          if [ -d "/home/frappe/frappe-bench" ]; then
+             sudo ln -s /home/frappe/frappe-bench ./frappe-bench
+             sudo chown -R $USER:$USER /home/frappe/frappe-bench
+          fi
+
+      - name: Install App & Run Tests
+        working-directory: frappe-bench
+        run: |
+          # BOOTSTRAP PATH FIX: When using install.sh, bench is at /home/frappe/.local/bin
+          if [ "${{ inputs.bootstrap }}" == "true" ]; then
+             export PATH="/home/frappe/.local/bin:$PATH"
+             # Activate the bench virtualenv so bench commands find frappe modules
+             if [ -f "env/bin/activate" ]; then
+                source env/bin/activate
+             fi
+          fi
+
+          # Configure Bench to use the service DB/Redis
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench set-config -g db_host 127.0.0.1
+             bench set-config -g redis_cache redis://127.0.0.1:6379
+             bench set-config -g redis_queue redis://127.0.0.1:6379
+             bench set-config -g redis_socketio redis://127.0.0.1:6379
+          fi
+
+          # Fix for Missing pkg_resources in payments app
+          bench pip install setuptools
+
+          # Install Payments if requested (Required by some apps like rcore)
+          if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+             echo "Installing Payments App..."
+             bench get-app payments --branch version-15 --resolve-deps --skip-assets
+          fi
+
+          # Install ERPNext if requested
+          if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+             echo "Installing ERPNext..."
+             bench get-app erpnext --resolve-deps --skip-assets
+          fi
+
+          # Configure git to use GitHub token for private repos
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
+          # Fetch key app (the repo calling this workflow)
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
+             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
+          fi
+          
+          # Detect actual app directory and name
+          # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
+          cd apps
+          
+          # Priority 1: Check if directory matches Repo Name (e.g. rCore)
+          REPO_NAME="${{ github.event.repository.name }}"
+          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
+              APP_DIR="$REPO_NAME"
+          # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
+          elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
+              APP_DIR="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
+          else
+              # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
+              APP_DIR=$(ls -d * | grep -v "^frappe$" | grep -v "^erpnext$" | grep -v "^payments$" | head -n 1)
+          fi
+          
+          echo "Detected App Directory: $APP_DIR"
+          cd $APP_DIR
+          if [ -f "pyproject.toml" ]; then
+             APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
+          elif [ -f "setup.py" ]; then
+             APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+          else
+             APP_NAME="${{ github.event.repository.name }}"
+          fi
+          cd ../..
+          
+          echo "Expected App Name: ${{ github.event.repository.name }}"
+          echo "Actual App Name: $APP_NAME"
+          
+          # If names differ (package name != current folder name), rename the app directory
+          if [[ "$APP_NAME" != "$APP_DIR" && -n "$APP_NAME" ]]; then
+             echo "Renaming apps/$APP_DIR to apps/$APP_NAME"
+             mv apps/$APP_DIR apps/$APP_NAME
+             
+             # Re-install editable pip package with new path
+             bench pip install -e apps/$APP_NAME
+          fi
+          
+          # HACK: Workaround for potential module rename issues (e.g. brain code importing frappebrain)
+          # If 'brain' directory exists but code imports 'frappebrain', create a symlink alias
+          if [ -d "apps/$APP_NAME/$APP_NAME" ] && [ ! -d "apps/$APP_NAME/frappebrain" ]; then
+             echo "Creating alias: apps/$APP_NAME/frappebrain -> apps/$APP_NAME/$APP_NAME"
+             ln -s $APP_NAME apps/$APP_NAME/frappebrain
+          fi
+          
+          # HACK: Fix namespace packages (missing __init__.py) which cause Frappe install to fail
+          # Frappe requires modules to have valid __file__ paths
+          echo "Ensuring __init__.py exists in app directories..."
+          find apps/$APP_NAME/$APP_NAME -type d | while read dir; do
+             if [ ! -f "$dir/__init__.py" ]; then
+                echo "Creating missing __init__.py in $dir"
+                touch "$dir/__init__.py"
+             fi
+          done
+          
+          # HACK: Fix deprecated/incorrect API usage in brain app (frappe.utils.update_site_config -> frappe.installer.update_site_config)
+          if [ -d "apps/$APP_NAME/$APP_NAME" ]; then
+             echo "Patching update_site_config usage in app..."
+             grep -r "frappe.utils.update_site_config" apps/$APP_NAME | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
+          fi
+
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          
+          # Create Test Site
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+                bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+             else
+                bench new-site test_site --db-type postgres --db-root-password ${{ inputs.db-password }} --admin-password admin
+             fi
+             SITE_NAME="test_site"
+          else
+             # Use site created by bootstrap (defaults to rpanel.local)
+             # Extract from sites folder if not found
+             SITE_NAME=$(ls sites | grep .local | head -n 1)
+             SITE_NAME=${SITE_NAME:-rpanel.local}
+          fi
+          
+          echo "Using Site: $SITE_NAME"
+          
+          # Ensure app is in apps.txt (required for install-app)
+          # Use printf to ensure valid newline handling
+          echo "Current apps.txt:"
+          cat sites/apps.txt
+          
+          if ! grep -q "^$APP_NAME$" sites/apps.txt; then
+             echo "Adding $APP_NAME to apps.txt"
+             # Append newline if missing, then the app name
+             sed -i -e '$a\' sites/apps.txt
+             echo "$APP_NAME" >> sites/apps.txt
+          fi
+          
+          echo "Updated apps.txt:"
+          cat sites/apps.txt
+
+          # Install App & Run Tests
+          # Use tee to capture stdout/stderr for annotation processing
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench --site $SITE_NAME install-app $APP_NAME
+          fi
+          bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
+
+
+
+      - name: Extended Platform Integration (Trick in a Trick) 🎩✨
+        if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
+        working-directory: frappe-bench
+        shell: bash
+        run: |
+          # BOOTSTRAP PATH FIX: bench is at /home/frappe/.local/bin
+          export PATH="/home/frappe/.local/bin:$PATH"
+          if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
+
+          echo "Registry detected as RokctAI. Triggering extended platform integration..."
+          
+          # 1. Setup SSH for private Control app
+          # Note: Expects SSH_PRIVATE_KEY secret to be available
+          if [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+             mkdir -p ~/.ssh
+             echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+             chmod 600 ~/.ssh/id_rsa
+             ssh-keyscan github.com >> ~/.ssh/known_hosts
+             echo "SSH key configured for private repos."
+          fi
+          
+          # 2. Install ERPNext
+          echo "Installing ERPNext (latest)..."
+          bench get-app erpnext --branch develop --resolve-deps --skip-assets
+          
+          # 3. Install Control (Private)
+          echo "Installing Control Panel..."
+          # If SSH key is set, bench will use it automatically via git
+          bench get-app git@github.com:RokctAI/control.git --resolve-deps --skip-assets
+          
+          # --- BENCH RE-PATCH (Safety against install.sh usage) ---
+          if [ -d "../monorepo_overrides/bench" ]; then
+             echo "🔥 Re-Applying Bench Overrides (Safety)..."
+             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             cp -r "../monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+          fi
+          # --------------------------------------------------------
+
+          # 4. Integrate into site
+          ORIG_SITE=$(ls sites | grep .local | head -n 1)
+          ORIG_SITE=${ORIG_SITE:-test_site}
+          
+          SITE_NAME="platform.rokct.ai"
+          echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
+          mv "sites/$ORIG_SITE" "sites/$SITE_NAME"
+          
+          # Update current site txt
+          echo "$SITE_NAME" > sites/currentsite.txt
+          
+          echo "Integrating into site: $SITE_NAME"
+          
+          # --- MONOREPO OVERRIDES STAGING ---
+          # We move the Checked Out Monorepo to 'frappe-bench/monorepo_overrides'
+          # This allows 'control/install_stack.py' to find and apply dynamic app overrides during installation.
+          echo "🔥 Staging Monorepo Overrides for Install Stack..."
+          if [ -d "../monorepo_overrides" ]; then
+             cp -r "../monorepo_overrides" "monorepo_overrides"
+             echo "   ✅ Staged 'monorepo_overrides' into bench directory."
+          else
+             echo "⚠️ Monorepo overrides directory not found."
+          fi
+          # ----------------------------------
+          
+          bench --site $SITE_NAME install-app erpnext control
+          
+          # 5. Verify Installation
+          echo "Verifying platform bundle..."
+          bench --site $SITE_NAME execute frappe.get_installed_apps
+          
+          # 6. Generate Golden Seed (Golden DB)
+          echo "Generating Golden DB Seed..."
+          bench --site $SITE_NAME backup
+          # Find the backup file (usually YYYYMMDD_HHMMSS-site_name-database.sql.gz)
+          # We use head -n 1 just in case, though there should be only one.
+          BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
+          if [ -f "$BACKUP_FILE" ]; then
+             echo "Backup found: $BACKUP_FILE"
+             mkdir -p apps/seed_data
+             cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
+             echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
+          else
+             echo "⚠️ Backup failed or file not found."
+          fi
+
+      - name: Archive Apps (Artifact)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frappe-apps-bundle
+          path: frappe-bench/apps
+          retention-days: 1
+
+      - name: Process Annotations
+        if: always()
+        run: |
+          if [ -f frappe-bench/test_output.log ]; then
+             echo "Processing deprecation warnings for annotations..."
+             # Parse for DeprecationWarning (Inspired by Frappe)
+             grep -E "DeprecationWarning" frappe-bench/test_output.log | sort -u | while read -r warning; do
+               file_info=$(echo "$warning" | grep -oP '^.*?:\d+:')
+               if [ -n "$file_info" ]; then
+                  file_path=$(echo "$file_info" | cut -d':' -f1)
+                  line_number=$(echo "$file_info" | cut -d':' -f2)
+                  msg=$(echo "$warning" | sed -E "s/^.*DeprecationWarning: //")
+                  echo "::warning file=${file_path},line=${line_number}::DeprecationWarning: ${msg}"
+               fi
+             done
+          fi
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ failure() && contains( github.event.pull_request.labels.*.name, 'debug-gha') }}
+        with:
+          limit-access-to-actor: true

@@ -1,0 +1,59 @@
+name: Installer Parity Check
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'examples/**'
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  parity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Bash Installer (Customized)
+        run: |
+          mkdir out-bash
+          cd out-bash
+          git init
+          # y (Customize) -> 4 (Node) -> 1.2.3 (Ver) -> 2 (Weekly) -> 0 0 * * * (Cron) -> 24 (Node) -> 3.14 (Python) -> @RendaniSinyage (Handle)
+          printf "y\n4\n1.2.3\n2\n0 0 * * *\n24\n3.14\n@RendaniSinyage\n" | bash ../install.sh --local
+      
+      - name: Run PowerShell Installer (Customized)
+        shell: pwsh
+        run: |
+          mkdir out-ps
+          cd out-ps
+          git init
+          # Same inputs
+          @("y", "4", "1.2.3", "2", "0 0 * * *", "24", "3.14", "@RendaniSinyage") | pwsh ../install.ps1 -LocalMode
+      
+      - name: Verify Parity (Zero Drift)
+        run: |
+          # Cleanup environment variance (should be 0 anyway now)
+          # find out-bash/.github -type f -exec sed -i 's/\r//g' {} +
+          # find out-ps/.github -type f -exec sed -i 's/\r//g' {} +
+          
+          echo "Comparing Bash vs PowerShell outputs..."
+          
+          # We use diff -ruN (recursive, unified, treat missing as empty)
+          # We expect ZERO difference.
+          DIFF=$(diff -ruN out-bash/.github out-ps/.github || true)
+          
+          if [ -n "$DIFF" ]; then
+            echo "❌ PARITY FAILURE! The Bash and PowerShell installers produced different outputs."
+            echo ""
+            echo "Detailed Diff:"
+            echo "$DIFF"
+            exit 1
+          fi
+          
+          # Check version.json
+          diff out-bash/version.json out-ps/version.json
+          
+          echo "✅ Parity Confirmed! Bash and PowerShell installers are perfectly aligned."

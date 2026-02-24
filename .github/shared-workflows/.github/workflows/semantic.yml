@@ -1,0 +1,9 @@
+name: Semantic PR
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  semantic:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-semantic.yml@main
+    secrets: inherit

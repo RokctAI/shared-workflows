@@ -1,0 +1,171 @@
+name: 'Check Version'
+description: 'Detects version from pubspec.yaml or version.json (recursive) and extracts semantic version info.'
+outputs:
+  version:
+    description: 'Clean semantic version (e.g., 1.0.0)'
+    value: ${{ steps.extract.outputs.version }}
+  full_version:
+    description: 'Full version string found in file'
+    value: ${{ steps.extract.outputs.full_version }}
+  tag_suffix:
+    description: 'Suffix based on branch (e.g., -dev)'
+    value: ${{ steps.branch.outputs.tag_suffix }}
+  file:
+    description: 'Path of the file where version was found'
+    value: ${{ steps.find.outputs.file }}
+
+inputs:
+  file_path:
+    description: 'Specific file path to check (optional)'
+    required: false
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Find Version File
+      id: find
+      shell: bash
+      run: |
+        # Priority 0: Explicit Input
+        INPUT_FILE="${{ inputs.file_path }}"
+        if [ -n "$INPUT_FILE" ] && [ -f "$INPUT_FILE" ]; then
+           echo "Using specified version file: $INPUT_FILE"
+           echo "file=$INPUT_FILE" >> $GITHUB_OUTPUT
+           
+           # Determines type by extension
+           if [[ "$INPUT_FILE" == *pubspec.yaml ]]; then echo "type=pubspec" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *package.json ]]; then echo "type=package" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *versions.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *version.json ]]; then echo "type=json" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *manifest.json ]]; then echo "type=manifest" >> $GITHUB_OUTPUT; fi
+           if [[ "$INPUT_FILE" == *__init__.py ]]; then echo "type=python" >> $GITHUB_OUTPUT; fi
+           
+           exit 0
+        fi
+
+        # Priority 1: versions.json OR version.json (Recursive search fallback)
+        # Exclude standard ignored dirs to speed up and avoid false positives
+        # MOVED UP: Must check this BEFORE everything else because JSON is the source of truth if present.
+        FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+        
+        if [ -n "$FOUND_JSON" ]; then
+          echo "Found versions.json at $FOUND_JSON"
+          # strip leading ./ for clean path
+          CLEAN_PATH=${FOUND_JSON#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=json" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 2: pubspec.yaml in root
+        if [ -f "pubspec.yaml" ]; then
+          echo "Found pubspec.yaml in root"
+          echo "file=pubspec.yaml" >> $GITHUB_OUTPUT
+          echo "type=pubspec" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 3: package.json (Node/JS projects)
+        if [ -f "package.json" ]; then
+          echo "Found package.json in root"
+          echo "file=package.json" >> $GITHUB_OUTPUT
+          echo "type=package" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 4: manifest.json 
+        # Added exclusions for build/ios/android/macos/windows/dist to prevent xcbuilddata or flutter cache
+        FOUND_MANIFEST=$(find . -type f -name "manifest.json" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" -not -path "*/ios/*" -not -path "*/android/*" -not -path "*/macos/*" -not -path "*/windows/*" | head -n 1)
+        if [ -n "$FOUND_MANIFEST" ]; then
+          echo "Found manifest.json at $FOUND_MANIFEST"
+          CLEAN_PATH=${FOUND_MANIFEST#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=manifest" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 4: __init__.py (Python/Frappe projects)
+        # Look for __init__.py files that contain "__version__ ="
+        # SAFETY: || true prevents crash (exit 123) if grep finds nothing or xargs is empty
+        FOUND_INIT=$(find . -name "__init__.py" -print0 | xargs -0 grep -l "__version__" 2>/dev/null | head -n 1 || true)
+        
+        if [ -n "$FOUND_INIT" ]; then
+          echo "Found __init__.py with version at $FOUND_INIT"
+          CLEAN_PATH=${FOUND_INIT#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=python" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "❌ No pubspec.yaml, package.json, __init__.py, or versions.json found!"
+        exit 1
+
+    - name: Extract Version
+      id: extract
+      shell: bash
+      run: |
+        FILE="${{ steps.find.outputs.file }}"
+        TYPE="${{ steps.find.outputs.type }}"
+        
+        VERSION=""
+        
+        if [ "$TYPE" == "pubspec" ]; then
+          # Extract from pubspec.yaml (standard format 'version: 1.0.0+1')
+          RAW=$(grep '^version: ' "$FILE" | head -n 1 | sed 's/version: //')
+          # Strip build number (+...)
+          CLEAN=$(echo "$RAW" | cut -d'+' -f1)
+          VERSION=$CLEAN
+          echo "full_version=$RAW" >> $GITHUB_OUTPUT
+
+        elif [ "$TYPE" == "package" ] || [ "$TYPE" == "manifest" ]; then
+          # Extract from package.json or manifest.json (standard json '{ "version": "1.0.0" }')
+           if command -v jq &> /dev/null; then
+             VERSION=$(jq -r .version "$FILE")
+          else
+             VERSION=$(grep -o '"version": *"[^"]*"' "$FILE" | cut -d'"' -f4)
+          fi
+          echo "full_version=$VERSION" >> $GITHUB_OUTPUT
+        
+        elif [ "$TYPE" == "python" ]; then
+          # Extract from __init__.py (format '__version__ = "1.0.0"')
+          # awk/sed magic to get the string inside quotes
+          VERSION=$(grep "__version__" "$FILE" | head -n 1 | cut -d'=' -f2 | tr -d ' "')
+          echo "full_version=$VERSION" >> $GITHUB_OUTPUT
+
+        elif [ "$TYPE" == "json" ]; then
+          # Extract from versions.json (User Rule: Check ONLY the first value)
+          # We grab the first 3 lines (in case of opening brace), ignore the brace, take the first line remaining.
+          # This ensures we get the "primary" version key and ignore subsequent keys (dependencies).
+          
+          RAW_LINE=$(head -n 5 "$FILE" | grep -v '{' | head -n 1)
+          # Format is usually: "key": "value",
+          # Cut by double quotes. field 4 is usually the value: "key" : "value"
+          # 1=, 2=key, 3= : , 4=value
+          VERSION=$(echo "$RAW_LINE" | cut -d'"' -f4)
+          
+          echo "full_version=$VERSION" >> $GITHUB_OUTPUT
+        fi
+
+        # Clean whitespace
+        VERSION=$(echo "$VERSION" | xargs)
+        
+        if [ -z "$VERSION" ]; then
+          echo "❌ Failed to parse version from $FILE"
+          exit 1
+        fi
+
+        echo "Detected Version: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Determine Branch Suffix
+      id: branch
+      shell: bash
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+           echo "Is Develop Branch"
+           echo "tag_suffix=-dev" >> $GITHUB_OUTPUT
+        else
+           echo "Is Main Branch (or other)"
+           echo "tag_suffix=" >> $GITHUB_OUTPUT
+        fi

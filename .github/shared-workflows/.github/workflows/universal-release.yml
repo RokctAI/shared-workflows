@@ -1,0 +1,1294 @@
+name: Universal Release Workflow
+
+
+on:
+  workflow_call:
+    inputs:
+      release_strategy:
+        required: true
+        type: string
+        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
+      version_file:
+         required: false
+         type: string
+         default: "version.json"
+         description: "Path to version file (json/yaml/txt)"
+      version_format:
+         required: false
+         type: string
+         default: "##.##.##"
+         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+      brain_endpoint:
+         required: false
+         type: string
+         description: "Endpoint for AI Release Notes"
+      cleanup_rc_releases:
+         required: false
+         type: boolean
+         default: true
+         description: "Delete RC releases/tags after promotion to stable"
+      one_time_cleanup_cutoff_date:
+         required: false
+         type: string
+         default: ""
+         description: "Date (YYYY-MM-DD) - Run one-time cleanup once if current date is past this. Leave empty to disable."
+      build_android:
+         required: false
+         type: boolean
+         default: false
+         description: "Build Android APK and include in release"
+      build_windows:
+         required: false
+         type: boolean
+         default: false
+         description: "Build Windows App and include in release"
+      node-version:
+        type: string
+        default: '24'
+      flutter-channel:
+        type: string
+        default: 'stable'
+      flutter-version:
+        type: string
+        default: ''
+      java-version:
+        type: string
+        default: '17'
+      python-version:
+        type: string
+        default: '3.14.2'
+      app-type:
+        type: string
+        description: "App role: customer, driver, manager, pos"
+    secrets:
+      BRAIN_TOKEN:
+        required: false
+      KEY_JKS:
+        required: false
+      KEY_PASSWORD:
+        required: false
+      ALIAS_PASSWORD:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+      IOS_CERTIFICATE_PASSWORD:
+        required: false
+      COUNTER_API_KEY:
+        required: false
+
+  workflow_dispatch:
+    inputs:
+      release_strategy:
+        required: true
+        type: string
+        default: "immediate"
+        description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
+      build_android:
+         required: false
+         type: boolean
+         default: true
+         description: "Build Android APK and include in release"
+      build_windows:
+         required: false
+         type: boolean
+         default: false
+         description: "Build Windows App and include in release"
+
+jobs:
+  # --- 0. TELEMETRY (Usage Tracking) ---
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true # Don't fail build if tracking fails
+    steps:
+      - name: Track Usage (CounterAPI)
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: ${{ env.API_KEY != '' }}
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  # --- 1. CHECKS (Lint, Test, Build) ---
+  checks:
+    # telemetry is optional tracking, don't block checks on it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      # Add lint/test steps here if generic enough, 
+      # or rely on caller workflow to do checking before calling this.
+      - run: echo "Checks passed (Placeholder)"
+
+  # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
+  lts-guard:
+    needs: checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      
+      - name: Check Major Version Bump
+        id: check_major
+        run: |
+          # Get current version details using shared action or jq
+          # Assuming versions.json. Simplification for inline logic:
+          FILE="${{ inputs.version_file || 'versions.json' }}"
+          if [ ! -f "$FILE" ]; then echo "No version file found: $FILE"; exit 0; fi
+          
+          # Function to extract version based on extension
+          get_version() {
+            local f="$1"
+            if [[ "$f" == *.json ]]; then
+               jq -r .version "$f"
+            elif [[ "$f" == *.yaml ]] || [[ "$f" == *.yml ]]; then
+               grep -m1 "^version:" "$f" | awk '{print $2}' | tr -d '"' | tr -d "'"
+            else
+               cat "$f" # Fallback
+            fi
+          }
+          
+          
+          NEW_VER=$(get_version "$FILE")
+          
+          # Get previous commit version
+          git checkout HEAD^ -- "$FILE"
+          OLD_VER=$(get_version "$FILE")
+          git checkout HEAD -- "$FILE" # Restore
+          
+          echo "Old: $OLD_VER | New: $NEW_VER"
+          
+          # Extract Major
+          OLD_MAJOR=$(echo $OLD_VER | cut -d. -f1)
+          NEW_MAJOR=$(echo $NEW_VER | cut -d. -f1)
+          
+          if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
+             echo "Major Bump Detected ($OLD_MAJOR -> $NEW_MAJOR)"
+             echo "bumped=true" >> $GITHUB_OUTPUT
+             echo "old_ver=$OLD_VER" >> $GITHUB_OUTPUT
+             echo "old_major=$OLD_MAJOR" >> $GITHUB_OUTPUT
+          else
+             echo "bumped=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create LTS Branch & Tag
+        if: steps.check_major.outputs.bumped == 'true'
+        run: |
+          OLD_VER="${{ steps.check_major.outputs.old_ver }}"
+          MAJOR="${{ steps.check_major.outputs.old_major }}"
+          BRANCH_NAME="version-$MAJOR"
+          TAG_NAME="v${OLD_VER}-LTS"
+          
+          echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
+          
+          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+          
+          # Branch
+          git branch "$BRANCH_NAME" HEAD^
+          git push origin "$BRANCH_NAME"
+          
+          # Tag
+          git tag "$TAG_NAME" HEAD^
+          git push origin "$TAG_NAME"
+          
+          # Release (Optional Stub)
+          gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." || true
+          
+          # --- ARCHIVAL LOGIC (User Request: Archive previous LTS when new one created) ---
+          PREV_MAJOR=$((MAJOR - 1))
+          PREV_BRANCH="version-$PREV_MAJOR"
+          ARCHIVE_NAME="archived/$PREV_BRANCH"
+          
+          if git ls-remote --exit-code --heads origin "$PREV_BRANCH" >/dev/null 2>&1; then
+             echo "Found failing LTS branch: $PREV_BRANCH. Archiving..."
+             
+             # Rename remote branch (Delete old, push new)
+             git checkout "$PREV_BRANCH"
+             git checkout -b "$ARCHIVE_NAME"
+             git push origin "$ARCHIVE_NAME"
+             git push origin --delete "$PREV_BRANCH"
+             
+             echo "Moved $PREV_BRANCH to $ARCHIVE_NAME"
+          else
+             echo "No previous LTS branch ($PREV_BRANCH) found to archive."
+          fi
+
+
+  # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
+  manual-cleanup:
+    needs: checks
+    runs-on: ubuntu-latest
+    if: inputs.one_time_cleanup_cutoff_date != ''
+    permissions:
+      contents: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Check Date and Run One-Time RC Cleanup
+        run: |
+          CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
+          
+          echo " Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
+          
+          # Get current date in YYYY-MM-DD format
+          CURRENT_DATE=$(date +%Y-%m-%d)
+          
+          # Compare dates
+          if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
+             echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
+             
+             # Check if cleanup marker file exists
+             MARKER_FILE=".github/.rc-cleanup-done"
+             if [[ -f "$MARKER_FILE" ]]; then
+                echo "⏭️ Cleanup already completed (marker file exists). Skipping."
+                exit 0
+             fi
+             
+             echo "🆕 First time running cleanup past cutoff date"
+          else
+             echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
+             exit 0
+          fi
+          
+          echo ""
+          echo "🧹 Starting RC cleanup..."
+          
+          # Fetch all tags
+          git fetch --tags --force
+          
+          # Get all stable releases (no -rc, -dev, -alpha, -beta suffixes)
+          STABLE_TAGS=$(git tag -l "v*" | grep -v -E -- '-(rc|dev|alpha|beta)' | sort -V)
+          
+          if [[ -z "$STABLE_TAGS" ]]; then
+             echo "No stable releases found. Nothing to clean up."
+             exit 0
+          fi
+          
+          echo "Found $(echo "$STABLE_TAGS" | wc -l) stable releases"
+          echo "$STABLE_TAGS"
+          echo ""
+          
+          # Convert to array
+          STABLE_ARRAY=($STABLE_TAGS)
+          TOTAL_DELETED=0
+          
+          # Iterate through consecutive pairs of stable releases
+          for i in $(seq 0 $((${#STABLE_ARRAY[@]} - 2))); do
+             PREV_STABLE="${STABLE_ARRAY[$i]}"
+             NEXT_STABLE="${STABLE_ARRAY[$i+1]}"
+             
+             echo "🔍 Checking RCs between $PREV_STABLE and $NEXT_STABLE..."
+             
+             # Extract version from NEXT_STABLE (e.g., v1.2.0 -> 1.2.0)
+             VERSION="${NEXT_STABLE#v}"
+             
+             # Get the creation date of the stable tag
+             STABLE_DATE=$(git log -1 --format=%ai "$NEXT_STABLE" | cut -d' ' -f1)
+             
+             # Find all RC tags for this version
+             ALL_RC_TAGS=$(git tag -l "v${VERSION}-rc*" | sort -V)
+             
+             # Filter RCs: only keep those created BEFORE the stable tag
+             RC_TAGS=""
+             for RC_TAG in $ALL_RC_TAGS; do
+                RC_DATE=$(git log -1 --format=%ai "$RC_TAG" | cut -d' ' -f1)
+                if [[ "$RC_DATE" < "$STABLE_DATE" ]] || [[ "$RC_DATE" == "$STABLE_DATE" ]]; then
+                   RC_TAGS="$RC_TAGS$RC_TAG"$'\n'
+                fi
+             done
+             RC_TAGS=$(echo "$RC_TAGS" | sed '/^$/d')  # Remove empty lines
+             
+             if [[ -n "$RC_TAGS" ]]; then
+                echo "  Found $(echo "$RC_TAGS" | wc -l) RC tags created before $NEXT_STABLE ($STABLE_DATE):"
+                echo "$RC_TAGS" | sed 's/^/    /'
+                
+                # Delete GitHub releases
+                for RC_TAG in $RC_TAGS; do
+                   echo "  Deleting release for $RC_TAG..."
+                   gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "    No release found for $RC_TAG"
+                done
+                
+                # Delete remote tags
+                for RC_TAG in $RC_TAGS; do
+                   git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag $RC_TAG already deleted"
+                done
+                
+                # Delete local tags (suppress errors if already deleted)
+                echo "$RC_TAGS" | xargs -r git tag -d 2>/dev/null || true
+                
+                COUNT=$(echo "$RC_TAGS" | wc -l)
+                TOTAL_DELETED=$((TOTAL_DELETED + COUNT))
+                echo "  ✅ Deleted $COUNT RC releases for $NEXT_STABLE"
+             else
+                echo "  No RC tags found for $NEXT_STABLE"
+             fi
+             echo ""
+          done
+          
+          echo "✅ Cleanup complete. Deleted $TOTAL_DELETED RC releases total."
+          
+          # Create marker file to prevent future cleanups
+          echo ""
+          echo "📝 Creating marker file to prevent future cleanups..."
+          mkdir -p .github
+          echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
+          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+          git add .github/.rc-cleanup-done
+          git commit -m "chore: mark RC cleanup as completed"
+          
+          # Try to push, but don't fail if branch is protected
+          if git push origin HEAD 2>&1; then
+             echo "✅ Marker file created. Future runs will skip cleanup."
+          else
+             echo "⚠️ Could not push marker file (branch may be protected)."
+             echo "   Cleanup will run again on next workflow execution."
+             echo "   To prevent this, manually create .github/.rc-cleanup-done in your repo."
+          fi
+
+  # --- 2.7. WINDOWS BUILD (Optional) ---
+  build-windows:
+    # Needs checks to ensure we don't build broken code, but technically independent
+    needs: [checks]
+    runs-on: windows-latest
+    if: inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')))
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Build Windows
+        # We need to filter Release Mode logic here too to avoid building for RC if user requested
+        # Logic: 
+        # 1. Promote (Schedule) = Yes
+        # 2. Dev (Develop branch) = Yes
+        # 3. Stable (Immediate input + Main branch) = Yes
+        # 4. RC (Weekly input + Main branch) = No (Skip)
+        run: |
+          $BRANCH = "${{ github.ref_name }}"
+          $EVENT = "${{ github.event_name }}"
+          $STRAT = "${{ inputs.release_strategy }}"
+          
+          # Check for RC condition: Weekly Strategy + Main Branch + NOT Schedule
+          if ($STRAT -eq "weekly" -and $BRANCH -eq "main" -and $EVENT -ne "schedule") {
+             Write-Output "RC Release Mode on Main (Push). Skipping Windows Build."
+             exit 0 
+          }
+
+          # Check for Windows directory existence
+          if (!(Test-Path "windows")) {
+             Write-Output "Skipping: windows/ directory not found. Not a Windows-ready project."
+             exit 0
+          }
+
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build windows --release
+          
+          # Zip the build
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
+          
+      - name: Upload Windows Artifact
+        # Only upload if zip exists (meaning we didn't skip)
+        if: hashFiles('flutter-windows-app.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-build
+          path: flutter-windows-app.zip
+          retention-days: 1
+
+
+
+  # --- 3. THE RELEASE JOB ---
+  release:
+    needs: [checks, build-windows]
+    # Standard GHA behavior: runs if all needs are success or skipped.
+    # We use always() to ensure it runs even if build-windows was skipped (which it often is)
+    if: always() && needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      KEY_JKS: ${{ secrets.KEY_JKS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      
+      # --- WINDOWS ARTIFACT RETRIEVAL ---
+      - name: Download Windows Artifact
+        if: inputs.build_windows == true
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release-build
+          path: windows_build
+        continue-on-error: true # Might not exist if we skipped build due to RC logic
+
+      - name: Prepare Windows Asset
+        if: inputs.build_windows == true
+        run: |
+           # Check if downloaded file exists
+           if [ -f "windows_build/flutter-windows-app.zip" ]; then
+              echo "✅ Found Windows Build"
+              echo "has_windows=true" >> $GITHUB_ENV
+              mv windows_build/flutter-windows-app.zip windows_app.zip
+           else
+              echo "⚠️ No Windows Build found (skipped?)"
+              echo "has_windows=false" >> $GITHUB_ENV
+           fi
+
+      - name: Get Version
+        id: version
+        uses: RokctAI/shared-workflows/.github/actions/check-version@main
+        with:
+           file_path: ${{ inputs.version_file }}
+
+      # --- LOGIC: DETERMINE MODE ---
+      - name: Determine Release Mode
+        id: mode
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Fetch all tags to ensure accurate calc
+          git fetch --tags --force
+          
+          STRAT="${{ inputs.release_strategy }}"
+          EVENT="${{ github.event_name }}"
+          BRANCH="$REF_NAME"
+          
+          echo "🔍 DEBUG: Strategy='$STRAT', Event='$EVENT', Branch='$BRANCH'"
+          
+          MODE="none"
+          SUFFIX=""
+          
+          if [[ "$STRAT" == "immediate" || "$STRAT" == "" ]]; then
+             MODE="stable" # Old behavior
+          elif [[ "$STRAT" == "weekly" ]]; then
+             if [[ "$EVENT" == "schedule" ]]; then
+                MODE="promote" # Friday Cron
+             else
+                # Push Event - Check Branch
+                # BRANCH="${{ github.ref_name }}" # Redundant, now using $REF_NAME from env
+                
+                if [[ "$REF_NAME" == "develop" ]]; then
+                    MODE="dev"
+                    # Short Hash
+                    HASH=$(echo "${{ github.sha }}" | cut -c1-7)
+                    SUFFIX="-dev-$HASH"
+                elif [[ "$REF_NAME" == "main" ]]; then
+                    MODE="rc" # Push to Main
+                    # Calculate RC Suffix (e.g., -rc4) based on existing tags
+                    VER="${{ steps.version.outputs.version }}"
+                    EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
+                    NEXT_RC=$((EXISTING + 1))
+                    SUFFIX="-rc${NEXT_RC}"
+                elif [[ "$REF_NAME" == build_* ]]; then
+                    MODE="client"
+                    # Extract client from branch name (e.g. build_clientname-custom-tag -> clientname)
+                    CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:upper:]' '[:lower:]')
+                    SUFFIX="-$CLIENT"
+                    echo "🚀 Client build detected: $CLIENT (Suffix: $SUFFIX)"
+                    CLIENT_UPPER=$(echo "$CLIENT" | tr '[:lower:]' '[:upper:]')
+                    echo "client_upper=$CLIENT_UPPER" >> $GITHUB_OUTPUT
+                else
+                    echo "Branch $BRANCH ignored for weekly strategy."
+                    exit 0 
+                fi
+             fi
+          fi
+          
+          echo "mode=$MODE" >> $GITHUB_OUTPUT
+          echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+          echo "Selected Mode: $MODE (Suffix: $SUFFIX)"
+
+      - name: Extract Contributors
+        id: contrib
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --tags --force
+          # Find latest stable tag
+          PREV_STABLE=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | head -n 1 || true)
+          echo "prev_stable=$PREV_STABLE" >> $GITHUB_OUTPUT
+          
+          if [ ! -z "$PREV_STABLE" ]; then
+             echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
+             RANGE="${PREV_STABLE}..HEAD"
+          else
+             echo "🔍 Extracting Authors and Reviewers from Initial Commit..."
+             RANGE="HEAD" # Will log all commits
+          fi
+          
+             AUTHORS=""
+             REVIEWERS=""
+             SEEN_PRS=""
+             
+             # Get all SHAs
+             SHAS=$(git log $RANGE --pretty=format:%H)
+             
+             for sha in $SHAS; do
+                PR_DATA=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null || echo "null")
+                PR_NUM=$(echo "$PR_DATA" | jq -r '.number' 2>/dev/null || echo "null")
+                PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author' 2>/dev/null || echo "null")
+                
+                if [ "$PR_AUTHOR" != "null" ] && [ ! -z "$PR_AUTHOR" ]; then AUTHORS="$AUTHORS $PR_AUTHOR"; fi
+                
+                if [ "$PR_NUM" != "null" ] && [ ! -z "$PR_NUM" ]; then
+                   if [[ ! " $SEEN_PRS " =~ " $PR_NUM " ]]; then
+                      SEEN_PRS="$SEEN_PRS $PR_NUM"
+                      PR_REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/reviews" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
+                      PR_COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/comments" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
+                      REVIEWERS="$REVIEWERS $PR_REVIEWS $PR_COMMENTS"
+                   fi
+                fi
+                
+                if [ "$PR_AUTHOR" == "null" ] || [ -z "$PR_AUTHOR" ]; then
+                   COMMIT_AUTHOR=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login' 2>/dev/null || echo "null")
+                   if [ "$COMMIT_AUTHOR" != "null" ] && [ ! -z "$COMMIT_AUTHOR" ]; then AUTHORS="$AUTHORS $COMMIT_AUTHOR"; fi
+                fi
+             done
+             
+             # Format for Changelog (Normalize bots to @rokctbot, except dependabot)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
+             
+             echo "authors=$UNIQUE_AUTHORS" >> $GITHUB_OUTPUT
+             echo "reviewers=$UNIQUE_REVIEWERS" >> $GITHUB_OUTPUT
+             
+             # Generate Git Trailers for Sidebar Sync
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | while read user; do
+                echo "Co-authored-by: $user <$user@users.noreply.github.com>"
+             done)
+             
+             # Use a custom delimiter for multi-line output
+             {
+               echo "trailers<<EOF"
+               echo "$TRAILERS"
+               echo "EOF"
+             } >> $GITHUB_OUTPUT
+
+       # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
+      - name: Promote RC to Stable
+        if: steps.mode.outputs.mode == 'promote'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+           FILE="${{ inputs.version_file || 'version.json' }}"
+           FORMAT="${{ inputs.version_format || '##.##.##' }}"
+           
+           # Get current version from file or fallback to check-version action result
+           if [[ -f "$FILE" ]]; then
+              CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || cat "$FILE" | grep -oP '"version":\s*"\K[^"]+')
+              echo "✅ Found version file: $FILE (Current: $CUR_VER)"
+              
+              # Automated Bump Logic (Python for precision)
+              NEW_VER=$(python3 -c "
+              import sys
+              cur_ver = '$CUR_VER'
+              fmt_str = '$FORMAT'
+              try:
+                  v_parts = [int(x) for x in cur_ver.split('.')]
+                  f_parts = fmt_str.split('.')
+                  v_parts[-1] += 1
+                  for i in range(len(v_parts)-1, 0, -1):
+                      width = f_parts[i].count('#')
+                      limit = 10**width
+                      if v_parts[i] >= limit:
+                          v_parts[i] = 0
+                          v_parts[i-1] += 1
+                  print('.'.join(map(str, v_parts)))
+              except Exception as e:
+                  print(cur_ver) # Fallback to no change on error
+              ")
+              echo "🚀 Bumping version: $CUR_VER -> $NEW_VER (Format: $FORMAT)"
+              
+              # Update File
+              if [[ "$FILE" == *.json ]]; then
+                jq ".version = \"$NEW_VER\"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+              else
+                sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
+              fi
+              
+               git push origin HEAD:${{ github.ref_name }}
+               
+               VER="$NEW_VER"
+           else
+              VER="${{ steps.version.outputs.version }}"
+              echo "⚠️ No version file found. Using existing version: $VER"
+           fi
+
+           # Find latest RC
+           LATEST_RC=$(git tag -l "v${{ steps.version.outputs.version }}-rc*" | sort -V | tail -n 1)
+           
+           if [[ -z "$LATEST_RC" ]]; then
+              echo "No RCs found for v${{ steps.version.outputs.version }} to promote."
+              exit 0
+           fi
+           
+           echo "Promoting $LATEST_RC to v$VER"
+           
+           # Retag
+           git tag "v$VER" "$LATEST_RC"
+           git push origin "v$VER"
+           
+            # Set environment for downstream steps
+            echo "TAG_NAME=v$VER" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+
+           
+           # --- CLEANUP: Delete all RC releases and tags for this version ---
+           if [[ "${{ inputs.cleanup_rc_releases }}" == "true" ]]; then
+              echo "🧹 Cleaning up RC releases and tags for v$VER..."
+           
+           # Get the creation date of the stable tag we just created
+           STABLE_DATE=$(git log -1 --format=%ai "v$VER" | cut -d' ' -f1)
+           
+           # Get all RC tags for this version (using original version prefix)
+           ALL_RC_TAGS=$(git tag -l "v${{ steps.version.outputs.version }}-rc*")
+           
+           # Filter RCs: only keep those created BEFORE the stable tag
+           RC_TAGS=""
+           for RC_TAG in $ALL_RC_TAGS; do
+              RC_DATE=$(git log -1 --format=%ai "$RC_TAG" | cut -d' ' -f1)
+              if [[ "$RC_DATE" < "$STABLE_DATE" ]] || [[ "$RC_DATE" == "$STABLE_DATE" ]]; then
+                 RC_TAGS="$RC_TAGS$RC_TAG"$'\n'
+              fi
+           done
+           RC_TAGS=$(echo "$RC_TAGS" | sed '/^$/d')  # Remove empty lines
+           
+           if [[ -n "$RC_TAGS" ]]; then
+              echo "Found RC tags created before v$VER ($STABLE_DATE):"
+              echo "$RC_TAGS"
+              
+              # Delete GitHub releases first (if they exist)
+              for RC_TAG in $RC_TAGS; do
+                 echo "Deleting release for $RC_TAG..."
+                 gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "No release found for $RC_TAG"
+              done
+              
+              # Delete remote tags
+              echo "Deleting remote RC tags..."
+              for RC_TAG in $RC_TAGS; do
+                 git push origin --delete "$RC_TAG" 2>/dev/null || echo "Tag $RC_TAG already deleted"
+              done
+              
+              # Delete local tags
+              echo "Deleting local RC tags..."
+              echo "$RC_TAGS" | xargs -r git tag -d
+              
+              echo "✅ Cleanup complete. Deleted $(echo "$RC_TAGS" | wc -l) RC releases and tags."
+           else
+              echo "No RC tags found to clean up."
+           fi
+           else
+              echo "⏭️ RC cleanup disabled (cleanup_rc_releases=false)"
+           fi
+
+
+      # --- PATH 2: CREATE TAG (RC, DEV, OR STABLE) ---
+      - name: Create New Tag (Dry Run)
+        if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
+        id: create_tag
+        env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+           TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
+           MODE="${{ steps.mode.outputs.mode }}"
+           
+           # Check for Ghost Release (Record exists but tag might not)
+           if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
+              if gh release view "$TAG" >/dev/null 2>&1; then
+                 echo "⚠️ Volatile Release $TAG record found. Purging for fresh release..."
+                 gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+              fi
+           fi
+
+           # Check Local AND Remote
+           if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG exists."
+              
+               if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
+                  echo "⚠️ RC/Dev/Client Mode Detected. Performing Nuclear Cleanup."
+                  echo "Deleting remote tag $TAG to force fresh creation..."
+                  git push origin --delete "$TAG" 2>/dev/null || true
+                  git tag -d "$TAG" 2>/dev/null || true
+                  echo "Cleanup complete. Proceeding to fresh creation."
+                 echo "continue=true" >> $GITHUB_OUTPUT
+              else
+                 echo "Stable Mode. Preserving existing tag."
+                 echo "continue=false" >> $GITHUB_OUTPUT
+              fi
+           else
+              echo "Calculated new tag: $TAG"
+              echo "continue=true" >> $GITHUB_OUTPUT
+           fi
+           
+           echo "TAG_NAME=$TAG" >> $GITHUB_ENV
+           
+           if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
+              echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+           else
+              echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+           fi
+
+      # --- DELTA ZIP (STABLE & DEV) ---
+      - name: Generate Delta Zip
+        if: env.TAG_NAME != '' && (env.IS_PRERELEASE == 'false' || contains(env.TAG_NAME, '-dev'))
+        id: delta_zip
+        run: |
+          # Ensure we have all tags/commits for diffing
+          git fetch origin --tags --force
+          
+          TAG="${{ env.TAG_NAME }}"
+          # Robust previous tag finding: Use bracket expression [-] to avoid flag parsing issues
+          # grep -F for Fixed string (literal tag name)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -F -v "$TAG" | grep -v "[-]rc" | head -n 1 || true)
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous stable tag. Full release."
+          else
+            # Determine Target: If TAG exists (Promote), use it. If not (Atomic), use HEAD.
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+               TARGET="$TAG"
+               echo "Tag exists. Using target: $TARGET"
+            else
+               TARGET="HEAD"
+               echo "Tag not found (Atomic Release). Using target: $TARGET"
+            fi
+
+            echo "Generating Delta: $PREV_TAG -> $TARGET"
+            # Compare against calculated TARGET
+            # Use --diff-filter=ACMRT to EXCLUDE Deleted files (D) to prevent zip warnings
+            # Filter out .env/ and .github/ folders
+            if git diff --name-only --diff-filter=ACMRT "$PREV_TAG".."$TARGET" | grep -vE '^(\.env\/|\.github\/)' > changed_files.txt; then
+               # Check if file has content
+               if [ -s changed_files.txt ]; then
+                  zip -r update_package.zip -@ < changed_files.txt
+                  echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
+               else
+                  echo "No files changed."
+               fi
+            else
+               echo "Diff failed (shallow clone?). Skipping delta."
+            fi
+          fi
+
+      # --- INJECT SAFE WEBAPP ENV ---
+      - name: Inject Safe WebApp Environment
+        if: env.TAG_NAME != '' && steps.delta_zip.outputs.zip_path != ''
+        env:
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+          CLIENT_ENV: ${{ steps.mode.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.mode.outputs.client_upper)] || '' }}
+        run: |
+          # If package.json exists and has next build scripts, it's likely a WebApp
+          if [ -f "package.json" ] && grep -q '"next"' package.json; then
+             echo "📦 Next.js project detected. Generating safe `.env` for release."
+             
+             ENV_CONTENT="$DEFAULT_ENV"
+             if [ ! -z "$CLIENT_ENV" ]; then
+                echo "🚀 Using Client-Specific Environment Secret."
+                ENV_CONTENT="$CLIENT_ENV"
+             fi
+             
+             if [ ! -z "$ENV_CONTENT" ]; then
+                echo "$ENV_CONTENT" | base64 --decode > .env.raw
+                sed -i 's/\r$//' .env.raw
+                mv .env.raw .env
+                
+                # Hydrate variables natively
+                set -a
+                source .env
+                set +a
+                envsubst < .env > .env.expanded
+                mv .env.expanded .env
+                
+                # Strip backend secrets, keeping only public WebApp variables
+                if grep -q "^NEXT_PUBLIC_" .env; then
+                   grep "^NEXT_PUBLIC_" .env > .env.public
+                   mv .env.public .env
+                   
+                   # Inject into the Delta Zip without altering the host repository
+                   zip -ur update_package.zip .env
+                   echo "✅ Safe NEXT_PUBLIC_ `.env` injected into update_package.zip"
+                else
+                   echo "⚠️ No NEXT_PUBLIC_ variables found. No .env injected."
+                fi
+                
+                # Clean up runner
+                rm -f .env
+             fi
+          else
+             echo "Not a Next.js project. Skipping .env injection."
+          fi
+
+
+      # --- ANDROID BUILD (Optional) ---
+      - name: Setup Java
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Helper - Subosito Flutter
+        if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
+        uses: subosito/flutter-action@v2
+        with:
+           channel: ${{ inputs.flutter-channel }}
+           flutter-version: ${{ inputs.flutter-version }}
+           cache: true
+
+      # --- ENV SETUP (Critical for Client Config) ---
+      - name: Decode Production Environment
+        if: inputs.build_android == true || inputs.build_windows == true
+        env:
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+          CLIENT_ENV: ${{ steps.mode.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.mode.outputs.client_upper)] || '' }}
+        run: |
+          # Clean start
+          rm -rf .env
+          mkdir -p .env
+          
+          ENV_CONTENT="$DEFAULT_ENV"
+          # Priority: Client Env > Default Env
+          if [ ! -z "$CLIENT_ENV" ]; then
+             echo "🚀 Using Client-Specific Environment Secret."
+             ENV_CONTENT="$CLIENT_ENV"
+          fi
+          
+          if [ -z "$ENV_CONTENT" ]; then
+             echo "❌ Error: Environment secret is empty."
+             exit 1
+          fi
+          
+          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          echo "✅ .env/production.env written."
+          
+          # Normalize line endings
+          sed -i 's/\r$//' .env/production.env
+
+      # Decode Google Services JSON if provided (Dynamic Resolution)
+      - name: Decode Google Services JSON
+        if: inputs.build_android == true
+        env:
+          CLIENT_JSON: ${{ steps.mode.outputs.client_upper != '' && secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.mode.outputs.client_upper)] || '' }}
+          DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+           if [ -d "android" ]; then
+              mkdir -p android/app
+              if [ ! -f "android/app/google-services.json" ]; then
+                 JSON_CONTENT="$DEFAULT_JSON"
+                 if [ ! -z "$CLIENT_JSON" ]; then
+                    echo "🚀 Using Client-Specific Google Services JSON."
+                    JSON_CONTENT="$CLIENT_JSON"
+                 fi
+                 
+                 if [ ! -z "$JSON_CONTENT" ]; then
+                    echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
+                    echo "✅ Generated android/app/google-services.json."
+                 fi
+              else
+                 echo "✅ Using existing android/app/google-services.json from repository."
+              fi
+           fi
+
+      - name: Decode Keystore
+        if: inputs.build_android == true && env.KEY_JKS != ''
+        run: |
+           if [ -d "android" ]; then
+             mkdir -p android/app
+             if [ ! -f "android/key.properties" ]; then
+               echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+               echo "storePassword=$KEY_PASSWORD" > android/key.properties
+               echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
+               echo "keyAlias=upload" >> android/key.properties
+               echo "storeFile=key.jks" >> android/key.properties
+               echo "✅ Generated Android signing config from secrets."
+             else
+               echo "✅ Using existing android/key.properties from repository."
+             fi
+           else
+             echo "Skipping: android/ directory not found. Not a mobile project."
+           fi
+
+      # Dynamic Source Rename (Critical for Client Builds)
+      - name: Dynamic Source Rename
+        if: inputs.build_android == true && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        run: |
+           # 1. Load Environment Variables
+           if [ -f .env/production.env ]; then
+              echo "📝 Loading .env/production.env for source transformation..."
+              # Normalize line endings (CRLF -> LF) to prevent Bash errors
+              sed -i 's/\r$//' .env/production.env
+              set -a
+              source .env/production.env
+              set +a
+              echo "✅ Environment variables loaded."
+              # Debug specific critical keys (Names only, values will show in constructing Target Package below)
+              if [ ! -z "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."; else echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."; fi
+           else
+              echo "⚠️ No .env/production.env found. Skipping rename."
+              exit 0
+           fi
+
+           # 2. Construct Target Package Variable Name
+           APP_TYPE="${{ inputs.app-type }}"
+           if [ -z "$APP_TYPE" ]; then
+              echo "⚠️ No 'app-type' input provided. Skipping rename."
+              exit 0
+           fi
+
+           # Construct environment variable name (e.g. SHOPPER -> SHOPPER_ANDROID_PACKAGE_NAME)
+           APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
+           ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
+           
+           # Indirect reference to get value
+           TARGET_PACKAGE="${!ENV_VAR_NAME}"
+           
+           echo "🔧 App Type: $APP_TYPE"
+           echo "🔑 Looking for: $ENV_VAR_NAME"
+           echo "🎯 Target Package: $TARGET_PACKAGE"
+           echo "📊 Current .env package settings:"
+           grep "_ANDROID_PACKAGE_NAME" .env/production.env || echo "No package settings found in .env"
+
+           # 2b. Validate against google-services.json
+           GS_JSON="android/app/google-services.json"
+           if [ -f "$GS_JSON" ]; then
+              echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
+              if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+                 echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
+                 echo "📄 Clients found in JSON:"
+                 grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+                 exit 1
+              else
+                 echo "✅ Package match confirmed in google-services.json."
+              fi
+           fi
+
+           if [ -z "$TARGET_PACKAGE" ]; then
+              echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
+              exit 1
+           fi
+
+           BASE_DIR="android/app/src/main/kotlin"
+           TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
+           
+           # 3. Check if Target Exists (Idempotent)
+           if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
+              echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
+              # We assume if dir exists, files are likely updated, but we could double check files if paranoid.
+              # For now, we trust the directory presence.
+           else
+              echo "🔄 Target not found. Detecting current vendor source..."
+              
+              # Extract namespace="..." value from build.gradle
+              GRADLE_FILE="android/app/build.gradle"
+              if [ ! -f "$GRADLE_FILE" ]; then
+                  echo "❌ Error: No build.gradle found to detect namespace!"
+                  exit 1
+              fi
+
+              VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\\([^'\"]*\\)['\"].*/\\1/")
+              
+              if [ -z "$VENDOR_PACKAGE" ]; then
+                  echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
+                  exit 1
+              fi
+
+              # Convert package to path
+              VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
+
+              echo "📦 Initializing source transformation..."
+
+              if [ "$VENDOR_PACKAGE" == "$TARGET_PACKAGE" ]; then
+                  echo "✅ Source matches target. Nothing to do."
+                  exit 0
+              fi
+
+              # 5. Move Directories
+              echo "🚀 Applying directory structure..."
+              mkdir -p "$BASE_DIR/$TARGET_PATH"
+              
+              if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
+                  mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
+                  
+                  # Optional: Remove empty vendor dirs if they are empty
+                  # rmdir -p "$BASE_DIR/$VENDOR_PATH" 2>/dev/null || true
+              else
+                  echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
+                  exit 1
+              fi
+           fi
+
+           # 6. Update File Content (MainActivity & Manifests)
+           # We check the file at the TARGET location now
+           MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
+           
+           if [ -f "$MAIN_ACTIVITY" ]; then
+              # Check if we need to update package declaration
+              if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
+                  echo "✏️ Updating MainActivity.kt package declaration..."
+                  # We simply replace the line starting with 'package '
+                  sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+              else
+                  echo "✅ MainActivity.kt is correct."
+              fi
+           fi
+
+           # Update build.gradle namespace
+           BUILD_GRADLE="android/app/build.gradle"
+           if [ -f "$BUILD_GRADLE" ]; then
+              if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
+                 echo "✏️ Updating $BUILD_GRADLE..."
+                 # Replace applicationId and namespace
+                 sed -i "s/applicationId [\"'][^\"']*[\"']/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+                 sed -i "s/namespace [\"'][^\"']*[\"']/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+              else
+                 echo "✅ $BUILD_GRADLE is correct."
+              fi
+           fi
+
+      - name: Build Android APK
+        # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        id: build_apk
+        run: |
+           echo "Building Android APK..."
+           flutter pub get
+           dart run build_runner build --delete-conflicting-outputs
+           flutter build apk --release
+           
+           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+           if [ -f "$APK_PATH" ]; then
+              echo "APK built successfully."
+              mv "$APK_PATH" "build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk"
+              echo "apk_path=build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk" >> $GITHUB_OUTPUT
+           else
+              echo "APK build failed or file not found."
+              exit 1
+           fi
+
+      - name: Build Android AppBundle
+        # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
+        id: build_aab
+        run: |
+           echo "Building Android AppBundle..."
+           flutter build appbundle --release
+           
+           AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+           if [ -f "$AAB_PATH" ]; then
+              echo "AAB built successfully."
+              mv "$AAB_PATH" "build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab"
+              echo "aab_path=build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab" >> $GITHUB_OUTPUT
+           else
+              echo "AAB build failed or file not found."
+              exit 1
+           fi
+
+      # --- ASSET BUNDLING (Developer Setup) ---
+      - name: Bundle Developer Assets
+        if: env.TAG_NAME != ''
+        id: dev_bundle
+        run: |
+           echo "Bundling Developer Setup Pack..."
+           mkdir -p dev_pack
+           
+           # 1. Copy 'examples/' and rename it to '.github'
+           if [ -d "examples" ]; then cp -r examples dev_pack/.github; fi
+           
+           # 2. Copy Templates into that .github folder
+           if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
+           if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
+           
+           # Zip Logic (Condition Check)
+           cd dev_pack
+           if [ -d ".github" ]; then
+              echo "Found assets to bundle."
+              zip -r ../developer_setup.zip .github
+              cd ..
+              echo "dev_pack_path=developer_setup.zip" >> $GITHUB_OUTPUT
+           else
+              echo "No assets found to bundle. Skipping."
+              cd ..
+           fi
+
+      # --- CHANGELOG & RELEASE ---
+      - name: Generate Changelog
+        if: env.TAG_NAME != ''
+        id: changelog
+        env:
+           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+           TAG="${{ env.TAG_NAME }}"
+           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
+           
+           echo "## 🚀 Release $TAG" > changelog.txt
+           
+           # Capture Log
+           if [ -z "$PREV_TAG" ]; then
+              LOG="Initial Release"
+           else
+              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E 's/by @mergify //')
+           fi
+           
+            AI_SUCCESS=false
+            
+            # --- TIER 1: BRAIN API ---
+            if [ ! -z "$BRAIN_ENDPOINT" ] && [ ! -z "$BRAIN_TOKEN" ]; then
+               echo "🧠 Calling Brain Writer API..."
+               
+               JSON_PAYLOAD=$(jq -n \
+                --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+                --arg ver "$TAG" \
+                --arg log "$LOG" \
+                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+               
+               RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
+               
+               if [[ "$RESPONSE" != *"AI Error"* ]] && [[ "$RESPONSE" != *"Traceback"* ]] && [[ "$RESPONSE" != "Curl Failed" ]] && [[ ! -z "$RESPONSE" ]]; then
+                  if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
+                     MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
+                     if [[ "$MSG" != "Invalid JSON" ]]; then
+                        echo "$MSG" > changelog.txt
+                        AI_SUCCESS=true
+                     fi
+                  fi
+               fi
+               
+               if [ "$AI_SUCCESS" = false ]; then
+                  echo "⚠️ Brain Writer Failed."
+               fi
+            elif [ ! -z "$BRAIN_ENDPOINT" ] && [ -z "$BRAIN_TOKEN" ]; then
+               echo "⚠️ Brain Token missing. Skipping Tier 1 AI."
+            fi
+
+            # --- TIER 2: GROQ AI FALLBACK ---
+            if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API_KEY" ]; then
+               echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
+               
+               # System Prompt for Groq
+               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Categorize changes (Features, Fixes, Improvements). Keep it concise and professional. Do not include introductory text like 'Here are the release notes'."
+               
+               GROQ_PAYLOAD=$(jq -n \
+                 --arg model "llama-3.3-70b-versatile" \
+                 --arg system "$SYSTEM_PROMPT" \
+                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG" \
+                 '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                 
+               GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" \
+                 -H "Content-Type: application/json" \
+                 -H "Authorization: Bearer $GROQ_API_KEY" \
+                 -d "$GROQ_PAYLOAD" || echo "Groq Failed")
+                 
+               if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
+                  MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content' || echo "Groq Error")
+                  if [[ "$MSG" != "Groq Error" ]] && [[ "$MSG" != "null" ]]; then
+                     echo "## 🚀 Release $TAG" > changelog.txt
+                     echo "" >> changelog.txt
+                     echo "$MSG" >> changelog.txt
+                     AI_SUCCESS=true
+                  fi
+               fi
+               
+               if [ "$AI_SUCCESS" = false ]; then
+                  echo "⚠️ Groq AI Failed."
+               fi
+            fi
+
+            # --- TIER 3: DENOISED GIT LOG FALLBACK ---
+            if [ "$AI_SUCCESS" = false ]; then
+               echo "📝 Using Denoised Git Log fallback..."
+               # Re-verify changelog.txt start (it might have been cleared by failed AI attempts)
+               echo "## 🚀 Release $TAG" > changelog.txt
+               echo "" >> changelog.txt
+               echo "### 📦 Changes" >> changelog.txt
+               echo "$LOG" >> changelog.txt
+            fi
+            
+             # Extract Contributors (Using step outputs)
+             AUTHORS="${{ steps.contrib.outputs.authors }}"
+             REVIEWERS="${{ steps.contrib.outputs.reviewers }}"
+             if [ ! -z "$AUTHORS" ]; then
+                echo -e "\n**Authors:** $AUTHORS" >> changelog.txt
+             fi
+             if [ ! -z "$REVIEWERS" ]; then
+                echo -e "**Reviewers:** $REVIEWERS" >> changelog.txt
+             fi
+
+            echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release (Native CLI)
+        if: env.TAG_NAME != ''
+        env:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+           TAG="${{ env.TAG_NAME }}"
+           PRERELEASE_FLAG=""
+           if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+           
+           echo "Creating Release $TAG via gh CLI..."
+           
+           # Assets List
+           FILES=()
+           if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
+           if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
+           if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
+           if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
+           
+           # Rename Windows Zip with Tag
+           if [ "${{ env.has_windows }}" == "true" ]; then
+              mv windows_app.zip "app-windows-${TAG}.zip"
+              FILES+=("app-windows-${TAG}.zip")
+           fi
+           
+           echo "Files to upload: ${FILES[*]}"
+           
+           # Check if release exists
+           if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "✅ Release $TAG already exists."
+              if [ ${#FILES[@]} -gt 0 ]; then
+                 echo "Updating release assets..."
+                 gh release upload "$TAG" "${FILES[@]}" --clobber
+              else
+                 echo "No assets to upload."
+              fi
+           else
+              echo "🆕 Creating new release $TAG..."
+              PRERELEASE_FLAG=""
+              if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+              
+              gh release create "$TAG" \
+                --title "$TAG" \
+                --notes-file "changelog.txt" \
+                --target "${{ github.sha }}" \
+                $PRERELEASE_FLAG \
+                "${FILES[@]}" || {
+                  echo "⚠️ gh release create failed (might be immutable). Attempting upload fallback..."
+                  gh release upload "$TAG" "${FILES[@]}" --clobber || echo "❌ Fallback upload also failed."
+                }
+           fi

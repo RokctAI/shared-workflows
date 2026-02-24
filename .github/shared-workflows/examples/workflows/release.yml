@@ -1,0 +1,105 @@
+name: Auto Release (Weekly)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-release
+  cancel-in-progress: true
+on:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 23 * * 5'
+  workflow_dispatch:
+    inputs:
+      node-version:
+        type: string
+        default: '24'
+      python-version:
+        type: string
+        default: '3.14'
+      mariadb-version:
+        type: string
+        default: '10.6'
+      postgres-version:
+        type: string
+        default: '15'
+      db-type:
+        type: string
+        default: 'mariadb'
+      flutter-channel:
+        type: string
+        default: 'stable'
+      java-version:
+        type: string
+        default: '17'
+      version_format:
+        type: string
+        default: '##.##.##'
+        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+
+permissions:
+  contents: write
+  issues: write
+      pull-requests: write
+  pull-requests: write
+
+jobs:
+  # --- 1. DETECT PROJECT TYPE ---
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      type: ${{ steps.check.outputs.type }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Project Type
+        id: check
+        run: |
+          if [ -f "pubspec.yaml" ]; then
+             echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ]; then
+             echo "type=node" >> $GITHUB_OUTPUT
+          elif [ -f "requirements.txt" ] || [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
+             echo "type=frappe" >> $GITHUB_OUTPUT
+          else
+             echo "type=none" >> $GITHUB_OUTPUT
+          fi
+
+  # --- 2. UNIFIED PIPELINE ---
+  release:
+    needs: detect
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
+    with:
+      project_type: ${{ needs.detect.outputs.type }}
+      run_ci: ${{ needs.detect.outputs.type != 'none' }}
+      # Dogfooding: Use the new Weekly Strategy
+      release_strategy: 'weekly'
+
+      # RC Cleanup: Delete RC releases/tags after promotion to stable
+      cleanup_rc_releases: true
+      
+      # One-time cleanup: Set a cutoff date (YYYY-MM-DD) to run cleanup once if past this date
+      # After cleanup runs once, a marker file is created and cleanup won't run again
+      # Example: one_time_cleanup_cutoff_date: '2026-02-01'
+      one_time_cleanup_cutoff_date: '2026-01-30'
+      
+      # Brain Endpoint 
+      brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
+
+      # Build APK
+      build_android: true
+      # Environment configuration
+      node-version: ${{ inputs.node-version || '24' }}
+      python-version: ${{ inputs.python-version || '3.14' }}
+      mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
+      postgres-version: ${{ inputs.postgres-version || '15' }}
+      db-type: ${{ inputs.db-type || 'mariadb' }}
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      # Recommended: Pin Flutter version to avoid compiler issues (e.g., google_fonts)
+      flutter-version: '3.24.0'
+      java-version: ${{ inputs.java-version || '17' }}
+      version_format: ${{ inputs.version_format || '##.##.##' }}
+    secrets: inherit
+
+

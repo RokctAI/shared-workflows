@@ -1,0 +1,11 @@
+name: "Setup ROKCT Bot Identity"
+description: "Configures git with standardized ROKCT bot credentials"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure Git
+      shell: bash
+      run: |
+        git config user.name "rokctbot"
+        git config user.email "bot@rokct.ai"

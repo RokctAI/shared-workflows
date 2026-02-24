@@ -1,0 +1,33 @@
+name: Universal Welcome Bot
+
+on:
+  workflow_call:
+    secrets:
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  telemetry:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Track Usage
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+          -H "Authorization: Bearer $API_KEY"
+
+  welcome:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: 'Thanks for opening your first issue! Please review CONTRIBUTING.md.'
+          pr-message: 'Thanks for your first Pull Request! Please ensure you have added comprehensive description.'
