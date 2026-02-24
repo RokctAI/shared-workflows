@@ -1233,8 +1233,23 @@ jobs:
             if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
                echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
                
-               # System Prompt for Groq
-               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Categorize changes (Features, Fixes, Improvements). Keep it concise and professional. Do not include introductory text like 'Here are the release notes'."
+               # System Prompt for Groq (Tier 2) - Enforcing human-readable logical feature summaries
+               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. 
+               
+               CATEGORIZATION RULES:
+               Use exactly these headers if relevant:
+               - ### Breaking Changes
+               - ### Features
+               - ### Bug Fixes
+               - ### Performance Improvements
+               
+               STYLE RULES:
+               - Focus on high-level LOGICAL changes and human-readable features.
+               - Descriptions should be detailed and explain the 'what' and 'why'.
+               - DO NOT mention specific file names, file paths, or internal implementation details (e.g. 'Updated universal-linter.yml') unless they are part of a major public API change.
+               - Use bullet points.
+               - Include PR/Issue references if they appear in the log (e.g. #123).
+               - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'."
                
                GROQ_PAYLOAD=$(jq -n \
                  --arg model "llama-3.3-70b-versatile" \
