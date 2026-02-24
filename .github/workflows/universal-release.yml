@@ -1195,7 +1195,7 @@ jobs:
            if [ -z "$PREV_TAG" ]; then
               LOG="Initial Release"
            else
-               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
+               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
            fi
            
             AI_SUCCESS=false
@@ -1293,14 +1293,15 @@ jobs:
              if [ ! -z "$AUTHORS" ]; then
                 echo -e "\n**Authors:** $AUTHORS" >> changelog.txt
              fi
-             if [ ! -z "$REVIEWERS" ]; then
-                echo -e "**Reviewers:** $REVIEWERS" >> changelog.txt
-             fi
+              if [ ! -z "$REVIEWERS" ]; then
+                 echo -e "**Reviewers:** $REVIEWERS" >> changelog.txt
+              fi
+              
+              # --- AI CONTENT DISCLOSURE ---
+              if [ "$AI_SUCCESS" = true ]; then
+                 echo -e "\n---\n\n<details>\n<summary><b>🤖 AI content</b></summary>\n\nFor these release notes, we used an LLM to review and summarise the code changes, along with the associated issue and PR descriptions. It may contain typical errors and inaccuracies.\n\n**Excluded changes:**\n- style, refactor, docs (markdown), test, chore, ci, build\n- Automated whitespace/formatting fixes\n- skip-release-notes labeled changes\n</details>" >> changelog.txt
+              fi
              
-             # --- AI CONTENT DISCLOSURE ---
-             if [ "$AI_SUCCESS" = true ]; then
-                echo -e "\n---\n\n<details>\n<summary><b>🤖 AI content</b></summary>\n\nFor these release notes, we used an LLM to review and summarise the code changes, along with the associated issue and PR descriptions. It may contain typical errors and inaccuracies.\n\n**Excluded changes:**\n- style, refactor, docs, test, chore, ci, build\n- skip-release-notes labeled changes\n</details>" >> changelog.txt
-             fi
 
             echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
