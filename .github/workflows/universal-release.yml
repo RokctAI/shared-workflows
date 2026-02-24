@@ -363,18 +363,27 @@ jobs:
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit Cleanup Marker
         run: |
-          git add .github/.rc-cleanup-done
-          git commit -m "chore: mark RC cleanup as completed"
-          
-          # Try to push, but don't fail if branch is protected
-          if git push origin HEAD 2>&1; then
-             echo "✅ Marker file created. Future runs will skip cleanup."
+          # Use git status to see if the file is actually new/modified
+          if [ -f .github/.rc-cleanup-done ] && [[ -n $(git status -s .github/.rc-cleanup-done) ]]; then
+            echo "📝 Committing cleanup marker..."
+            git add .github/.rc-cleanup-done
+            git commit -m "chore: mark RC cleanup as completed"
+            # Try to push, but don't fail if branch is protected
+            if git push origin HEAD 2>&1; then
+               echo "✅ Marker file pushed. Future runs will skip cleanup."
+            else
+               echo "⚠️ Could not push marker file (branch may be protected)."
+               echo "   Cleanup will run again on next workflow execution."
+            fi
           else
-             echo "⚠️ Could not push marker file (branch may be protected)."
-             echo "   Cleanup will run again on next workflow execution."
-             echo "   To prevent this, manually create .github/.rc-cleanup-done in your repo."
+            echo "⏭️ No new marker file to commit. Skipping."
           fi
 
   # --- 2.7. WINDOWS BUILD (Optional) ---
