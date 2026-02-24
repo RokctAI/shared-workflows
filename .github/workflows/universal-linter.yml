@@ -60,6 +60,10 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Sever Shared Workflows Git Link
+        run: rm -rf .github/shared-workflows/.git
+        shell: bash
+
       - name: Check for Python
         id: check_python
         run: |
@@ -207,6 +211,10 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Sever Shared Workflows Git Link
+        run: rm -rf .github/shared-workflows/.git
+        shell: bash
+
       - name: Format Shell Scripts
         run: |
           # Use dockerized shfmt for zero-dependency alpine formatting
@@ -273,6 +281,10 @@ jobs:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
           path: .github/shared-workflows
+
+      - name: Sever Shared Workflows Git Link
+        run: rm -rf .github/shared-workflows/.git
+        shell: bash
 
       - name: Format PowerShell Scripts
         shell: pwsh
@@ -350,6 +362,10 @@ jobs:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
           path: .github/shared-workflows
+
+      - name: Sever Shared Workflows Git Link
+        run: rm -rf .github/shared-workflows/.git
+        shell: bash
 
       - name: Check for Flutter
         id: check_flutter
@@ -459,6 +475,10 @@ jobs:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
           path: .github/shared-workflows
+
+      - name: Sever Shared Workflows Git Link
+        run: rm -rf .github/shared-workflows/.git
+        shell: bash
 
       - name: Check for Node
         id: check_node
