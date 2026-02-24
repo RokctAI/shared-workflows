@@ -1234,6 +1234,7 @@ jobs:
               gh release create "$TAG" \
                 --title "$TAG" \
                 --notes-file "changelog.txt" \
+                --target "${{ github.sha }}" \
                 $PRERELEASE_FLAG \
                 "${FILES[@]}" || {
                   echo "⚠️ gh release create failed (might be immutable). Attempting upload fallback..."
