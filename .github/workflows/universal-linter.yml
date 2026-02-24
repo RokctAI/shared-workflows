@@ -53,6 +53,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
       - name: Check for Python
         id: check_python
         run: |
@@ -154,7 +161,7 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -193,6 +200,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
       - name: Format Shell Scripts
         run: |
           # Use dockerized shfmt for zero-dependency alpine formatting
@@ -218,7 +232,7 @@ jobs:
 
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -252,6 +266,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
 
       - name: Format PowerShell Scripts
         shell: pwsh
@@ -287,7 +308,7 @@ jobs:
 
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -322,6 +343,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
 
       - name: Check for Flutter
         id: check_flutter
@@ -381,7 +409,7 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -424,6 +452,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
 
       - name: Check for Node
         id: check_node
@@ -486,7 +521,7 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
