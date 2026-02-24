@@ -358,9 +358,14 @@ jobs:
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
 
           if [[ -n $(git status -s) ]]; then
-            git add .
-            git commit -m "style: automated flutter formatting [skip ci]"
-            git push origin HEAD:${{ github.ref }}
+            git restore pubspec.lock || true
+            if [[ -n $(git status -s) ]]; then
+              git add .
+              git commit -m "style: automated flutter formatting [skip ci]"
+              git push origin HEAD:${{ github.ref }}
+            else
+              echo "Only pubspec.lock changed. Skipping commit."
+            fi
           else
             echo "No changes to commit."
           fi
