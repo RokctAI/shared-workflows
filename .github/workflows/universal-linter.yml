@@ -60,9 +60,7 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
-      - name: Sever Shared Workflows Git Link
-        run: rm -rf .github/shared-workflows/.git
-        shell: bash
+
 
       - name: Check for Python
         id: check_python
@@ -167,6 +165,11 @@ jobs:
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: ./.github/shared-workflows/.github/actions/setup-identity
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
@@ -211,9 +214,7 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
-      - name: Sever Shared Workflows Git Link
-        run: rm -rf .github/shared-workflows/.git
-        shell: bash
+
 
       - name: Format Shell Scripts
         run: |
@@ -241,6 +242,11 @@ jobs:
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
 
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -282,9 +288,7 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
-      - name: Sever Shared Workflows Git Link
-        run: rm -rf .github/shared-workflows/.git
-        shell: bash
+
 
       - name: Format PowerShell Scripts
         shell: pwsh
@@ -321,6 +325,11 @@ jobs:
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
 
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -363,9 +372,7 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
-      - name: Sever Shared Workflows Git Link
-        run: rm -rf .github/shared-workflows/.git
-        shell: bash
+
 
       - name: Check for Flutter
         id: check_flutter
@@ -427,6 +434,11 @@ jobs:
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: ./.github/shared-workflows/.github/actions/setup-identity
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
@@ -476,9 +488,7 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
-      - name: Sever Shared Workflows Git Link
-        run: rm -rf .github/shared-workflows/.git
-        shell: bash
+
 
       - name: Check for Node
         id: check_node
@@ -543,6 +553,11 @@ jobs:
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: ./.github/shared-workflows/.github/actions/setup-identity
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
@@ -565,3 +580,4 @@ jobs:
           else
             echo "No changes to commit."
           fi
+
