@@ -154,7 +154,9 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        run: |
+          git config user.name "rokctbot"
+          git config user.email "bot@rokct.ai"
 
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -381,7 +383,9 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        run: |
+          git config user.name "rokctbot"
+          git config user.email "bot@rokct.ai"
 
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -486,7 +490,9 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+        run: |
+          git config user.name "rokctbot"
+          git config user.email "bot@rokct.ai"
 
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
