@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: 'node' # No longer pretending to be frappe
@@ -55,3 +56,4 @@ jobs:
       postgres-version: ${{ inputs.postgres-version || '15' }}
       db-type: ${{ inputs.db-type || 'mariadb' }}
     secrets: inherit
+
