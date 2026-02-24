@@ -467,13 +467,15 @@ jobs:
       # --- LOGIC: DETERMINE MODE ---
       - name: Determine Release Mode
         id: mode
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           # Fetch all tags to ensure accurate calc
           git fetch --tags --force
           
           STRAT="${{ inputs.release_strategy }}"
           EVENT="${{ github.event_name }}"
-          BRANCH="${{ github.ref_name }}"
+          BRANCH="$REF_NAME"
           
           echo "🔍 DEBUG: Strategy='$STRAT', Event='$EVENT', Branch='$BRANCH'"
           
@@ -487,24 +489,24 @@ jobs:
                 MODE="promote" # Friday Cron
              else
                 # Push Event - Check Branch
-                BRANCH="${{ github.ref_name }}"
+                # BRANCH="${{ github.ref_name }}" # Redundant, now using $REF_NAME from env
                 
-                if [[ "$BRANCH" == "develop" ]]; then
+                if [[ "$REF_NAME" == "develop" ]]; then
                     MODE="dev"
                     # Short Hash
                     HASH=$(echo "${{ github.sha }}" | cut -c1-7)
                     SUFFIX="-dev-$HASH"
-                elif [[ "$BRANCH" == "main" ]]; then
+                elif [[ "$REF_NAME" == "main" ]]; then
                     MODE="rc" # Push to Main
                     # Calculate RC Suffix (e.g., -rc4) based on existing tags
                     VER="${{ steps.version.outputs.version }}"
                     EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
                     NEXT_RC=$((EXISTING + 1))
                     SUFFIX="-rc${NEXT_RC}"
-                elif [[ "$BRANCH" == build_* ]]; then
+                elif [[ "$REF_NAME" == build_* ]]; then
                     MODE="client"
-                    # Extract client: build_wrapzo-custom-tag -> wrapzo
-                    CLIENT=$(echo "$BRANCH" | cut -d'_' -f2 | cut -d'-' -f1 | tr '[:upper:]' '[:lower:]')
+                    # Extract client from branch name (e.g. build_clientname-custom-tag -> clientname)
+                    CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:upper:]' '[:lower:]')
                     SUFFIX="-$CLIENT"
                     echo "🚀 Client build detected: $CLIENT (Suffix: $SUFFIX)"
                     CLIENT_UPPER=$(echo "$CLIENT" | tr '[:lower:]' '[:upper:]')
