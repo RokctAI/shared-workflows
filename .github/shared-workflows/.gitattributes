@@ -1,6 +1,0 @@
-# Auto detect text files and perform LF normalization
-* text=auto
-
-# GitHub Release Archive Exclusions
-.github/ export-ignore
-.rokct/ export-ignore
