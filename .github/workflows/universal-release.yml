@@ -75,6 +75,8 @@ on:
         required: false
       COUNTER_API_KEY:
         required: false
+      GROQ_API:
+        required: false
 
   workflow_dispatch:
     inputs:
@@ -1228,7 +1230,7 @@ jobs:
             fi
 
             # --- TIER 2: GROQ AI FALLBACK ---
-            if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API_KEY" ]; then
+            if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
                echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
                
                # System Prompt for Groq
@@ -1242,7 +1244,7 @@ jobs:
                  
                GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" \
                  -H "Content-Type: application/json" \
-                 -H "Authorization: Bearer $GROQ_API_KEY" \
+                 -H "Authorization: Bearer $GROQ_API" \
                  -d "$GROQ_PAYLOAD" || echo "Groq Failed")
                  
                if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
