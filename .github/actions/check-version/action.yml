@@ -58,16 +58,6 @@ runs:
           exit 0
         fi
 
-        # Priority 1.5: manifest.json 
-        FOUND_MANIFEST=$(find . -type f -name "manifest.json" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -n 1)
-        if [ -n "$FOUND_MANIFEST" ]; then
-          echo "Found manifest.json at $FOUND_MANIFEST"
-          CLEAN_PATH=${FOUND_MANIFEST#./}
-          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
-          echo "type=manifest" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
         # Priority 2: pubspec.yaml in root
         if [ -f "pubspec.yaml" ]; then
           echo "Found pubspec.yaml in root"
@@ -81,6 +71,17 @@ runs:
           echo "Found package.json in root"
           echo "file=package.json" >> $GITHUB_OUTPUT
           echo "type=package" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Priority 4: manifest.json 
+        # Added exclusions for build/ios/android/macos/windows/dist to prevent xcbuilddata or flutter cache
+        FOUND_MANIFEST=$(find . -type f -name "manifest.json" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" -not -path "*/ios/*" -not -path "*/android/*" -not -path "*/macos/*" -not -path "*/windows/*" | head -n 1)
+        if [ -n "$FOUND_MANIFEST" ]; then
+          echo "Found manifest.json at $FOUND_MANIFEST"
+          CLEAN_PATH=${FOUND_MANIFEST#./}
+          echo "file=$CLEAN_PATH" >> $GITHUB_OUTPUT
+          echo "type=manifest" >> $GITHUB_OUTPUT
           exit 0
         fi
 
