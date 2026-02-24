@@ -794,6 +794,55 @@ jobs:
             fi
           fi
 
+      # --- INJECT SAFE WEBAPP ENV ---
+      - name: Inject Safe WebApp Environment
+        if: env.TAG_NAME != '' && steps.delta_zip.outputs.zip_path != ''
+        env:
+          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
+          CLIENT_ENV: ${{ steps.mode.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.mode.outputs.client_upper)] || '' }}
+        run: |
+          # If package.json exists and has next build scripts, it's likely a WebApp
+          if [ -f "package.json" ] && grep -q '"next"' package.json; then
+             echo "📦 Next.js project detected. Generating safe `.env` for release."
+             
+             ENV_CONTENT="$DEFAULT_ENV"
+             if [ ! -z "$CLIENT_ENV" ]; then
+                echo "🚀 Using Client-Specific Environment Secret."
+                ENV_CONTENT="$CLIENT_ENV"
+             fi
+             
+             if [ ! -z "$ENV_CONTENT" ]; then
+                echo "$ENV_CONTENT" | base64 --decode > .env.raw
+                sed -i 's/\r$//' .env.raw
+                mv .env.raw .env
+                
+                # Hydrate variables natively
+                set -a
+                source .env
+                set +a
+                envsubst < .env > .env.expanded
+                mv .env.expanded .env
+                
+                # Strip backend secrets, keeping only public WebApp variables
+                if grep -q "^NEXT_PUBLIC_" .env; then
+                   grep "^NEXT_PUBLIC_" .env > .env.public
+                   mv .env.public .env
+                   
+                   # Inject into the Delta Zip without altering the host repository
+                   zip -ur update_package.zip .env
+                   echo "✅ Safe NEXT_PUBLIC_ `.env` injected into update_package.zip"
+                else
+                   echo "⚠️ No NEXT_PUBLIC_ variables found. No .env injected."
+                fi
+                
+                # Clean up runner
+                rm -f .env
+             fi
+          else
+             echo "Not a Next.js project. Skipping .env injection."
+          fi
+
+
       # --- ANDROID BUILD (Optional) ---
       - name: Setup Java
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
