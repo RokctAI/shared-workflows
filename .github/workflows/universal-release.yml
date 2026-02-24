@@ -178,6 +178,13 @@ jobs:
              echo "bumped=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Checkout Shared Workflows Actions
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
         run: |
@@ -188,7 +195,7 @@ jobs:
           
           echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
           
-          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+          uses: ./.github/shared-workflows/.github/actions/setup-identity
           
           # Branch
           git branch "$BRANCH_NAME" HEAD^
@@ -345,7 +352,19 @@ jobs:
           echo "📝 Creating marker file to prevent future cleanups..."
           mkdir -p .github
           echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
-          uses: RokctAI/shared-workflows/.github/actions/setup-identity@main
+
+      - name: Checkout Shared Workflows Actions
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: setup-identity
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
+
+      - name: Commit Cleanup Marker
+        run: |
           git add .github/.rc-cleanup-done
           git commit -m "chore: mark RC cleanup as completed"
           
@@ -458,11 +477,23 @@ jobs:
               echo "has_windows=false" >> $GITHUB_ENV
            fi
 
+      - name: Checkout Shared Workflows Actions
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Get Version
         id: version
-        uses: RokctAI/shared-workflows/.github/actions/check-version@main
+        uses: ./.github/shared-workflows/.github/actions/check-version
         with:
            file_path: ${{ inputs.version_file }}
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
 
       # --- LOGIC: DETERMINE MODE ---
       - name: Determine Release Mode
