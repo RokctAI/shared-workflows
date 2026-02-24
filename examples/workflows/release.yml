@@ -1,4 +1,4 @@
-﻿name: Auto Release (Weekly)
+name: Auto Release (Weekly)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-release
   cancel-in-progress: true
@@ -38,6 +38,7 @@ on:
 permissions:
   contents: write
   issues: write
+      pull-requests: write
   pull-requests: write
 
 jobs:
@@ -67,6 +68,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: ${{ needs.detect.outputs.type }}
@@ -99,4 +101,5 @@ jobs:
       java-version: ${{ inputs.java-version || '17' }}
       version_format: ${{ inputs.version_format || '##.##.##' }}
     secrets: inherit
+
 
