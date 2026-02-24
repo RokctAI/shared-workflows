@@ -1195,7 +1195,7 @@ jobs:
            if [ -z "$PREV_TAG" ]; then
               LOG="Initial Release"
            else
-              LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E 's/by @mergify //')
+               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
            fi
            
             AI_SUCCESS=false
