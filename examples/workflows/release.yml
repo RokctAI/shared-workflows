@@ -34,6 +34,10 @@ on:
         type: string
         default: '##.##.##'
         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 
 permissions:
   contents: write
@@ -74,6 +78,7 @@ jobs:
       run_ci: ${{ needs.detect.outputs.type != 'none' }}
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
+      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
 
       # RC Cleanup: Delete RC releases/tags after promotion to stable
       cleanup_rc_releases: true
