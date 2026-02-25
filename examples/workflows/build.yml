@@ -40,10 +40,15 @@ on:
         type: string
         default: '##.##.##'
         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
 
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
@@ -79,6 +84,7 @@ jobs:
       run_security: true
       run_lint: true
       run_ci: ${{ needs.detect.outputs.type != 'none' }}
+      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
       # Deployment Configuration (Immediate release on Main)
       release_strategy: 'immediate'
       build_android: true
