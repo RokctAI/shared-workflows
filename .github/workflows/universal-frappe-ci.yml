@@ -215,7 +215,7 @@ jobs:
           fi
 
           # Configure git to use GitHub token for private repos
-          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
           
           # Fetch key app (the repo calling this workflow)
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
