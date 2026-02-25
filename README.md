@@ -20,6 +20,8 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 *   **🧹 Maintenance Bots**: Auto-merge Dependabot, Stale issue closer, PR Assignee, Labeler, and more.
 *   **⚡ Dynamic Source Rename**: Transparently rebrands Android source paths (e.g., `com.example` -> `com.juvo.runner`) on the fly for client builds, based on an explicit `app-type` input.
 *   **🤫 Silent Transformation**: Perfroms all renames and package updates without exposing original vendor names in the CI logs.
+*   **🧠 AI Release Notes**: Professional, logical change summaries using Brain API or Groq AI (Llama 3.3 70B), with denoised logs and clickable commit links.
+*   **⏳ Historical Backfill**: Ability to retrospectively regenerate AI release notes for all past stable releases via a single workflow input (`backfill_ai_notes_cutoff_version`).
 
 ---
 
@@ -151,12 +153,35 @@ To balance security and flexibility, we follow a strict **"Respect Local, Overwr
 
 ---
 
+## 🔄 Auto-Standardization Policy
+
+To maintain a healthy fleet, we implement **Proactive Maintenance**. When breaking upgrades are introduced to the shared workflows (e.g., required new permissions, standardized Dependabot limits, or naming conventions):
+
+*   **CI Auto-Fixing**: Our internal "Fleet Standardizer" bot (invoked manually or via central CI triggers) automatically sweeps all 16+ repositories.
+*   **Permission Upgrades**: If a repository lacks the standard security permissions (like `pull-requests: write`), the standardizer surgically injects them. 
+*   **Consistency**: This ensures that even legacy repositories stay up-to-date with the latest `shared-workflows` features without manual intervention from developers.
+
+---
+
 ## 🧩 Advanced Workflows
 
 These are available in `examples/workflows` but usually strictly for **Flutter mobile/desktop** apps:
 
 *   **`release-ios.yml`**: Builds `.ipa`. Recommended to run **only on Stable releases** to save costs ($$$).
 *   **`release-macos.yml`**: Builds `.app` / `.zip` for macOS Desktop. Same cost warning.
+
+---
+
+## ⏳ Backfilling AI Release Notes
+
+If you have a repository with many historical releases that lack professional AI summaries, you can regenerate them all in one go.
+
+1.  Go to the **Actions** tab in your repository.
+2.  Select the **Auto Release (Weekly)** or **Build (Smart)** workflow.
+3.  Click **Run workflow**.
+4.  **Configuration**:
+    *   `backfill_ai_notes_cutoff_version`: Enter a version (e.g., `1.0.0`) or simply type `all` to regenerate every stable release in the repo's history.
+5.  **Execution**: The workflow will iterate descending through your tags, generate professional AI notes for each, and update the GitHub Release metadata via the `gh` CLI.
 
 ---
 
