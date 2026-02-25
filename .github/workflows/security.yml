@@ -9,5 +9,6 @@ jobs:
     permissions:
       contents: read
       issues: write
+      workflows: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
