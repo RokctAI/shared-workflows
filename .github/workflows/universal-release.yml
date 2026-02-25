@@ -430,7 +430,7 @@ jobs:
               # A better way is to check if it's in the range. 
               # For now, let's just do a simple break when we hit below cutoff if sorted.
               
-              if [[ "$VER" < "$CUTOFF" ]]; then
+              if [[ "$CUTOFF" != "all" ]] && [[ "$VER" < "$CUTOFF" ]]; then
                  echo "⏭️ Tag $TAG is below cutoff $CUTOFF. Stopping backfill."
                  break
               fi
@@ -448,7 +448,7 @@ jobs:
               if [ -z "$PREV_TAG" ]; then
                  LOG_INPUT="Initial Release"
               else
-                 LOG_INPUT=$(git log "$PREV_TAG".."$TAG" --pretty=format:"* %s (%h)" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
+                 LOG_INPUT=$(git log "$PREV_TAG".."$TAG" --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
               fi
               
               if [ -z "$LOG_INPUT" ]; then
@@ -478,7 +478,7 @@ jobs:
               # --- TIER 2: GROQ AI FALLBACK ---
               if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
                  echo "    ☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
-                 SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Use headers: ### Breaking Changes, ### Features, ### Bug Fixes, ### Performance Improvements. Focus on LOGICAL changes, NO file paths. Include PR references."
+                 SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Use headers: ### Breaking Changes, ### Features, ### Bug Fixes, ### Performance Improvements. Focus on LOGICAL changes, NO file paths. ALWAYS preserve the commit links in the log (format: [hash](link))."
                  GROQ_PAYLOAD=$(jq -n --arg model "llama-3.3-70b-versatile" --arg system "$SYSTEM_PROMPT" --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG_INPUT" '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
                  GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $GROQ_API" -d "$GROQ_PAYLOAD" || echo "Groq Failed")
                  if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
@@ -1314,7 +1314,7 @@ jobs:
            if [ -z "$PREV_TAG" ]; then
               LOG="Initial Release"
            else
-               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s (%h)" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
+               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
            fi
            
             AI_SUCCESS=false
@@ -1368,7 +1368,8 @@ jobs:
                - DO NOT mention specific file names, file paths, or internal implementation details (e.g. 'Updated universal-linter.yml') unless they are part of a major public API change.
                - Use bullet points.
                - Include PR/Issue references if they appear in the log (e.g. #123).
-               - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'."
+                - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'.
+                - ALWAYS preserve the commit links in the log (format: [hash](link))."
                
                GROQ_PAYLOAD=$(jq -n \
                  --arg model "llama-3.3-70b-versatile" \
