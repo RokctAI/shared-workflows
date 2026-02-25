@@ -101,6 +101,18 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
     # CODEOWNERS Handle
     $ghHandleInput = Read-Host "GitHub handle for CODEOWNERS [$ghHandle]"
     if (![string]::IsNullOrWhiteSpace($ghHandleInput)) { $ghHandle = $ghHandleInput }
+
+    # Dependabot Frequency
+    Write-Host "`nSelect Dependabot Update Frequency:"
+    Write-Host "1. monthly (Fleet standard - Recommended)"
+    Write-Host "2. weekly"
+    Write-Host "3. daily"
+    $depChoice = Read-Host "Choice [1]"
+    switch ($depChoice) {
+        "2" { $dependabotInterval = "weekly" }
+        "3" { $dependabotInterval = "daily" }
+        default { $dependabotInterval = "monthly" }
+    }
 }
 else {
     Write-Host "`n⏩ Using standard fleet defaults (Quick Install)." -ForegroundColor Gray
@@ -163,6 +175,14 @@ foreach ($wf in $vitalWorkflows) {
         $content = $content -replace "(?s)(flutter-version:.*?default: )'[^']+'", "`${1}'$flutterVersion'"
         # Smart Flutter Pin (for direct 'flutter-version: ...' lines if they exist in templates)
         $content = $content -replace "flutter-version: '[^']+'", "flutter-version: '$flutterVersion'"
+    }
+
+    # Dependabot Interval Patching
+    if ($wf -eq "dependabot.yml") {
+        if ($dependabotInterval -ne "monthly") {
+            Write-Host "🛡️ Applying custom Dependabot frequency ($dependabotInterval) with safeguard..." -ForegroundColor Yellow
+            $content = $content -replace 'interval: "monthly"', "interval: `"$dependabotInterval`" # rokct-keep"
+        }
     }
 
     # Final normalization to LF and save with UTF8 (No BOM)
