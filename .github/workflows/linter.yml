@@ -10,7 +10,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     secrets: inherit
 
