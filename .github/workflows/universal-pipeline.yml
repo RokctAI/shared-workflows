@@ -96,6 +96,10 @@ on:
       one_time_cleanup_cutoff_date:
         type: string
         default: ""
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
 
 jobs:
   # 1. SECURITY
