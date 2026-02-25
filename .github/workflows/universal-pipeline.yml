@@ -193,6 +193,7 @@ jobs:
       build_windows: ${{ inputs.build_windows }}
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
+      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
       # Environment 
       node-version: ${{ inputs.node-version || '24' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
