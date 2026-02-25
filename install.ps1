@@ -30,6 +30,7 @@ $cronSchedule = "0 23 * * 5"
 $nodeVersion = "24"
 $pythonVersion = "3.14"
 $flutterVersion = "3.24.0"
+$dependabotInterval = "monthly"
 $ghHandle = "@RendaniSinyage"
 
 Write-Host "`n🚀 RokctAI Shared Workflows Installer`n" -ForegroundColor Cyan
