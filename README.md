@@ -191,6 +191,30 @@ If you have a repository with many historical releases that lack professional AI
 
 ---
 
+## ⚡ AI Tiering & Groq API Setup
+
+To ensure high-quality release notes without depending on a central server, we implement a **Tiered AI Strategy**:
+1.  **Tier 1 (Brain)**: Primary internal API (High Precision).
+2.  **Tier 2 (Groq)**: Fallback using Llama 3.3 70B (High Speed/Privacy).
+3.  **Tier 3 (Git Log)**: Last resort denoised commit logs.
+
+### **Setting up Groq (Tier 2 Fallback)**
+We highly recommend setting up a Groq API key to ensure your release notes always look professional.
+
+1.  **Get a Key**: Visit the [Groq Console](https://console.groq.com/keys) and create a free API Key.
+2.  **Add Secret**: 
+    *   Go to your repository **Settings** > **Secrets and variables** > **Actions**.
+    *   Click **New repository secret**.
+    *   Name: `GROQ_API`
+    *   Value: `your_api_key_here`
+
+> [!IMPORTANT]
+> **Groq Status**: Groq is currently offering a generous **free tier** as they showcase their LPU™ (Language Processing Unit) technology. 
+> *   **Cost**: Currently Free (Subject to Groq's terms).
+> *   **Service Continuity**: If Groq decides to discontinue their free tier, this fallback service will stop working. We are actively monitoring alternatives (like Gemini or Mistral) should a transition be necessary.
+
+---
+
 ## 🛠️ Architecture
 
 *   **`universal-pipeline.yml`**: The Orchestrator. Chains Security, Lint, CI, and Release.
