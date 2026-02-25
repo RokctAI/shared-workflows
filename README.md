@@ -159,7 +159,13 @@ To maintain a healthy fleet, we implement **Proactive Maintenance**. When breaki
 
 *   **CI Auto-Fixing**: Our internal "Fleet Standardizer" bot (invoked manually or via central CI triggers) automatically sweeps all 16+ repositories.
 *   **Permission Upgrades**: If a repository lacks the standard security permissions (like `pull-requests: write`), the standardizer surgically injects them. 
-*   **Consistency**: This ensures that even legacy repositories stay up-to-date with the latest `shared-workflows` features without manual intervention from developers.
+*   **Submodule Sync**: If `The-Rokct-Protocol` is detected as a submodule, the bot automatically runs `git submodule update --remote --merge` to keep the repo in sync with the latest protocol standards.
+*   **Surgical Enforcement**: The bot only **adds** missing configuration (like AI backfill inputs) or **upgrades** security settings. It **never** overrides intentional custom defaults like `release_strategy: 'weekly'`.
+*   **Opt-out (Skip)**:
+    *   Add `# rokct-ignore` anywhere in a file to skip it entirely.
+    *   Add `# rokct-keep` on a Dependabot `interval` line to preserve your custom schedule.
+*   **Version Freedom**: The bot **never** standardizes version numbers (e.g., `node-version`, `flutter-version`). We believe these are local project decisions that the developer should control.
+*   **Consistency**: This ensures that even legacy repositories stay up-to-date with the latest `shared-workflows` features and core protocols without manual intervention from developers.
 
 ---
 
