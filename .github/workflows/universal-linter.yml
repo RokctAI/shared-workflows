@@ -148,7 +148,7 @@ jobs:
       - name: Create Issue on Findings
         if: env.findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           BODY="### 🐍 Python Lint Failure
           **Commit:** ${{ github.sha }}
@@ -173,7 +173,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -251,7 +251,7 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
@@ -337,7 +337,7 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
@@ -421,7 +421,7 @@ jobs:
       - name: Create Issue on Findings
         if: env.findings == 'true' && steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           BODY="### 🐦 Flutter Analysis Failure
           **Commit:** ${{ github.sha }}
@@ -445,7 +445,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -533,7 +533,7 @@ jobs:
       - name: Create Issue on Audit Findings
         if: env.audit_findings == 'true' && steps.check_node.outputs.exists == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           BODY="### 📦 Node Security Audit Failure
           **High/Critical vulnerabilities found.**
@@ -564,7 +564,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
