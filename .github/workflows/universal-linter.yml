@@ -34,7 +34,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write # Required to modify workflow files
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -46,11 +45,9 @@ jobs:
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
             echo "ENGINE_PATH=scripts/standardize_fleet.py" >> $GITHUB_ENV
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
             echo "ENGINE_PATH=.github/shared-workflows/scripts/standardize_fleet.py" >> $GITHUB_ENV
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -65,9 +62,13 @@ jobs:
       - name: Run Standardizer Engine
         run: python3 ${{ env.ENGINE_PATH }}
 
-      - name: Setup Identity
-        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Temporary Files
         if: always() && env.IS_SELF == 'false'
@@ -115,7 +116,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -125,10 +125,8 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -241,9 +239,13 @@ jobs:
           "
           gh issue create --title "🚨 CI: Python Lint Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
 
-      - name: Setup Identity
-        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -281,7 +283,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -291,10 +292,8 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -331,9 +330,13 @@ jobs:
              echo "No target shell scripts found. Skipping."
           fi
 
-      - name: Setup Identity
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -367,7 +370,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -377,10 +379,8 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -429,9 +429,13 @@ jobs:
               [System.IO.File]::WriteAllText($file.FullName, $formattedContent, $Utf8NoBomEncoding)
           }
 
-      - name: Setup Identity
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -466,7 +470,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -476,10 +479,8 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -549,9 +550,13 @@ jobs:
           "
           gh issue create --title "🚨 CI: Flutter Analysis Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists."
 
-      - name: Setup Identity
-        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -594,7 +599,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -604,10 +608,8 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=true" >> $GITHUB_ENV
           else
-            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
             echo "IS_SELF=false" >> $GITHUB_ENV
           fi
 
@@ -680,9 +682,13 @@ jobs:
              npx eslint . --ext .js,.jsx,.ts,.tsx
           fi
 
-      - name: Setup Identity
-        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ${{ env.IDENTITY_ACTION }}
+      - name: Setup Identity (Local)
+        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+
+      - name: Setup Identity (Shared)
+        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
