@@ -34,6 +34,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write # Required to modify workflow files
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -41,7 +42,20 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "ENGINE_PATH=scripts/standardize_fleet.py" >> $GITHUB_ENV
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "ENGINE_PATH=.github/shared-workflows/scripts/standardize_fleet.py" >> $GITHUB_ENV
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -49,13 +63,15 @@ jobs:
           path: .github/shared-workflows
 
       - name: Run Standardizer Engine
-        run: |
-          # Use the script from shared-workflows
-          python3 .github/shared-workflows/scripts/standardize_fleet.py
+        run: python3 ${{ env.ENGINE_PATH }}
 
       - name: Setup Identity
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
+
+      - name: Cleanup Temporary Files
+        if: always() && env.IS_SELF == 'false'
+        run: rm -rf .github/shared-workflows
 
       - name: Commit & Push Changes
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -77,10 +93,6 @@ jobs:
             echo "No changes needed."
           fi
 
-      - name: Cleanup Shared Workflows Checkout
-        if: always()
-        run: rm -rf .github/shared-workflows
-        shell: bash
 
   telemetry:
     needs: standardize
@@ -103,13 +115,25 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -219,10 +243,10 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
 
       - name: Cleanup Shared Workflows Checkout
-        if: always()
+        if: always() && env.IS_SELF == 'false'
         run: rm -rf .github/shared-workflows
         shell: bash
 
@@ -257,13 +281,25 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -297,10 +333,10 @@ jobs:
 
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
 
       - name: Cleanup Shared Workflows Checkout
-        if: always()
+        if: always() && env.IS_SELF == 'false'
         run: rm -rf .github/shared-workflows
         shell: bash
 
@@ -331,13 +367,25 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -383,10 +431,10 @@ jobs:
 
       - name: Setup Identity
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
 
       - name: Cleanup Shared Workflows Checkout
-        if: always()
+        if: always() && env.IS_SELF == 'false'
         run: rm -rf .github/shared-workflows
         shell: bash
 
@@ -418,13 +466,25 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -491,10 +551,10 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
 
       - name: Cleanup Shared Workflows Checkout
-        if: always()
+        if: always() && env.IS_SELF == 'false'
         run: rm -rf .github/shared-workflows
         shell: bash
 
@@ -534,13 +594,25 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Fleet Standardizer
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IDENTITY_ACTION=./.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IDENTITY_ACTION=./.github/shared-workflows/.github/actions/setup-identity" >> $GITHUB_ENV
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -610,10 +682,10 @@ jobs:
 
       - name: Setup Identity
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        uses: ${{ env.IDENTITY_ACTION }}
 
       - name: Cleanup Shared Workflows Checkout
-        if: always()
+        if: always() && env.IS_SELF == 'false'
         run: rm -rf .github/shared-workflows
         shell: bash
 
