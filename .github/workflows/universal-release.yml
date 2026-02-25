@@ -32,6 +32,11 @@ on:
          type: string
          default: ""
          description: "Date (YYYY-MM-DD) - Run one-time cleanup once if current date is past this. Leave empty to disable."
+      backfill_ai_notes_cutoff_version:
+         required: false
+         type: string
+         default: ""
+         description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
       build_android:
          required: false
          type: boolean
@@ -387,6 +392,120 @@ jobs:
           else
             echo "⏭️ No new marker file to commit. Skipping."
           fi
+
+  # --- 2.6. AI CHANGELOG BACKFILL (Historical) ---
+  ai-changelog-backfill:
+    needs: [checks]
+    runs-on: ubuntu-latest
+    if: inputs.backfill_ai_notes_cutoff_version != ''
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Regenerate AI Release Notes
+        env:
+           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+           GROQ_API: ${{ secrets.GROQ_API }}
+           GITHUB_TOKEN: ${{ github.token }}
+        run: |
+           CUTOFF="${{ inputs.backfill_ai_notes_cutoff_version }}"
+           echo "🚀 Starting AI Release Notes Backfill (Cutoff: $CUTOFF)"
+           
+           # Get all stable tags sorted by version descending
+           ALL_STABLE_TAGS=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)')
+           
+           # We want to process tags from oldest to newest to follow history, 
+           # but let's just iterate and use the descending list to find predecessors.
+           
+           for TAG in $ALL_STABLE_TAGS; do
+              VER="${TAG#v}"
+              
+              # Check if this tag is >= Cutoff
+              # Simple string comparison isn't perfect for versions, but usually works for our tags.
+              # A better way is to check if it's in the range. 
+              # For now, let's just do a simple break when we hit below cutoff if sorted.
+              
+              if [[ "$VER" < "$CUTOFF" ]]; then
+                 echo "⏭️ Tag $TAG is below cutoff $CUTOFF. Stopping backfill."
+                 break
+              fi
+              
+              echo "---------------------------------------------------"
+              echo "📝 Processing $TAG..."
+              
+              # Find Predecessor in the stable list
+              PREV_TAG=$(echo "$ALL_STABLE_TAGS" | grep -A 1 "^${TAG}$" | tail -n 1)
+              if [ "$PREV_TAG" == "$TAG" ]; then PREV_TAG=""; fi
+              
+              echo "    Range: ${PREV_TAG:-START} -> $TAG"
+              
+              # Generate Log (same logic as main release)
+              if [ -z "$PREV_TAG" ]; then
+                 LOG_INPUT="Initial Release"
+              else
+                 LOG_INPUT=$(git log "$PREV_TAG".."$TAG" --pretty=format:"* %s (%h)" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
+              fi
+              
+              if [ -z "$LOG_INPUT" ]; then
+                 echo "    ⚠️ No significant changes found for $TAG. Skipping AI."
+                 continue
+              fi
+              
+              AI_SUCCESS=false
+              CHANGELOG_CONTENT=""
+              
+              # --- TIER 1: BRAIN API ---
+              if [ ! -z "$BRAIN_ENDPOINT" ] && [ ! -z "$BRAIN_TOKEN" ]; then
+                 echo "    🧠 Calling Brain Writer API..."
+                 JSON_PAYLOAD=$(jq -n --arg repo "${{ github.server_url }}/${{ github.repository }}" --arg ver "$TAG" --arg log "$LOG_INPUT" '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+                 RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
+                 if [[ "$RESPONSE" != *"AI Error"* ]] && [[ "$RESPONSE" != *"Traceback"* ]] && [[ "$RESPONSE" != "Curl Failed" ]] && [[ ! -z "$RESPONSE" ]]; then
+                    if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
+                       MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
+                       if [[ "$MSG" != "Invalid JSON" ]]; then
+                          CHANGELOG_CONTENT="$MSG"
+                          AI_SUCCESS=true
+                       fi
+                    fi
+                 fi
+              fi
+              
+              # --- TIER 2: GROQ AI FALLBACK ---
+              if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
+                 echo "    ☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
+                 SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Use headers: ### Breaking Changes, ### Features, ### Bug Fixes, ### Performance Improvements. Focus on LOGICAL changes, NO file paths. Include PR references."
+                 GROQ_PAYLOAD=$(jq -n --arg model "llama-3.3-70b-versatile" --arg system "$SYSTEM_PROMPT" --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG_INPUT" '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                 GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $GROQ_API" -d "$GROQ_PAYLOAD" || echo "Groq Failed")
+                 if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
+                    MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content' || echo "Groq Error")
+                    if [[ "$MSG" != "Groq Error" ]] && [[ "$MSG" != "null" ]]; then
+                       CHANGELOG_CONTENT="## 🚀 Release $TAG\n\n$MSG"
+                       AI_SUCCESS=true
+                    fi
+                 fi
+              fi
+              
+              # --- TIER 3: DENOISED GIT LOG FALLBACK ---
+              if [ "$AI_SUCCESS" = false ]; then
+                 echo "    📝 Using Denoised Git Log fallback..."
+                 CHANGELOG_CONTENT="## 🚀 Release $TAG\n\n### 📦 Changes\n$LOG_INPUT"
+              fi
+              
+              # UPDATE GITHUB RELEASE
+              echo -e "$CHANGELOG_CONTENT" > temp_changelog.txt
+              if gh release edit "$TAG" --notes-file temp_changelog.txt 2>/dev/null; then
+                 echo "    ✅ Updated release notes for $TAG"
+              else
+                 echo "    ❌ Failed to update release notes for $TAG (Does release exist?)"
+              fi
+              
+           done
+           echo "AI Backfill complete."
 
   # --- 2.7. WINDOWS BUILD (Optional) ---
   build-windows:
