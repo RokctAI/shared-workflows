@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -185,7 +185,7 @@ jobs:
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
@@ -236,9 +236,9 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     permissions:
-      contents: read
+      contents: write
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -360,7 +360,7 @@ jobs:
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
 
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
@@ -493,7 +493,7 @@ jobs:
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Get Version
         id: version
@@ -567,7 +567,7 @@ jobs:
       - name: Extract Contributors
         id: contrib
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git fetch --tags --force
           # Find latest stable tag
@@ -634,7 +634,7 @@ jobs:
       - name: Promote RC to Stable
         if: steps.mode.outputs.mode == 'promote'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
            FILE="${{ inputs.version_file || 'version.json' }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
@@ -753,7 +753,7 @@ jobs:
         if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
         id: create_tag
         env:
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           GITHUB_TOKEN: ${{ github.token }}
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
@@ -1184,7 +1184,7 @@ jobs:
            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
            BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
            GROQ_API: ${{ secrets.GROQ_API }}
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           GITHUB_TOKEN: ${{ github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
@@ -1308,7 +1308,7 @@ jobs:
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         env:
-           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           GITHUB_TOKEN: ${{ github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PRERELEASE_FLAG=""
