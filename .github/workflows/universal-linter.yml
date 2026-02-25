@@ -34,7 +34,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -117,7 +116,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -285,7 +283,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -373,7 +370,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -474,7 +470,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -604,7 +599,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
