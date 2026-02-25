@@ -30,6 +30,9 @@ jobs:
   standardize:
     name: 🔄 Fleet Standardizer (Auto-Fix)
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
+      ENGINE_PATH: ''
     permissions:
       contents: write
       issues: write
@@ -112,6 +115,9 @@ jobs:
     needs: telemetry
     name: 🐍 Python Lint (Flake8)
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
+      findings: ''
     permissions:
       contents: write
       issues: write
