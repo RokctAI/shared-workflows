@@ -286,6 +286,8 @@ jobs:
     needs: telemetry
     name: 🐚 Shell Script Format (shfmt)
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
     permissions:
       contents: write
       pull-requests: write
@@ -373,6 +375,8 @@ jobs:
     needs: telemetry
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
     permissions:
       contents: write
       pull-requests: write
@@ -472,6 +476,9 @@ jobs:
     needs: telemetry
     name: 🐦 Flutter Analyze
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
+      findings: ''
     permissions:
       contents: write
       issues: write
@@ -601,6 +608,9 @@ jobs:
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
     runs-on: ubuntu-latest
+    env:
+      IS_SELF: ''
+      audit_findings: ''
     permissions:
       contents: write
       issues: write
