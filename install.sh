@@ -24,6 +24,7 @@ CRON_SCHEDULE="0 23 * * 5"
 NODE_VERSION="24"
 PYTHON_VERSION="3.14"
 FLUTTER_VERSION="3.24.0"
+DEPENDABOT_INTERVAL="monthly"
 LOCAL_MODE=false
 GH_HANDLE="@RendaniSinyage"
 
@@ -101,6 +102,18 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
   # CODEOWNERS Handle
   read -p "GitHub handle for CODEOWNERS [$GH_HANDLE]: " INPUT_HANDLE
   GH_HANDLE=${INPUT_HANDLE:-$GH_HANDLE}
+
+  # Dependabot Frequency
+  echo -e "\nSelect Dependabot Update Frequency:"
+  echo "1. monthly (Fleet standard - Recommended)"
+  echo "2. weekly"
+  echo "3. daily"
+  read -p "Choice [1]: " CHOICE_DEP
+  case $CHOICE_DEP in
+  2) DEPENDABOT_INTERVAL="weekly" ;;
+  3) DEPENDABOT_INTERVAL="daily" ;;
+  *) DEPENDABOT_INTERVAL="monthly" ;;
+  esac
 else
   echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
 fi
@@ -165,6 +178,14 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
     sed -i "/flutter-version:/,/default:/s/default: '[^']*'/default: '$FLUTTER_VERSION'/" "$DEST_FINAL.tmp"
     # Smart Flutter Pin replacement
     sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
+  fi
+
+  # Dependabot Interval Patching
+  if [ "$wf" == "dependabot.yml" ]; then
+    if [ "$DEPENDABOT_INTERVAL" != "monthly" ]; then
+      echo -e "\033[0;33m🛡️ Applying custom Dependabot frequency ($DEPENDABOT_INTERVAL) with safeguard...\033[0m"
+      sed -i "s/interval: \"monthly\"/interval: \"$DEPENDABOT_INTERVAL\" # rokct-keep/g" "$DEST_FINAL.tmp"
+    fi
   fi
 
   # Final normalization for 100% Parity (BOM-less UTF-8, LF, Full Trim)
