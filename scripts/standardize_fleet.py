@@ -47,6 +47,29 @@ def fix_workflow_inputs(content):
     
     return content
 
+def fix_merge_workflow(content):
+    if '# rokct-ignore' in content: return content
+    
+    # Ensure rokctbot and rokctbot[bot] are in the allowed_users list
+    # Use a safe regex that handles various quoting and spacing
+    match = re.search(r'allowed_users:\s*[\'"](.*?)[\'"]', content)
+    if match:
+        raw_allowed = match.group(1)
+        allowed = [u.strip() for u in raw_allowed.split(',')]
+        
+        needs_update = False
+        for bot in ['rokctbot', 'rokctbot[bot]']:
+            if bot not in allowed:
+                allowed.append(bot)
+                needs_update = True
+        
+        if needs_update:
+            new_allowed = ", ".join(allowed)
+            # Replace precisely the allowed_users line
+            content = content.replace(match.group(0), f"allowed_users: '{new_allowed}'")
+            
+    return content
+
 def fix_dependabot(path):
     if not os.path.exists(path): return False
     with open(path, 'r', encoding='utf-8') as f:
@@ -84,7 +107,8 @@ def main():
     # Fix Workflows
     workflow_dir = ".github/workflows"
     if os.path.exists(workflow_dir):
-        for file in ["build.yml", "release.yml"]:
+        # Scan for standard and custom workflows
+        for file in ["build.yml", "release.yml", "merge.yml"]:
             path = os.path.join(workflow_dir, file)
             if os.path.exists(path):
                 with open(path, 'r', encoding='utf-8') as f:
@@ -92,6 +116,9 @@ def main():
                 
                 new_content = fix_workflow_permissions(content)
                 new_content = fix_workflow_inputs(new_content)
+                
+                if file == "merge.yml":
+                    new_content = fix_merge_workflow(new_content)
                 
                 if new_content != content:
                     with open(path, 'w', encoding='utf-8') as f:
