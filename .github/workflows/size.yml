@@ -1,4 +1,7 @@
 name: Size Labeler
+
+permissions:
+  pull-requests: write
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -6,6 +9,4 @@ on:
 jobs:
   size:
     uses: RokctAI/shared-workflows/.github/workflows/universal-size.yml@main
-    permissions:
-      pull-requests: write
     secrets: inherit
