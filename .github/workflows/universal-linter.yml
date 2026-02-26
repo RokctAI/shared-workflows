@@ -347,10 +347,14 @@ jobs:
       - name: Setup Identity (Local)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -448,10 +452,14 @@ jobs:
       - name: Setup Identity (Local)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
