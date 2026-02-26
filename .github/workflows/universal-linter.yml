@@ -406,7 +406,7 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
@@ -525,7 +525,7 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
