@@ -1350,7 +1350,7 @@ jobs:
            BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
            BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
            GROQ_API: ${{ secrets.GROQ_API }}
-           GITHUB_TOKEN: ${{ github.token }}
+           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
@@ -1475,7 +1475,7 @@ jobs:
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         env:
-           GITHUB_TOKEN: ${{ github.token }}
+           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PRERELEASE_FLAG=""
