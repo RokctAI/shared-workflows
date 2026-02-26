@@ -88,13 +88,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug Secret Presence
+        run: |
+          if [ -n "${{ secrets.APP_ID }}" ]; then echo "✅ APP_ID reached this workflow."; else echo "❌ APP_ID is MISSING."; fi
+          if [ -n "${{ secrets.APP_PRIVATE_KEY }}" ]; then echo "✅ APP_PRIVATE_KEY reached this workflow."; else echo "❌ APP_PRIVATE_KEY is MISSING."; fi
+
       - name: Generate App Token
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-        continue-on-error: true
+          owner: ${{ github.repository_owner }}
 
       - name: Start Database Service
         if: inputs.bootstrap == false
