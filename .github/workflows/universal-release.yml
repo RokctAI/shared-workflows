@@ -269,7 +269,7 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     env:
-      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -648,6 +648,19 @@ jobs:
           path: .github/shared-workflows
           token: ${{ github.token }}
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Setup Identity
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Get Version
         id: version
         uses: ./.github/shared-workflows/.github/actions/check-version
@@ -720,7 +733,7 @@ jobs:
       - name: Extract Contributors
         id: contrib
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           git fetch --tags --force
           # Find latest stable tag
@@ -787,7 +800,7 @@ jobs:
       - name: Promote RC to Stable
         if: steps.mode.outputs.mode == 'promote'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            FILE="${{ inputs.version_file || 'version.json' }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
@@ -906,7 +919,7 @@ jobs:
         if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
         id: create_tag
         env:
-           GITHUB_TOKEN: ${{ github.token }}
+           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
