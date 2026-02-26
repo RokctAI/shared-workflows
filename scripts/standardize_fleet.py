@@ -5,22 +5,17 @@ import subprocess
 def fix_workflow_permissions(content):
     if '# rokct-ignore' in content: return content
     
-    required = ['contents: write', 'issues: write', 'pull-requests: write', 'workflows: write']
-    
+    # In open-source context, write-all is the most compatible way to 
+    # request all permissions enabled in the repository settings.
     if 'permissions:' not in content:
-        # Use simple string insertion after name/concurrency
-        perms_block = 'permissions:\n' + '\n'.join(f'  {p}' for p in required) + '\n'
+        perms_block = 'permissions: write-all\n'
         if 'concurrency:' in content:
             content = re.sub(r'(concurrency:.*?\n)', r'\1' + perms_block, content, flags=re.DOTALL)
         else:
             content = re.sub(r'^(name:.*?\n)', r'\1' + perms_block, content)
-    else:
-        for perm in required:
-            key = perm.split(':')[0]
-            # Precise matching for the key at the start of a line inside a permissions block is hard with regex,
-            # so we use a simpler check that respects the yaml structure.
-            if f'{key}:' not in content:
-                content = content.replace('permissions:', f'permissions:\n  {perm}')
+    elif 'permissions: write-all' not in content:
+        # If there's already a complex block, we don't force write-all to avoid breaking custom setups
+        pass
     return content
 
 def fix_workflow_inputs(content):
