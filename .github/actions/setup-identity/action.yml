@@ -13,7 +13,7 @@ runs:
     - name: Configure Git
       shell: bash
       run: |
-        git config user.name "rokct-bot[bot]"
+        git config user.name "rokctbot[bot]"
         git config user.email "2956274+rokct-bot[bot]@users.noreply.github.com"
         
         if [ -n "${{ inputs.token }}" ]; then
