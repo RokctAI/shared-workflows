@@ -76,12 +76,17 @@ jobs:
       - name: Commit & Push Changes
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "chore: automated fleet standardization [skip ci]"
             
+            # Use PAT if available for the push
+            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+            fi
+
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "Direct push failed. Creating a PR instead..."
               BRANCH_NAME="auto-standardize-${{ github.run_id }}"
@@ -253,7 +258,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -262,6 +267,11 @@ jobs:
             git add .
             git commit -m "style: automated whitespace/lint fixes [skip ci]"
             
+            # Use PAT if available for the push
+            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+            fi
+
             # Try to push directly (works on feature branches)
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "Direct push failed (likely a protected branch). Creating a PR instead..."
@@ -343,12 +353,17 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated shell script formatting [skip ci]"
             
+            # Use PAT if available for the push
+            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+            fi
+
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "Direct push failed. Creating a PR instead..."
               BRANCH_NAME="auto-fix-shell-${{ github.run_id }}"
@@ -441,12 +456,17 @@ jobs:
       - name: Commit Auto-fixes
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated powershell script formatting [skip ci]"
             
+            # Use PAT if available for the push
+            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+            fi
+
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "Direct push failed. Creating a PR instead..."
               BRANCH_NAME="auto-fix-powershell-${{ github.run_id }}"
@@ -561,7 +581,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -572,6 +592,11 @@ jobs:
               git add .
               git commit -m "style: automated flutter formatting [skip ci]"
               
+              # Use PAT if available for the push
+              if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+                 git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+              fi
+
               if ! git push origin HEAD:${{ github.ref }}; then
                 echo "Direct push failed. Creating a PR instead..."
                 BRANCH_NAME="auto-fix-flutter-${{ github.run_id }}"
@@ -692,7 +717,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -701,6 +726,11 @@ jobs:
             git add .
             git commit -m "style: automated node formatting [skip ci]"
             
+            # Use PAT if available for the push
+            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
+               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
+            fi
+
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "Direct push failed. Creating a PR instead..."
               BRANCH_NAME="auto-fix-node-${{ github.run_id }}"
