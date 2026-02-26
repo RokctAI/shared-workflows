@@ -223,6 +223,8 @@ jobs:
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
           
