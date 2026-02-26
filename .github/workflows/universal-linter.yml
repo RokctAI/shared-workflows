@@ -165,6 +165,15 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
 
 
       - name: Check for Python
@@ -269,10 +278,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -282,7 +295,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -339,6 +352,15 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
 
 
       - name: Format Shell Scripts
@@ -367,10 +389,14 @@ jobs:
       - name: Setup Identity (Local)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -433,6 +459,15 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
 
 
       - name: Format PowerShell Scripts
@@ -473,10 +508,14 @@ jobs:
       - name: Setup Identity (Local)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -540,6 +579,15 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
 
 
       - name: Check for Flutter
@@ -601,10 +649,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -614,7 +666,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
@@ -675,6 +727,15 @@ jobs:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
           path: .github/shared-workflows
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
 
 
 
@@ -740,10 +801,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -753,7 +818,7 @@ jobs:
       - name: Commit Auto-fixes
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
