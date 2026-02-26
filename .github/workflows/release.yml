@@ -31,6 +31,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: 'node' # No longer pretending to be frappe
