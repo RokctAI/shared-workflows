@@ -83,6 +83,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Start Database Service
         if: inputs.bootstrap == false
         run: |
@@ -134,7 +142,7 @@ jobs:
         with:
           repository: RokctAI/Monorepo
           path: monorepo_overrides
-          token: ${{ github.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Install Frappe Bench (Manual)
         if: inputs.bootstrap == false
@@ -220,7 +228,7 @@ jobs:
           fi
 
           # Configure git to use GitHub token for private repos
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
           
           # Fetch key app (the repo calling this workflow)
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
