@@ -192,17 +192,25 @@ jobs:
           path: .github/shared-workflows
           token: ${{ github.token }}
 
+      - name: Configure LTS Environment
+        if: steps.check_major.outputs.bumped == 'true'
+        run: |
+          echo "OLD_VER=${{ steps.check_major.outputs.old_ver }}" >> $GITHUB_ENV
+          echo "MAJOR=${{ steps.check_major.outputs.old_major }}" >> $GITHUB_ENV
+          echo "BRANCH_NAME=version-${{ steps.check_major.outputs.old_major }}" >> $GITHUB_ENV
+          echo "TAG_NAME=v${{ steps.check_major.outputs.old_ver }}-LTS" >> $GITHUB_ENV
+          echo "PREV_MAJOR=$((${{ steps.check_major.outputs.old_major }} - 1))" >> $GITHUB_ENV
+
+      - name: Setup Identity
+        if: steps.check_major.outputs.bumped == 'true'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
         run: |
-          OLD_VER="${{ steps.check_major.outputs.old_ver }}"
-          MAJOR="${{ steps.check_major.outputs.old_major }}"
-          BRANCH_NAME="version-$MAJOR"
-          TAG_NAME="v${OLD_VER}-LTS"
-          
           echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
-          
-          uses: ./.github/shared-workflows/.github/actions/setup-identity
           
           # Branch
           git branch "$BRANCH_NAME" HEAD^
@@ -216,7 +224,6 @@ jobs:
           gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." || true
           
           # --- ARCHIVAL LOGIC (User Request: Archive previous LTS when new one created) ---
-          PREV_MAJOR=$((MAJOR - 1))
           PREV_BRANCH="version-$PREV_MAJOR"
           ARCHIVE_NAME="archived/$PREV_BRANCH"
           
@@ -367,6 +374,8 @@ jobs:
 
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always()
