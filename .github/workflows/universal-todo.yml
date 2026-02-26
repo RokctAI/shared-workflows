@@ -24,9 +24,6 @@ jobs:
   todo:
     needs: telemetry
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      contents: read
     steps:
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@v5
