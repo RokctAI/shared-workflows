@@ -69,10 +69,14 @@ jobs:
       - name: Setup Identity (Local)
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Temporary Files
         if: always() && env.IS_SELF == 'false'
@@ -81,7 +85,7 @@ jobs:
       - name: Commit & Push Changes
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -n $(git status -s) ]]; then
             git add .
