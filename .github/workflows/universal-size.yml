@@ -22,8 +22,6 @@ jobs:
   size-label:
     needs: telemetry
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
       - uses: codelytv/pr-size-labeler@v1
         with:
