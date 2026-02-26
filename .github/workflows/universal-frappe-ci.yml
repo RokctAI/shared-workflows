@@ -124,20 +124,17 @@ jobs:
           fi
 
       - name: Setup Python
-        if: inputs.bootstrap == false
         id: setup-python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ inputs.python-version }}
 
       - name: Setup Node
-        if: inputs.bootstrap == false
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
 
       - name: Install System Dependencies
-        if: inputs.bootstrap == false
         run: |
           sudo apt-get update
           sudo apt-get install -y wkhtmltopdf
