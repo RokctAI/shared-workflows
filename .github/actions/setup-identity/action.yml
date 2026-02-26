@@ -14,7 +14,7 @@ runs:
       shell: bash
       run: |
         git config user.name "rokctbot[bot]"
-        git config user.email "2956274+rokct-bot[bot]@users.noreply.github.com"
+        git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
         
         if [ -n "${{ inputs.token }}" ]; then
           echo "🔐 High-Authority Token detected. Configuring remote..."
