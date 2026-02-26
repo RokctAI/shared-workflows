@@ -63,6 +63,15 @@ jobs:
           token: ${{ github.token }}
           path: .github/shared-workflows
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true # Fallback to GITHUB_TOKEN if App not configured
+
       - name: Run Standardizer Engine
         run: python3 ${{ env.ENGINE_PATH }}
 
