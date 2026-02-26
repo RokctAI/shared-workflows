@@ -101,6 +101,12 @@ on:
         default: ""
         description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
 
+    secrets:
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
+
 jobs:
   # 1. SECURITY
   security:
