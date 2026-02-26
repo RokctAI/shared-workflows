@@ -1,4 +1,8 @@
 name: Welcome Bot
+
+permissions:
+  issues: write
+  pull-requests: write
 on:
   pull_request:
     types: [opened]
@@ -8,7 +12,4 @@ on:
 jobs:
   welcome:
     uses: RokctAI/shared-workflows/.github/workflows/universal-welcome.yml@main
-    permissions:
-      issues: write 
-      pull-requests: write
     secrets: inherit
