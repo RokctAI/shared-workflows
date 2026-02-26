@@ -125,6 +125,7 @@ jobs:
 
       - name: Setup Python
         if: inputs.bootstrap == false
+        id: setup-python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ inputs.python-version }}
@@ -160,20 +161,20 @@ jobs:
         if: inputs.bootstrap == false
         run: |
           npm install -g yarn
-          python3 -m pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python $(which python3) frappe-bench
+          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
         if: inputs.bootstrap == true
         run: |
           npm install -g yarn
           # Install official bench first
-          python3 -m pip install frappe-bench
+          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
           
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
              echo "🔥 Applying Bench Overrides from Monorepo..."
-             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
              echo "Target Bench Path: $BENCH_PATH"
              
              # Copy the inner 'bench' folder from monorepo/bench/bench to site-packages/bench
@@ -184,7 +185,7 @@ jobs:
              echo "⚠️ Monorepo bench folder not found. Skipping patch."
           fi
           
-          bench init --skip-redis-config-generation --skip-assets --python $(which python3) frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
 
       - name: Install RPanel via Bootstrap Script
         if: inputs.bootstrap == true
