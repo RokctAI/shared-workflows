@@ -71,6 +71,8 @@ jobs:
       issues: write
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      DB_PW: ${{ secrets.DB_ROOT_PASSWORD || inputs.db-password }}
 
     services:
       redis:
@@ -95,13 +97,13 @@ jobs:
         run: |
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ inputs.db-password }} mariadb:${{ inputs.mariadb-version }}
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
              # Wait for health
-             timeout 60s bash -c 'until docker exec db-service mysqladmin ping -p${{ inputs.db-password }} --silent; do echo "Waiting for MariaDB..."; sleep 2; done'
+             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
              echo "Starting PostgreSQL (pgvector/pgvector)..."
              # Standardized fleet database: pgvector/pgvector (Official)
-             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ inputs.db-password }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
@@ -302,9 +304,9 @@ jobs:
           # Create Test Site
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-                bench new-site test_site --db-root-password ${{ inputs.db-password }} --admin-password admin --no-mariadb-socket
+                bench new-site test_site --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
              else
-                bench new-site test_site --db-type postgres --db-root-password ${{ inputs.db-password }} --admin-password admin
+                bench new-site test_site --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
              fi
              SITE_NAME="test_site"
           else
