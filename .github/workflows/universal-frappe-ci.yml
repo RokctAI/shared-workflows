@@ -47,6 +47,10 @@ on:
     secrets:
       COUNTER_API_KEY:
         required: false
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
 
 
 jobs:
