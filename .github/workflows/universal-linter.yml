@@ -29,7 +29,11 @@ on:
 jobs:
   standardize:
     name: 🔄 Fleet Standardizer (Auto-Fix)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      workflows: write
     env:
       IS_SELF: ''
       ENGINE_PATH: ''
@@ -615,7 +619,11 @@ jobs:
   lint-node:
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      workflows: write
     env:
       IS_SELF: ''
       audit_findings: ''
