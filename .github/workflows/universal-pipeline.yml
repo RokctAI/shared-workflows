@@ -105,9 +105,6 @@ jobs:
   # 1. SECURITY
   security:
     if: inputs.run_security
-    permissions:
-      contents: write
-      issues: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
 
@@ -115,10 +112,6 @@ jobs:
   lint:
     needs: security
     if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     with:
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
@@ -172,8 +165,6 @@ jobs:
   # 4. RELEASE (The Gate)
   release:
     needs: [ci-frappe, ci-node, ci-flutter]
-    permissions:
-      contents: write
     # Gate logic: SUCCESS or SKIPPED for all needs, OR Bypass if develop
     if: |
       always() && 
