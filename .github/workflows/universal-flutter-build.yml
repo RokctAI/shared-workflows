@@ -51,6 +51,10 @@ on:
         required: false
       PRODUCTION_ENV:
         required: false
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
 
 jobs:
   telemetry:
