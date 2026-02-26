@@ -189,7 +189,17 @@ jobs:
              echo "bumped=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Determine Context
+        if: steps.check_major.outputs.bumped == 'true'
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Shared Workflows Actions
+        if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -214,8 +224,14 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
-      - name: Setup Identity
-        if: steps.check_major.outputs.bumped == 'true'
+      - name: Setup Identity (Local)
+        if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Identity (Shared)
+        if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -266,12 +282,30 @@ jobs:
       issues: write
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
+    env:
+      IS_SELF: ''
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           filter: blob:none
+
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
 
       - name: Generate App Token
         id: app-token
@@ -393,10 +427,22 @@ jobs:
           echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
 
 
-      - name: setup-identity
+      - name: Setup Identity (Local)
+        if: env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Identity (Shared)
+        if: env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always() && env.IS_SELF == 'false'
+        run: rm -rf .github/shared-workflows
+        shell: bash
 
       - name: Commit Cleanup Marker
         env:
@@ -602,6 +648,14 @@ jobs:
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
     steps:
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> $GITHUB_ENV
+          else
+            echo "IS_SELF=false" >> $GITHUB_ENV
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
@@ -631,6 +685,7 @@ jobs:
            fi
 
       - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
         uses: actions/checkout@v4
         with:
           repository: RokctAI/shared-workflows
@@ -645,23 +700,38 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
-      - name: Setup Identity
+      - name: Setup Identity (Local)
+        if: env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Identity (Shared)
+        if: env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Get Version
-        id: version
+      - name: Get Version (Local)
+        if: env.IS_SELF == 'true'
+        id: version_local
+        uses: ./.github/actions/check-version
+        with:
+           file_path: ${{ inputs.version_file }}
+
+      - name: Get Version (Shared)
+        if: env.IS_SELF == 'false'
+        id: version_shared
         uses: ./.github/shared-workflows/.github/actions/check-version
         with:
            file_path: ${{ inputs.version_file }}
 
-      - name: Cleanup Shared Workflows Checkout
-        if: always()
-        run: rm -rf .github/shared-workflows
-        shell: bash
+      - name: Set Version Output
+        id: version
+        run: |
+          VER="${{ steps.version_local.outputs.version || steps.version_shared.outputs.version }}"
+          echo "version=$VER" >> $GITHUB_OUTPUT
 
-      # --- LOGIC: DETERMINE MODE ---
       - name: Determine Release Mode
         id: mode
         env:
