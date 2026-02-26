@@ -33,11 +33,6 @@ jobs:
     env:
       IS_SELF: ''
       ENGINE_PATH: ''
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -119,11 +114,6 @@ jobs:
     env:
       IS_SELF: ''
       findings: ''
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -290,9 +280,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -379,9 +366,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -481,10 +465,6 @@ jobs:
     env:
       IS_SELF: ''
       findings: ''
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -613,11 +593,6 @@ jobs:
     env:
       IS_SELF: ''
       audit_findings: ''
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      workflows: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
