@@ -5,20 +5,22 @@ import subprocess
 def fix_workflow_permissions(content):
     if '# rokct-ignore' in content: return content
     
-    # 1. Ensure global permissions block exists
+    required = ['contents: write', 'issues: write', 'pull-requests: write', 'workflows: write']
+    
     if 'permissions:' not in content:
-        # Insert after concurrency or name
+        # Use simple string insertion after name/concurrency
+        perms_block = 'permissions:\n' + '\n'.join(f'  {p}' for p in required) + '\n'
         if 'concurrency:' in content:
-            content = re.sub(r'(concurrency:.*?\n)', r'\1permissions:\n  contents: write\n  issues: write\n  pull-requests: write\n', content, flags=re.DOTALL)
+            content = re.sub(r'(concurrency:.*?\n)', r'\1' + perms_block, content, flags=re.DOTALL)
         else:
-            content = re.sub(r'^(name:.*?\n)', r'\1permissions:\n  contents: write\n  issues: write\n  pull-requests: write\n', content)
+            content = re.sub(r'^(name:.*?\n)', r'\1' + perms_block, content)
     else:
-        # Check if they exist within the global permissions block
-        # Simple string-based addition to the permissions: block
-        if 'issues: write' not in content:
-            content = content.replace('permissions:', 'permissions:\n  issues: write')
-        if 'pull-requests: write' not in content:
-            content = content.replace('permissions:', 'permissions:\n  pull-requests: write')
+        for perm in required:
+            key = perm.split(':')[0]
+            # Precise matching for the key at the start of a line inside a permissions block is hard with regex,
+            # so we use a simpler check that respects the yaml structure.
+            if f'{key}:' not in content:
+                content = content.replace('permissions:', f'permissions:\n  {perm}')
     return content
 
 def fix_workflow_inputs(content):
