@@ -148,6 +148,8 @@ jobs:
 
       - name: Checkout Monorepo for Overrides
         if: inputs.bootstrap == true
+        # Graceful Skip: Don't fail if Monorepo is inaccessible (e.g. Forks or Token errors)
+        continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: RokctAI/Monorepo
@@ -158,15 +160,15 @@ jobs:
         if: inputs.bootstrap == false
         run: |
           npm install -g yarn
-          pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+          python3 -m pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python $(which python3) frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
         if: inputs.bootstrap == true
         run: |
           npm install -g yarn
           # Install official bench first
-          pip install frappe-bench
+          python3 -m pip install frappe-bench
           
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
@@ -182,7 +184,7 @@ jobs:
              echo "⚠️ Monorepo bench folder not found. Skipping patch."
           fi
           
-          bench init --skip-redis-config-generation --skip-assets --python python3 frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python $(which python3) frappe-bench
 
       - name: Install RPanel via Bootstrap Script
         if: inputs.bootstrap == true
