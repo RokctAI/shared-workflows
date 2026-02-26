@@ -1,6 +1,10 @@
 name: Code Quality
 
-permissions: write-all
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  workflows: write
 
 on:
   push:
