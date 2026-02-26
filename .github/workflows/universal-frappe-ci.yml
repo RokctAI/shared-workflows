@@ -65,6 +65,11 @@ jobs:
 
   test:
     needs: telemetry
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      workflows: write
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -129,7 +134,7 @@ jobs:
         with:
           repository: RokctAI/Monorepo
           path: monorepo_overrides
-          token: ${{ secrets.MONOREPO_PAT }}
+          token: ${{ github.token }}
 
       - name: Install Frappe Bench (Manual)
         if: inputs.bootstrap == false
