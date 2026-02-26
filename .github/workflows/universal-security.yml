@@ -27,6 +27,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Check for Python
         id: check_python
         run: |
@@ -63,7 +71,7 @@ jobs:
       - name: Create Issue on Bandit Findings
         if: env.bandit_findings == 'true' && steps.check_python.outputs.exists == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           BODY="### 🐍 Python Security Scan Failure (Bandit)
           **Commit:** ${{ github.sha }}
@@ -93,7 +101,7 @@ jobs:
       - name: Create Issue on Pip Audit Findings
         if: env.pip_audit_findings == 'true' && steps.check_python.outputs.exists == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [ -f "pip_audit_output.txt" ]; then
             BODY="### 🐍 Python Dependency Audit Failure
@@ -114,6 +122,14 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
 
       - name: Check for Node
         id: check_node
@@ -139,7 +155,7 @@ jobs:
       - name: Create Issue on NPM Audit Findings
         if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           BODY="### 📦 Node Security Audit Failure
           **High/Critical vulnerabilities found.**
