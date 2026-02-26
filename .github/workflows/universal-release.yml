@@ -136,7 +136,6 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      workflows: write
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
@@ -265,11 +264,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      workflows: write
-    runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
-    env:
-      GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -277,7 +272,17 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Check Date and Run One-Time RC Cleanup
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
           
@@ -386,32 +391,15 @@ jobs:
           mkdir -p .github
           echo "RC cleanup completed on $(date +%Y-%m-%d)" > .github/.rc-cleanup-done
 
-      - name: Checkout Shared Workflows Actions
-        uses: actions/checkout@v4
-        with:
-          repository: RokctAI/shared-workflows
-          path: .github/shared-workflows
-          token: ${{ github.token }}
-
-      - name: Generate App Token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-        continue-on-error: true
 
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Cleanup Shared Workflows Checkout
-        if: always()
-        run: rm -rf .github/shared-workflows
-        shell: bash
-
       - name: Commit Cleanup Marker
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Use git status to see if the file is actually new/modified
           if [ -f .github/.rc-cleanup-done ] && [[ -n $(git status -s .github/.rc-cleanup-done) ]]; then
