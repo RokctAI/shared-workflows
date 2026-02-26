@@ -1,4 +1,8 @@
 name: Auto Merge
+
+permissions:
+  pull-requests: write
+  contents: write
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -6,9 +10,6 @@ on:
 jobs:
   merge:
     uses: RokctAI/shared-workflows/.github/workflows/universal-merge.yml@main
-    permissions:
-      pull-requests: write
-      contents: write
     with:
       allowed_users: 'RendaniSinyage,Rendani Sinyage'
     secrets: inherit
