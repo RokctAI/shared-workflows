@@ -206,9 +206,20 @@ jobs:
           echo "TAG_NAME=v${{ steps.check_major.outputs.old_ver }}-LTS" >> $GITHUB_ENV
           echo "PREV_MAJOR=$((${{ steps.check_major.outputs.old_major }} - 1))" >> $GITHUB_ENV
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        if: steps.check_major.outputs.bumped == 'true'
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: Setup Identity
         if: steps.check_major.outputs.bumped == 'true'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
@@ -380,8 +391,18 @@ jobs:
           path: .github/shared-workflows
           token: ${{ github.token }}
 
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always()
@@ -741,15 +762,15 @@ jobs:
                 fi
              done
              
-             # Format for Changelog (Normalize bots to @rokctbot, except dependabot)
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | sed 's/^/@/' | paste -sd ", " -)
+             # Format for Changelog (Normalize bots to @github-actions, except dependabot)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
              
              echo "authors=$UNIQUE_AUTHORS" >> $GITHUB_OUTPUT
              echo "reviewers=$UNIQUE_REVIEWERS" >> $GITHUB_OUTPUT
              
              # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/rokctbot/' | while read user; do
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | while read user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
              
