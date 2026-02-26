@@ -23,9 +23,6 @@ jobs:
     needs: telemetry
     name: 🐍 Python Security (Bandit & Pip Audit)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -114,9 +111,6 @@ jobs:
     needs: telemetry
     name: 📦 Node Security (NPM Audit)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
