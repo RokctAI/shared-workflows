@@ -132,6 +132,11 @@ jobs:
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
     needs: checks
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      workflows: write
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
@@ -204,8 +209,6 @@ jobs:
       - name: Setup Identity
         if: steps.check_major.outputs.bumped == 'true'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
-        with:
-          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
@@ -245,6 +248,11 @@ jobs:
   # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
     needs: checks
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      workflows: write
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     env:
@@ -374,8 +382,6 @@ jobs:
 
       - name: setup-identity
         uses: ./.github/shared-workflows/.github/actions/setup-identity
-        with:
-          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always()
