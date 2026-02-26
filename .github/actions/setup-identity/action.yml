@@ -18,5 +18,17 @@ runs:
         
         if [ -n "${{ inputs.token }}" ]; then
           echo "🔐 High-Authority Token detected. Configuring remote..."
-          git remote set-url origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}
+          
+          # CRITICAL: Remove the default GITHUB_TOKEN header persisted by actions/checkout
+          # This prevents the restricted GITHUB_TOKEN from overriding our App Token
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          
+          # Set the remote URL with the high-authority token
+          git remote set-url origin "https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}"
+          
+          # Pre-verify token authority for logging
+          echo "🔍 Verifying token identity..."
+          GH_TOKEN="${{ inputs.token }}" gh auth status || echo "⚠️ gh auth status failed, but continuing..."
+        else
+          echo "ℹ️ No high-authority token provided. Using default GITHUB_TOKEN permissions."
         fi
