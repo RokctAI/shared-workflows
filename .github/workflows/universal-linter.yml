@@ -64,10 +64,14 @@ jobs:
       - name: Setup Identity (Local)
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Temporary Files
         if: always() && env.IS_SELF == 'false'
@@ -82,11 +86,6 @@ jobs:
             git add .
             git commit -m "chore: automated fleet standardization [skip ci]"
             
-            # Use PAT if available for the push (for high-authority modding)
-            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-            fi
-
             # Attempt direct push, then PR, then warn but don't fail
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "⚠️ Direct push failed (likely permission issues with workflow files). Attempting PR..."
@@ -251,10 +250,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -273,11 +276,6 @@ jobs:
             git add .
             git commit -m "style: automated whitespace/lint fixes [skip ci]"
             
-            # Use PAT if available for the push
-            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-            fi
-
             # Try to push directly (works on feature branches)
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "⚠️ Direct push failed (likely a protected branch or missing permissions). Attempting PR..."
@@ -368,11 +366,6 @@ jobs:
             git add .
             git commit -m "style: automated shell script formatting [skip ci]"
             
-            # Use PAT if available for the push
-            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-            fi
-
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "⚠️ Direct push failed. Attempting PR..."
               BRANCH_NAME="auto-fix-shell-${{ github.run_id }}"
@@ -474,11 +467,6 @@ jobs:
             git add .
             git commit -m "style: automated powershell script formatting [skip ci]"
             
-            # Use PAT if available for the push
-            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-            fi
-
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "⚠️ Direct push failed. Attempting PR..."
               BRANCH_NAME="auto-fix-powershell-${{ github.run_id }}"
@@ -583,10 +571,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -607,11 +599,6 @@ jobs:
               git add .
               git commit -m "style: automated flutter formatting [skip ci]"
               
-              # Use PAT if available for the push
-              if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-                 git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-              fi
-
               if ! git push origin HEAD:${{ github.ref }}; then
                 echo "⚠️ Direct push failed. Attempting PR..."
                 BRANCH_NAME="auto-fix-flutter-${{ github.run_id }}"
@@ -722,10 +709,14 @@ jobs:
       - name: Setup Identity (Local)
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Identity (Shared)
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -744,11 +735,6 @@ jobs:
             git add .
             git commit -m "style: automated node formatting [skip ci]"
             
-            # Use PAT if available for the push
-            if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-               git remote set-url origin "https://x-access-token:${{ secrets.MONOREPO_PAT }}@github.com/${{ github.repository }}.git"
-            fi
-
             if ! git push origin HEAD:${{ github.ref }}; then
               echo "⚠️ Direct push failed. Attempting PR..."
               BRANCH_NAME="auto-fix-node-${{ github.run_id }}"
