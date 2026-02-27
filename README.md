@@ -217,9 +217,16 @@ We highly recommend setting up a Groq API key to ensure your release notes alway
 
 ## 🔐 GitHub App Setup for CI
 
-To maintain a high standard of quality across the fleet, our shared workflows require a **GitHub App** for authentication. This applies whether you are forking a repository or setting up a new repository (like `rpanel`, `paas`, etc.) to use these workflows.
+To maintain a high standard of quality across the fleet, our shared workflows can use a **GitHub App** for authentication. 
 
-### 🧪 1. Create a GitHub App
+### 🛡️ Do I need a GitHub App?
+We use a **Tiered Automation** strategy to stay fork-friendly:
+
+*   **Tier 1: Code Formatting (Everyone)**: **NO App required.** Modern linters will automatically fix Python whitespace, Shell script formatting, and JS/TS style using the default `GITHUB_TOKEN`.
+*   **Tier 2: Workflow Updates (Optional)**: **App Required.** If you want your CI to automatically get new features and fixes for your `.github/workflows` when they are released in the shared workflows, you must set up a GitHub App.
+*   **Tier 3: Private Clones (Maintainers)**: **App Required.** Internal RokctAI integrations (like cloning `control.git`) require a GitHub App and are only active for repositories owned by **@RokctAI**.
+
+### 🧪 1. Create a GitHub App (To get new features automatically)
 1.  Go to your account settings > Developer settings > GitHub Apps > **New GitHub App**.
 2.  **Name**: Something descriptive (e.g., `RokctAI-CI-Automator`).
 3.  **Permissions**: Give it `Repository permissions`:
@@ -229,7 +236,7 @@ To maintain a high standard of quality across the fleet, our shared workflows re
     *   `Workflows`: Read & Write
 4.  **Install the App**: Once created, click **Install App** in the sidebar and install it on all relevant repositories in your account/organization.
 
-### 🔑 2. Configure Action Secrets
+### 🔑 2. Configure Action Secrets (For Automated Updates)
 1.  **App ID**: Found on the App settings page.
 2.  **Private Key**: Click **Generate a private key** and download the `.pem` file.
 3.  **Add Secrets**: Go to your repository settings (**Secrets and variables** > **Actions**) and add these as **Repository** or **Organization** secrets:
