@@ -173,16 +173,12 @@ jobs:
              echo "🔥 Applying Bench Overrides from Monorepo..."
              BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
              echo "Target Bench Path: $BENCH_PATH"
-             
-             # Copy the inner 'bench' folder from monorepo/bench/bench to site-packages/bench
-             # Assuming Monorepo structure is: Monorepo/bench/bench/app.py
              cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
              echo "✅ Bench patches applied."
-          else
-             echo "⚠️ Monorepo bench folder not found. Skipping patch."
           fi
           
-          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
+          # NOTE: We skip 'bench init' here because install.sh will handle it.
+          # We just wanted the bench source code patched for when install.sh calls it.
 
       - name: Install RPanel via Bootstrap Script
         if: inputs.bootstrap == true
@@ -198,7 +194,12 @@ jobs:
           # move frappe-bench to standard location if needed by later steps
           # install.sh uses /home/frappe/frappe-bench
           if [ -d "/home/frappe/frappe-bench" ]; then
-             sudo ln -s /home/frappe/frappe-bench ./frappe-bench
+             # Clean up any existing folder created by previous steps before symlinking
+             if [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ]; then
+                echo "Cleaning up local frappe-bench folder..."
+                rm -rf frappe-bench
+             fi
+             sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
              sudo chown -R $USER:$USER /home/frappe/frappe-bench
           fi
 
@@ -383,9 +384,9 @@ jobs:
           bench get-app erpnext --branch develop --resolve-deps --skip-assets
           
           # 3. Install Control (Private)
-          echo "Installing Control Panel..."
-          # If SSH key is set, bench will use it automatically via git
-          bench get-app git@github.com:RokctAI/control.git --resolve-deps --skip-assets
+          echo "Installing Control Panel via HTTPS..."
+          # Using HTTPS with token for reliable fetching in CI
+          bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/control.git --resolve-deps --skip-assets
           
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
           if [ -d "../monorepo_overrides/bench" ]; then
