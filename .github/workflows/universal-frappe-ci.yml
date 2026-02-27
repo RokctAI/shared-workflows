@@ -469,14 +469,18 @@ jobs:
           
           SITE_NAME="platform.rokct.ai"
           echo "Ensuring apps are in global apps.txt..."
-          for app in payments rcore erpnext control $APP_NAME; do
+          # Note: rcore and payments are handled by the 'control' installer stack
+          for app in erpnext control $APP_NAME; do
+            touch sites/apps.txt
+            # Ensure file ends with a newline to avoid concatenating app names
+            sed -i -e '$a\' sites/apps.txt
             if ! grep -q "^$app$" sites/apps.txt; then
               echo "$app" >> sites/apps.txt
             fi
           done
 
           echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
-          mv "sites/$ORIG_SITE" "sites/$SITE_NAME"
+          mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
           
           # Update current site txt
           echo "$SITE_NAME" > sites/currentsite.txt
@@ -495,7 +499,13 @@ jobs:
           fi
           # ----------------------------------
           
-          bench --site $SITE_NAME install-app $APP_NAME payments rcore erpnext control
+          # Installation Trigger
+          # We install erpnext and control. control's hooks will then fetch and install rcore/payments/etc.
+          if [ "$APP_NAME" = "control" ] || [ "$APP_NAME" = "erpnext" ]; then
+             bench --site $SITE_NAME install-app erpnext control
+          else
+             bench --site $SITE_NAME install-app erpnext control $APP_NAME
+          fi
           
           # 5. Verify Installation
           echo "Verifying platform bundle..."
