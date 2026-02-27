@@ -205,13 +205,9 @@ jobs:
       - name: Install App & Run Tests
         working-directory: frappe-bench
         run: |
-          # BOOTSTRAP PATH FIX: When using install.sh, bench is at /home/frappe/.local/bin
-          if [ "${{ inputs.bootstrap }}" == "true" ]; then
-             export PATH="/home/frappe/.local/bin:$PATH"
-             # Activate the bench virtualenv so bench commands find frappe modules
-             if [ -f "env/bin/activate" ]; then
-                source env/bin/activate
-             fi
+          # Standard Environment Activation
+          if [ -f "env/bin/activate" ]; then
+             source env/bin/activate
           fi
 
           # Configure Bench to use the service DB/Redis
@@ -356,8 +352,6 @@ jobs:
         working-directory: frappe-bench
         shell: bash
         run: |
-          # BOOTSTRAP PATH FIX: bench is at /home/frappe/.local/bin
-          export PATH="/home/frappe/.local/bin:$PATH"
           if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
           echo "Registry detected as RokctAI. Triggering extended platform integration..."
@@ -384,7 +378,7 @@ jobs:
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
           if [ -d "../monorepo_overrides/bench" ]; then
              echo "🔥 Re-Applying Bench Overrides (Safety)..."
-             BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
              cp -r "../monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
           fi
           # --------------------------------------------------------
