@@ -6,6 +6,14 @@ inputs:
     description: "Optional PAT or App Token for pushing (triggers downstream CI)"
     required: false
     default: ""
+  bot-name:
+    description: "Name for git commits"
+    required: false
+    default: "rokctbot[bot]"
+  bot-email:
+    description: "Email for git commits"
+    required: false
+    default: "2956274+rokctbot[bot]@users.noreply.github.com"
 
 runs:
   using: "composite"
@@ -13,8 +21,8 @@ runs:
     - name: Configure Git
       shell: bash
       run: |
-        git config user.name "rokctbot[bot]"
-        git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+        git config user.name "${{ inputs.bot-name }}"
+        git config user.email "${{ inputs.bot-email }}"
         
         if [ -n "${{ inputs.token }}" ]; then
           echo "🔐 High-Authority Token detected. Configuring remote..."
