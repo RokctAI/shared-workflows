@@ -452,10 +452,10 @@ jobs:
           bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/control.git --resolve-deps --skip-assets
           
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
-          if [ -d "../monorepo_overrides/bench" ]; then
+          if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
              echo "🔥 Re-Applying Bench Overrides (Safety)..."
              BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
-             cp -r "../monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+             cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
           fi
           # --------------------------------------------------------
 
@@ -476,8 +476,8 @@ jobs:
           # We move the Checked Out Monorepo to 'frappe-bench/monorepo_overrides'
           # This allows 'control/install_stack.py' to find and apply dynamic app overrides during installation.
           echo "🔥 Staging Monorepo Overrides for Install Stack..."
-          if [ -d "../monorepo_overrides" ]; then
-             cp -r "../monorepo_overrides" "monorepo_overrides"
+          if [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
+             cp -r "$GITHUB_WORKSPACE/monorepo_overrides" "monorepo_overrides"
              echo "   ✅ Staged 'monorepo_overrides' into bench directory."
           else
              echo "⚠️ Monorepo overrides directory not found."
