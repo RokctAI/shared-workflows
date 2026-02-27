@@ -428,6 +428,8 @@ jobs:
         if: success() && github.repository_owner == 'RokctAI' && inputs.bootstrap == true
         working-directory: frappe-bench
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
@@ -436,16 +438,6 @@ jobs:
           # 0. Map Platform Host (Prevents Cleanup/Seeder 404 errors)
           echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
           
-          # 1. Setup SSH for private Control app
-          # Note: Expects SSH_PRIVATE_KEY secret to be available
-          if [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-             mkdir -p ~/.ssh
-             echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-             chmod 600 ~/.ssh/id_rsa
-             ssh-keyscan github.com >> ~/.ssh/known_hosts
-             echo "SSH key configured for private repos."
-          fi
-          
           # 3. Install ERPNext (Standard Dependency)
           echo "Installing ERPNext (latest)..."
           bench get-app erpnext --branch develop --resolve-deps --skip-assets
@@ -453,7 +445,7 @@ jobs:
           # 4. Install Control (The Installer)
           echo "Installing Control Panel via HTTPS (Token-based)..."
           # We use x-access-token for reliable fetching of RokctAI private repos in CI
-          bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/control.git --resolve-deps --skip-assets
+          bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
           
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
           if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
@@ -468,17 +460,6 @@ jobs:
           ORIG_SITE=${ORIG_SITE:-test_site}
           
           SITE_NAME="platform.rokct.ai"
-          echo "Ensuring apps are in global apps.txt..."
-          # Note: rcore and payments are handled by the 'control' installer stack
-          for app in erpnext control $APP_NAME; do
-            touch sites/apps.txt
-            # Ensure file ends with a newline to avoid concatenating app names
-            sed -i -e '$a\' sites/apps.txt
-            if ! grep -q "^$app$" sites/apps.txt; then
-              echo "$app" >> sites/apps.txt
-            fi
-          done
-
           echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
           mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
           
@@ -494,18 +475,13 @@ jobs:
           if [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
              cp -r "$GITHUB_WORKSPACE/monorepo_overrides" "monorepo_overrides"
              echo "   ✅ Staged 'monorepo_overrides' into bench directory."
-          else
-             echo "⚠️ Monorepo overrides directory not found."
           fi
           # ----------------------------------
           
           # Installation Trigger
-          # We install erpnext and control. control's hooks will then fetch and install rcore/payments/etc.
-          if [ "$APP_NAME" = "control" ] || [ "$APP_NAME" = "erpnext" ]; then
-             bench --site $SITE_NAME install-app erpnext control
-          else
-             bench --site $SITE_NAME install-app erpnext control $APP_NAME
-          fi
+          # We install erpnext and control. control's hooks (install_stack.py) will then fetch and install rcore/payments/etc.
+          # install_stack.py also handles registration in apps.txt robustly.
+          bench --site $SITE_NAME install-app erpnext control
           
           # 5. Verify Installation
           echo "Verifying platform bundle..."
