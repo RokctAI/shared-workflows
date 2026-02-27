@@ -245,10 +245,18 @@ jobs:
           fi
           
           echo "Syncing workspace code into apps/$TARGET_DIR..."
-          # Source is the root of the checkout (which is at .. from frappe-bench)
-          # We exclude the bench itself and the monorepo overrides to avoid loops
-          sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' ../ ./apps/$TARGET_DIR/
-          echo "✅ Workspace code successfully synced."
+          # Source is the GITHUB_WORKSPACE root
+          # We use a trailing slash to copy contents, and ensure absolute path resolution
+          sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
+          
+          echo "Verifying sync results in apps/$TARGET_DIR/:"
+          ls -la "apps/$TARGET_DIR/" || true
+          
+          if [ ! -f "apps/$TARGET_DIR/setup.py" ] && [ ! -f "apps/$TARGET_DIR/pyproject.toml" ]; then
+             echo "⚠️ WARNING: No setup.py or pyproject.toml found in synced app directory!"
+          else
+             echo "✅ Workspace code successfully synced and verified."
+          fi
 
       - name: Install App & Run Tests
         working-directory: frappe-bench
