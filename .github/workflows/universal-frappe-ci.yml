@@ -446,17 +446,13 @@ jobs:
              echo "SSH key configured for private repos."
           fi
           
-          # 2. Install rcore (Base Dependency)
-          echo "Installing rcore (latest)..."
-          bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/rcore.git --resolve-deps --skip-assets
-
-          # 3. Install ERPNext
+          # 3. Install ERPNext (Standard Dependency)
           echo "Installing ERPNext (latest)..."
           bench get-app erpnext --branch develop --resolve-deps --skip-assets
           
-          # 4. Install Control (Private)
-          echo "Installing Control Panel via HTTPS..."
-          # Using HTTPS with token for reliable fetching in CI
+          # 4. Install Control (The Installer)
+          echo "Installing Control Panel via HTTPS (Token-based)..."
+          # We use x-access-token for reliable fetching of RokctAI private repos in CI
           bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/control.git --resolve-deps --skip-assets
           
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
@@ -472,6 +468,13 @@ jobs:
           ORIG_SITE=${ORIG_SITE:-test_site}
           
           SITE_NAME="platform.rokct.ai"
+          echo "Ensuring apps are in global apps.txt..."
+          for app in payments rcore erpnext control $APP_NAME; do
+            if ! grep -q "^$app$" sites/apps.txt; then
+              echo "$app" >> sites/apps.txt
+            fi
+          done
+
           echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
           mv "sites/$ORIG_SITE" "sites/$SITE_NAME"
           
@@ -492,7 +495,7 @@ jobs:
           fi
           # ----------------------------------
           
-          bench --site $SITE_NAME install-app $APP_NAME rcore erpnext control
+          bench --site $SITE_NAME install-app $APP_NAME payments rcore erpnext control
           
           # 5. Verify Installation
           echo "Verifying platform bundle..."
