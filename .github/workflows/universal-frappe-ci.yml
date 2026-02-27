@@ -229,6 +229,27 @@ jobs:
              sudo chown -R $USER:$USER /home/frappe/frappe-bench
           fi
 
+      - name: Sync Workspace Code to Bootstrap Bench 🔄
+        if: inputs.bootstrap == true
+        working-directory: frappe-bench
+        run: |
+          # Detect actual app name again or use repo name
+          APP_NAME="${{ github.event.repository.name }}"
+          APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+          
+          # We need to find which directory to replace. install.sh usually uses lowercase
+          if [ -d "apps/$APP_NAME_LOWER" ]; then
+             TARGET_DIR="$APP_NAME_LOWER"
+          else
+             TARGET_DIR="$APP_NAME"
+          fi
+          
+          echo "Syncing workspace code into apps/$TARGET_DIR..."
+          # Source is the root of the checkout (which is at .. from frappe-bench)
+          # We exclude the bench itself and the monorepo overrides to avoid loops
+          sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' ../ ./apps/$TARGET_DIR/
+          echo "✅ Workspace code successfully synced."
+
       - name: Install App & Run Tests
         working-directory: frappe-bench
         run: |
