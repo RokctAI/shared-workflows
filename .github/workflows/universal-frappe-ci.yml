@@ -206,7 +206,28 @@ jobs:
       - name: Install App & Run Tests
         working-directory: frappe-bench
         run: |
-          # Standard Environment Activation
+          # 2. Setup Global Git Config for Private Repos (HTTPS + Token)
+          # This ensures that even nested dependencies (bench get-app) use the token
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
+          echo "✅ Global Git config updated for authenticated HTTPS fetching."
+
+          # 3. Manual Redis Startup (Bypassing Supervisor failures in CI)
+          echo "Starting Redis instances manually..."
+          sudo redis-server --port 11000 --daemonize yes # Queue
+          sudo redis-server --port 12000 --daemonize yes # Socketio
+          sudo redis-server --port 13000 --daemonize yes # Cache
+          
+          # Wait for Redis to be ready
+          for port in 11000 12000 13000; do
+             while ! nc -z localhost $port; do
+                echo "Waiting for Redis on $port..."
+                sleep 1
+             done
+             echo "Redis is up on $port"
+          done
+
+          # 4. Standard Environment Activation
           if [ -f "env/bin/activate" ]; then
              source env/bin/activate
           fi
@@ -351,8 +372,16 @@ jobs:
           echo "Updated apps.txt:"
           cat sites/apps.txt
 
+          # Ensure standard initialization log is clean
+          true > test_output.log
+          
+          # Sync DocTypes before testing (Prevents DoesNotExistError)
+          echo "Syncing DocTypes via Migration..."
+          bench --site $SITE_NAME migrate
+          
           # Install App & Run Tests
-          # Use tee to capture stdout/stderr for annotation processing
+          # Use pipefail to ensure tee doesn't mask test failures
+          set -o pipefail
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              bench --site $SITE_NAME install-app $APP_NAME
           fi
