@@ -154,6 +154,32 @@ jobs:
           path: monorepo_overrides
           token: ${{ steps.app-token.outputs.token || github.token }}
 
+      - name: Setup CI Identity & Services 🔐⚙️
+        run: |
+          # 1. Setup Global Git Config for Private Repos (HTTPS + Token)
+          # This ensures that even nested dependencies (bench get-app) in install.sh use the token
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
+          echo "✅ Global Git config updated for authenticated HTTPS fetching."
+
+          # 2. Manual Redis Startup (Bypassing Supervisor failures in CI)
+          echo "Starting Redis instances manually..."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq redis-server
+          sudo redis-server --port 11000 --daemonize yes # Queue
+          sudo redis-server --port 12000 --daemonize yes # Socketio
+          sudo redis-server --port 13000 --daemonize yes # Cache
+          
+          # Wait for Redis to be ready
+          for port in 11000 12000 13000; do
+             while ! nc -z localhost $port; do
+                echo "Waiting for Redis on $port..."
+                sleep 1
+             done
+             echo "Redis is up on $port"
+          done
+          echo "✅ Redis instances ready (Ports: 11000, 12000, 13000)."
+
       - name: Install Frappe Bench (Manual)
         if: inputs.bootstrap == false
         run: |
@@ -206,28 +232,7 @@ jobs:
       - name: Install App & Run Tests
         working-directory: frappe-bench
         run: |
-          # 2. Setup Global Git Config for Private Repos (HTTPS + Token)
-          # This ensures that even nested dependencies (bench get-app) use the token
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
-          echo "✅ Global Git config updated for authenticated HTTPS fetching."
-
-          # 3. Manual Redis Startup (Bypassing Supervisor failures in CI)
-          echo "Starting Redis instances manually..."
-          sudo redis-server --port 11000 --daemonize yes # Queue
-          sudo redis-server --port 12000 --daemonize yes # Socketio
-          sudo redis-server --port 13000 --daemonize yes # Cache
-          
-          # Wait for Redis to be ready
-          for port in 11000 12000 13000; do
-             while ! nc -z localhost $port; do
-                echo "Waiting for Redis on $port..."
-                sleep 1
-             done
-             echo "Redis is up on $port"
-          done
-
-          # 4. Standard Environment Activation
+          # 1. Standard Environment Activation
           if [ -f "env/bin/activate" ]; then
              source env/bin/activate
           fi
@@ -390,7 +395,7 @@ jobs:
 
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
-        if: github.repository_owner == 'RokctAI' && inputs.bootstrap == true
+        if: success() && github.repository_owner == 'RokctAI' && inputs.bootstrap == true
         working-directory: frappe-bench
         shell: bash
         run: |
