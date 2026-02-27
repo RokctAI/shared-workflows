@@ -433,6 +433,9 @@ jobs:
 
           echo "Registry detected as RokctAI. Triggering extended platform integration..."
           
+          # 0. Map Platform Host (Prevents Cleanup/Seeder 404 errors)
+          echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
+          
           # 1. Setup SSH for private Control app
           # Note: Expects SSH_PRIVATE_KEY secret to be available
           if [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
@@ -443,11 +446,15 @@ jobs:
              echo "SSH key configured for private repos."
           fi
           
-          # 2. Install ERPNext
+          # 2. Install rcore (Base Dependency)
+          echo "Installing rcore (latest)..."
+          bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/rcore.git --resolve-deps --skip-assets
+
+          # 3. Install ERPNext
           echo "Installing ERPNext (latest)..."
           bench get-app erpnext --branch develop --resolve-deps --skip-assets
           
-          # 3. Install Control (Private)
+          # 4. Install Control (Private)
           echo "Installing Control Panel via HTTPS..."
           # Using HTTPS with token for reliable fetching in CI
           bench get-app https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/RokctAI/control.git --resolve-deps --skip-assets
@@ -485,7 +492,7 @@ jobs:
           fi
           # ----------------------------------
           
-          bench --site $SITE_NAME install-app erpnext control
+          bench --site $SITE_NAME install-app $APP_NAME rcore erpnext control
           
           # 5. Verify Installation
           echo "Verifying platform bundle..."
