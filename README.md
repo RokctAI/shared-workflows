@@ -215,6 +215,34 @@ We highly recommend setting up a Groq API key to ensure your release notes alway
 
 ---
 
+## 🔐 GitHub App Setup for CI
+
+To maintain a high standard of quality across the fleet, our shared workflows require a **GitHub App** for authentication. This applies whether you are forking a repository or setting up a new repository (like `rpanel`, `paas`, etc.) to use these workflows.
+
+### 🧪 1. Create a GitHub App
+1.  Go to your account settings > Developer settings > GitHub Apps > **New GitHub App**.
+2.  **Name**: Something descriptive (e.g., `RokctAI-CI-Automator`).
+3.  **Permissions**: Give it `Repository permissions`:
+    *   `Contents`: Read & Write
+    *   `Pull Requests`: Read & Write
+    *   `Issues`: Read & Write (Metadata: Read)
+    *   `Workflows`: Read & Write
+4.  **Install the App**: Once created, click **Install App** in the sidebar and install it on all relevant repositories in your account/organization.
+
+### 🔑 2. Configure Action Secrets
+1.  **App ID**: Found on the App settings page.
+2.  **Private Key**: Click **Generate a private key** and download the `.pem` file.
+3.  **Add Secrets**: Go to your repository settings (**Secrets and variables** > **Actions**) and add these as **Repository** or **Organization** secrets:
+    *   `APP_ID`: Your App ID.
+    *   `APP_PRIVATE_KEY`: The full text content of your `.pem` file.
+
+Once configured, the shared workflows will automatically have the necessary identity to perform linting, testing, and release tagging across all your fleet repositories.
+
+> [!NOTE]
+> Certain enterprise features (private integrations) are internal to RokctAI and will be gracefully skipped if the corresponding secrets or repositories are inaccessible.
+
+---
+
 ## 🛠️ Architecture
 
 *   **`universal-pipeline.yml`**: The Orchestrator. Chains Security, Lint, CI, and Release.
