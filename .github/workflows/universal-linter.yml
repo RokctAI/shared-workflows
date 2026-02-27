@@ -95,7 +95,7 @@ jobs:
         run: rm -rf .github/shared-workflows
 
       - name: Commit & Push Changes
-        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.app-token.outputs.token != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
