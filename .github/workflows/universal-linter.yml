@@ -76,6 +76,8 @@ jobs:
         continue-on-error: true # Fallback to GITHUB_TOKEN if App not configured
 
       - name: Run Standardizer Engine
+        env:
+          BOT_NAME: ${{ github.repository_owner == 'RokctAI' && 'rokctbot' || github.repository_owner }}
         run: python3 ${{ env.ENGINE_PATH }}
 
       - name: Setup Identity (Local)
