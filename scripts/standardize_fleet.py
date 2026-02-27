@@ -50,22 +50,25 @@ def fix_workflow_inputs(content):
 def fix_merge_workflow(content):
     if '# rokct-ignore' in content: return content
     
-    # Ensure rokctbot and rokctbot[bot] are in the allowed_users list
-    # Use a safe regex that handles various quoting and spacing
+    # Get bot name from env or default to rokctbot
+    # This allows external devs to use their own app name
+    main_bot = os.environ.get('BOT_NAME', 'rokctbot')
+    bot_variants = [main_bot, f"{main_bot}[bot]"]
+    
+    # Ensure bots are in the allowed_users list
     match = re.search(r'allowed_users:\s*[\'"](.*?)[\'"]', content)
     if match:
         raw_allowed = match.group(1)
         allowed = [u.strip() for u in raw_allowed.split(',')]
         
         needs_update = False
-        for bot in ['rokctbot', 'rokctbot[bot]']:
+        for bot in bot_variants:
             if bot not in allowed:
                 allowed.append(bot)
                 needs_update = True
         
         if needs_update:
             new_allowed = ", ".join(allowed)
-            # Replace precisely the allowed_users line
             content = content.replace(match.group(0), f"allowed_users: '{new_allowed}'")
             
     return content
