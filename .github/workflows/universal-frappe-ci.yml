@@ -443,9 +443,17 @@ jobs:
           bench get-app erpnext --branch develop --resolve-deps --skip-assets
           
           # 4. Install Control (The Installer)
-          echo "Installing Control Panel via HTTPS (Token-based)..."
-          # We use x-access-token for reliable fetching of RokctAI private repos in CI
-          bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
+          if [ -d "$GITHUB_WORKSPACE/control" ]; then
+             echo "🔥 Using LOCAL Control Panel from workspace..."
+             # We copy it into apps/control manually to ensure OUR fixes (recursion, transactions) are used
+             mkdir -p apps/control
+             cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
+             # Ensure registration
+             bench pip install -e apps/control
+          else
+             echo "Installing Control Panel via HTTPS (Token-based)..."
+             bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
+          fi
           
           # --- BENCH RE-PATCH (Safety against install.sh usage) ---
           if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
@@ -456,30 +464,39 @@ jobs:
           # --------------------------------------------------------
 
           # 4. Integrate into site
+          # Extract site name from sites folder
           ORIG_SITE=$(ls sites | grep .local | head -n 1)
           ORIG_SITE=${ORIG_SITE:-test_site}
           
           SITE_NAME="platform.rokct.ai"
-          echo "Moving $ORIG_SITE to $SITE_NAME for Production Readiness..."
+          echo "Moving $ORIG_SITE to $SITE_NAME..."
           mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
           
           # Update current site txt
           echo "$SITE_NAME" > sites/currentsite.txt
           
-          echo "Integrating into site: $SITE_NAME"
-          
           # --- MONOREPO OVERRIDES STAGING ---
-          # We move the Checked Out Monorepo to 'frappe-bench/monorepo_overrides'
-          # This allows 'control/install_stack.py' to find and apply dynamic app overrides during installation.
+          # We stage the Monorepo so that install_stack.py can find local versions of apps (rcore, etc.)
           echo "🔥 Staging Monorepo Overrides for Install Stack..."
-          if [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
-             cp -r "$GITHUB_WORKSPACE/monorepo_overrides" "monorepo_overrides"
-             echo "   ✅ Staged 'monorepo_overrides' into bench directory."
+          if [ -d "$GITHUB_WORKSPACE" ]; then
+             # Create a symlink or copy to 'monorepo_overrides' at bench root
+             # install_stack.py looks for 'monorepo_overrides' in BENCH_PATH
+             mkdir -p monorepo_overrides
+             # We copy essential apps that we want to override from workspace
+             for app in rcore paas paas_customer paas_driver paas_manager paas_pos paas_webapp IoT brain control; do
+                if [ -d "$GITHUB_WORKSPACE/$app" ]; then
+                   echo "   - Overriding $app"
+                   cp -r "$GITHUB_WORKSPACE/$app" "monorepo_overrides/"
+                fi
+             done
+             echo "   ✅ Staged local apps into 'monorepo_overrides'."
           fi
           # ----------------------------------
           
+          echo "Integrating into site: $SITE_NAME"
+          
           # Installation Trigger
-          # We install erpnext and control. control's hooks (install_stack.py) will then fetch and install rcore/payments/etc.
+          # we install control. control's hooks (install_stack.py) will then fetch/override and install rcore/payments/etc.
           # install_stack.py also handles registration in apps.txt robustly.
           bench --site $SITE_NAME install-app erpnext control
           
