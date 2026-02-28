@@ -780,11 +780,7 @@ jobs:
                     SUFFIX="-dev-$HASH"
                 elif [[ "$REF_NAME" == "main" ]]; then
                     MODE="rc" # Push to Main
-                    # Calculate RC Suffix (e.g., -rc4) based on existing tags
-                    VER="${{ steps.version.outputs.version }}"
-                    EXISTING=$(git tag -l "v${VER}-rc*" | wc -l)
-                    NEXT_RC=$((EXISTING + 1))
-                    SUFFIX="-rc${NEXT_RC}"
+                    SUFFIX="-rc" # Simple static suffix for the target version
                 elif [[ "$REF_NAME" == build_* ]]; then
                     MODE="client"
                     # Extract client from branch name (e.g. build_clientname-custom-tag -> clientname)
@@ -1545,6 +1541,34 @@ jobs:
                   echo "⚠️ gh release create failed (might be immutable). Attempting upload fallback..."
                   gh release upload "$TAG" "${FILES[@]}" --clobber || echo "❌ Fallback upload also failed."
                 }
+           fi
+
+      - name: Rolling RC Cleanup (Static Single Tag)
+        if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'true'
+        env:
+           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+           VERSION="${{ steps.version.outputs.version }}"
+           CURRENT_TAG="${{ env.TAG_NAME }}"
+           echo "🧹 Rolling Cleanup for RC v$VERSION..."
+           
+           # Get all RC tags for this current version
+           ALL_RC_TAGS=$(git tag -l "v${VERSION}-rc*")
+           
+           # Filter out the one we just created
+           TAGS_TO_PRUNE=$(echo "$ALL_RC_TAGS" | grep -v "^$CURRENT_TAG$" || true)
+           
+           if [[ -n "$TAGS_TO_PRUNE" ]]; then
+              echo "Pruning other RCs for this version..."
+              for TAG in $TAGS_TO_PRUNE; do
+                 echo "   Deleting $TAG..."
+                 gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+                 git push origin --delete "$TAG" 2>/dev/null || true
+                 git tag -d "$TAG" 2>/dev/null || true
+              done
+              echo "✅ Rolling cleanup complete. Only $CURRENT_TAG remains."
+           else
+              echo "⏭️ No other RCs found. Repository is clean."
            fi
 
       - name: Post-Release RC Cleanup
