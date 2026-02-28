@@ -123,6 +123,7 @@ jobs:
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
+      force-fix: ${{ github.ref_name == 'main' || github.ref_name == 'develop' }}
     secrets: inherit
 
   # 3. CI / BUILD (Project Specific Jobs)
