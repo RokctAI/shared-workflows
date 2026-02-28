@@ -22,6 +22,11 @@ on:
         type: string
         default: ''
         description: "Specific Flutter version to use (e.g. '3.24.5')"
+      force-fix:
+        required: false
+        type: boolean
+        default: false
+        description: "Force auto-fix and commit even on PR/Push (used for daily cleanup and stable releases)"
     secrets:
       COUNTER_API_KEY:
         required: false
@@ -29,6 +34,10 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 
 jobs:
   standardize:
@@ -78,16 +87,21 @@ jobs:
       - name: Run Standardizer Engine
         env:
           BOT_NAME: ${{ github.repository_owner == 'RokctAI' && 'rokctbot' || github.repository_owner }}
-        run: python3 ${{ env.ENGINE_PATH }}
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" || "${{ inputs.force-fix }}" == "true" ]]; then
+            python3 ${{ env.ENGINE_PATH }}
+          else
+            python3 ${{ env.ENGINE_PATH }} --check
+          fi
 
       - name: Setup Identity (Local)
-        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
-        if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -97,7 +111,7 @@ jobs:
         run: rm -rf .github/shared-workflows
 
       - name: Commit & Push Changes
-        if: always() && steps.app-token.outputs.token != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.app-token.outputs.token != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -306,7 +320,7 @@ jobs:
         shell: bash
 
       - name: Commit Auto-fixes
-        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -336,11 +350,22 @@ jobs:
                 echo "✅ Maintenance PR opened. Status set to Success to keep CI green."
                 exit 0
             else
-                echo "❌ Failed to push branch for PR."
+                echo "❌ Failed to push branch for PR. Please check App permissions."
                 exit 1
             fi
           else
             echo "No changes to commit."
+          fi
+
+      - name: Verify Python Formatting
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.force-fix != true
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            echo "❌ Python code is NOT formatted correctly. Please run autopep8 locally."
+            git status -s
+            exit 1
+          else
+            echo "✅ Python code is properly formatted."
           fi
 
   lint-shell:
@@ -410,13 +435,13 @@ jobs:
           fi
 
       - name: Setup Identity (Local)
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -427,7 +452,7 @@ jobs:
         shell: bash
 
       - name: Commit Auto-fixes
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -457,6 +482,17 @@ jobs:
                 echo "❌ Failed to push branch for PR."
                 exit 1
             fi
+          fi
+
+      - name: Verify Shell Formatting
+        if: (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.force-fix != true
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            echo "❌ Shell scripts are NOT formatted correctly. Please run shfmt locally."
+            git status -s
+            exit 1
+          else
+            echo "✅ Shell scripts are properly formatted."
           fi
 
   lint-powershell:
@@ -494,7 +530,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         uses: actions/create-github-app-token@v1
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -538,13 +574,13 @@ jobs:
           }
 
       - name: Setup Identity (Local)
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -555,7 +591,7 @@ jobs:
         shell: bash
 
       - name: Commit Auto-fixes
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -586,6 +622,18 @@ jobs:
                 exit 1
             fi
           fi
+
+      - name: Verify PowerShell Formatting
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          if ($(git status -s).Length -gt 0) {
+              Write-Error "❌ PowerShell scripts are NOT formatted correctly. Please run Invoke-Formatter locally."
+              git status -s
+              exit 1
+          } else {
+              Write-Host "✅ PowerShell scripts are properly formatted."
+          }
 
   lint-flutter:
     needs: telemetry
@@ -623,7 +671,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         uses: actions/create-github-app-token@v1
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -688,13 +736,13 @@ jobs:
           gh issue create --title "🚨 CI: Flutter Analysis Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists."
 
       - name: Setup Identity (Local)
-        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
-        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -705,7 +753,7 @@ jobs:
         shell: bash
 
       - name: Commit Auto-fixes
-        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -783,7 +831,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         uses: actions/create-github-app-token@v1
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -851,13 +899,13 @@ jobs:
           fi
 
       - name: Setup Identity (Local)
-        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
+        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
-        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'false'
+        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -868,7 +916,7 @@ jobs:
         shell: bash
 
       - name: Commit Auto-fixes
-        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
