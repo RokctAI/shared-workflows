@@ -8,11 +8,12 @@ def fix_workflow_permissions(content):
     # In open-source context, write-all is the most compatible way to 
     # request all permissions enabled in the repository settings.
     if 'permissions:' not in content:
-        perms_block = 'permissions: write-all\n'
-        if 'concurrency:' in content:
-            content = re.sub(r'(concurrency:.*?\n)', r'\1' + perms_block, content, flags=re.DOTALL)
-        else:
+        perms_block = '\npermissions: write-all\n'
+        # Insert after the name: line at the top to be safe
+        if 'name:' in content:
             content = re.sub(r'^(name:.*?\n)', r'\1' + perms_block, content)
+        else:
+            content = perms_block + content
     elif 'permissions: write-all' not in content:
         # If there's already a complex block, we don't force write-all to avoid breaking custom setups
         pass
