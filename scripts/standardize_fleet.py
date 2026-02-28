@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 
 def fix_workflow_permissions(content):
     if '# rokct-ignore' in content: return content
@@ -17,6 +18,27 @@ def fix_workflow_permissions(content):
     elif 'permissions: write-all' not in content:
         # If there's already a complex block, we don't force write-all to avoid breaking custom setups
         pass
+    return content
+
+def fix_workflow_triggers(content, file_name):
+    if '# rokct-ignore' in content: return content
+    
+    # We want to ensure linter.yml has schedule and workflow_dispatch
+    if file_name == "linter.yml":
+        if 'schedule:' not in content or 'workflow_dispatch:' not in content:
+            # Case 1: Short [push, pull_request] format
+            if re.search(r'on:\s*\[.*?\]', content):
+                content = re.sub(r'on:\s*\[(.*?)\]', r'on:\n  push:\n  pull_request:\n  schedule:\n    - cron: "0 0 * * *"\n  workflow_dispatch:', content)
+            elif 'on:' in content:
+                # Case 2: Structured 'on:' - add missing ones once
+                new_triggers = ""
+                if 'workflow_dispatch:' not in content:
+                    new_triggers += "  workflow_dispatch:\n"
+                if 'schedule:' not in content:
+                    new_triggers += "  schedule:\n    - cron: \"0 0 * * *\"\n"
+                
+                if new_triggers:
+                    content = re.sub(r'(on:.*?\n)', r'\1' + new_triggers, content)
     return content
 
 def fix_workflow_inputs(content):
@@ -74,7 +96,7 @@ def fix_merge_workflow(content):
             
     return content
 
-def fix_dependabot(path):
+def fix_dependabot(path, check_only=False):
     if not os.path.exists(path): return False
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -82,17 +104,21 @@ def fix_dependabot(path):
     if '# rokct-ignore' in content: return False
     
     # Only standardise if it's explicitly weekly or daily and lacks a keep flag
-    # Pattern looks for interval followed by weekly/daily, ensuring it's not already monthly
-    # and doesn't have a comment like # rokct-keep on the same line
     new_content = re.sub(r'interval:\s*["\']?(weekly|daily)["\']?\s*(?!# rokct-keep)', 'interval: "monthly"', content)
     if new_content != content:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        if not check_only:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
         return True
     return False
 
-def sync_submodules():
+def sync_submodules(check_only=False):
     if os.path.exists('.gitmodules'):
+        if check_only:
+            # In check mode we just see if submodules are out of sync without updating
+            # This is complex to do accurately without network, so we skip check for now
+            return False
+
         with open('.gitmodules', 'r') as f:
             modules = f.read()
             
@@ -106,13 +132,14 @@ def sync_submodules():
     return False
 
 def main():
+    check_only = "--check" in sys.argv
     changed = False
     
     # Fix Workflows
     workflow_dir = ".github/workflows"
     if os.path.exists(workflow_dir):
         # Scan for standard and custom workflows
-        for file in ["build.yml", "release.yml", "merge.yml"]:
+        for file in ["build.yml", "release.yml", "merge.yml", "linter.yml"]:
             path = os.path.join(workflow_dir, file)
             if os.path.exists(path):
                 with open(path, 'r', encoding='utf-8') as f:
@@ -120,27 +147,41 @@ def main():
                 
                 new_content = fix_workflow_permissions(content)
                 new_content = fix_workflow_inputs(new_content)
+                new_content = fix_workflow_triggers(new_content, file)
                 
                 if file == "merge.yml":
                     new_content = fix_merge_workflow(new_content)
                 
                 if new_content != content:
-                    with open(path, 'w', encoding='utf-8') as f:
-                        f.write(new_content)
-                    print(f"✅ Updated {path}")
+                    if not check_only:
+                        with open(path, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                        print(f"✅ Updated {path}")
+                    else:
+                        print(f"⚠️ {path} needs standardization")
                     changed = True
 
     # Fix Dependabot
-    if fix_dependabot(".github/dependabot.yml"):
-        print("✅ Updated .github/dependabot.yml")
+    if fix_dependabot(".github/dependabot.yml", check_only):
+        if not check_only:
+            print("✅ Updated .github/dependabot.yml")
+        else:
+            print("⚠️ .github/dependabot.yml needs standardization")
         changed = True
 
     # Sync Submodules
-    if sync_submodules():
-        print("✅ Submodules synced")
+    if sync_submodules(check_only):
+        if not check_only:
+            print("✅ Submodules synced")
         changed = True
 
-    if not changed:
+    if changed:
+        if check_only:
+            print("❌ Repository is NOT standardized.")
+            sys.exit(1)
+        else:
+            print("🛠️ Repository standardization complete.")
+    else:
         print("🙌 Repository is already standardized.")
 
 if __name__ == "__main__":
