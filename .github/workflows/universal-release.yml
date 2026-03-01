@@ -1419,8 +1419,8 @@ jobs:
             fi
 
             # --- TIER 2: GROQ AI FALLBACK ---
-            if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
-               echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
+             if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
+                echo "☁️ Calling Groq AI Fallback..."
                
                # System Prompt for Groq - Enforcing human-readable logical feature summaries
                SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log and code diff. 
@@ -1445,11 +1445,11 @@ jobs:
                - Use bullet points.
                - Group related commits into a SINGLE bullet point describing the logical change, not one bullet per file.
                - Include PR/Issue references if they appear in the log (e.g. #123).
-                - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'.
+                - Keep it concise and professional.
+                - Do NOT include any introductory text, disclaimers, or notes about methodology.
                 - ALWAYS preserve the commit links in the log (format: [hash](link)).
                 - Use the CODE DIFF to understand what ACTUALLY changed. Commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth."
                
-               # --- TIER 2A: 8B Model with full diff (131K TPM) ---
                # Full diff with per-file cap (new files can be huge)
                git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | awk '
                  /^diff --git/ { file_lines=0 }
@@ -1471,83 +1471,87 @@ jobs:
                  cat /tmp/diff_full.txt
                } > /tmp/groq_user.txt
                
-               GROQ_PAYLOAD=$(jq -n \
-                 --arg model "llama-3.1-8b-instant" \
+               # --- TIER 2A: groq/compound (70K TPM) with full diff ---
+               echo "  🧪 Trying groq/compound (70K TPM)..."
+               jq -n \
+                 --arg model "groq/compound" \
                  --arg system "$SYSTEM_PROMPT" \
                  --rawfile user /tmp/groq_user.txt \
-                 '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
-               echo "$GROQ_PAYLOAD" > /tmp/groq_payload.json
+                 '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
+                 > /tmp/groq_payload.json
                  
-               echo "  8B payload size: $(wc -c < /tmp/groq_payload.json) bytes"
+               echo "  Payload size: $(wc -c < /tmp/groq_payload.json) bytes"
                
-               GROQ_RESPONSE=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
+               GROQ_RESPONSE=$(curl -s -m 90 "https://api.groq.com/openai/v1/chat/completions" \
                  -H "Content-Type: application/json" \
                  -H "Authorization: Bearer $GROQ_API" \
                  -d @/tmp/groq_payload.json || echo "Groq Failed")
                  
                if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
-                  GROQ_ERROR=$(echo "$GROQ_RESPONSE" | jq -r '.error.type // empty')
                   MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content // empty')
+                  GROQ_ERROR=$(echo "$GROQ_RESPONSE" | jq -r '.error.type // empty')
                   
                   if [[ ! -z "$MSG" ]] && [[ "$MSG" != "null" ]]; then
-                     echo "✅ 8B model succeeded."
+                     echo "✅ groq/compound succeeded."
                      echo "## 🚀 Release $TAG" > changelog.txt
                      echo "" >> changelog.txt
                      echo "$MSG" >> changelog.txt
                      AI_SUCCESS=true
-                  elif [[ "$GROQ_ERROR" == "tokens" ]] || [[ "$GROQ_RESPONSE" == *"rate_limit"* ]]; then
-                     # --- TIER 2B: 70B Model with compact diff (12K TPM) ---
-                     echo "⚠️ 8B token limit hit. Escalating to 70B with compact diff..."
-                     git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -100 > /tmp/diff_compact.txt || echo "" > /tmp/diff_compact.txt
-                     echo "  Compact diff size: $(wc -c < /tmp/diff_compact.txt) bytes"
-                     
-                     # Build compact user message (cap commit log to 50 lines for token budget)
-                     {
-                       echo "Repository: ${{ github.repository }}"
-                       echo "Version: $TAG"
-                       echo ""
-                       echo "Commit Log:"
-                       echo "$LOG" | head -50
-                       echo ""
-                       echo "Code Diff (changes only):"
-                       cat /tmp/diff_compact.txt
-                     } > /tmp/groq_user_70b.txt
-                     echo "  70B user message size: $(wc -c < /tmp/groq_user_70b.txt) bytes"
-                     
-                     GROQ_PAYLOAD_70B=$(jq -n \
-                       --arg model "llama-3.3-70b-versatile" \
-                       --arg system "$SYSTEM_PROMPT" \
-                       --rawfile user /tmp/groq_user_70b.txt \
-                       '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
-                     echo "$GROQ_PAYLOAD_70B" > /tmp/groq_payload_70b.json
-                     echo "  70B payload size: $(wc -c < /tmp/groq_payload_70b.json) bytes"
-                     
-                     GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
-                       -H "Content-Type: application/json" \
-                       -H "Authorization: Bearer $GROQ_API" \
-                       -d @/tmp/groq_payload_70b.json || echo "Groq Failed")
-                     
-                     if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
-                        MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
-                        if [[ ! -z "$MSG_70B" ]] && [[ "$MSG_70B" != "null" ]]; then
-                           echo "✅ 70B model succeeded."
-                           echo "## 🚀 Release $TAG" > changelog.txt
-                           echo "" >> changelog.txt
-                           echo "$MSG_70B" >> changelog.txt
-                           AI_SUCCESS=true
-                        else
-                           echo "⚠️ 70B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
-                        fi
+                  fi
+               fi
+               
+               # --- TIER 2B: 70B fallback with compact diff (12K TPM) ---
+               if [ "$AI_SUCCESS" = false ]; then
+                  echo "  ⚠️ Compound failed. Escalating to 70B with compact diff..."
+                  [[ ! -z "$GROQ_RESPONSE" ]] && echo "  Response: ${GROQ_RESPONSE:0:300}"
+                  
+                  git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
+                  
+                  # Build compact user message (cap commit log for token budget)
+                  {
+                    echo "Repository: ${{ github.repository }}"
+                    echo "Version: $TAG"
+                    echo ""
+                    echo "Commit Log:"
+                    echo "$LOG" | head -50 2>/dev/null
+                    echo ""
+                    echo "Code Diff (changes only):"
+                    cat /tmp/diff_compact.txt
+                  } > /tmp/groq_user_70b.txt
+                  echo "  70B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
+                  
+                  jq -n \
+                    --arg model "llama-3.3-70b-versatile" \
+                    --arg system "$SYSTEM_PROMPT" \
+                    --rawfile user /tmp/groq_user_70b.txt \
+                    '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
+                    > /tmp/groq_payload_70b.json
+                  
+                  GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
+                    -H "Content-Type: application/json" \
+                    -H "Authorization: Bearer $GROQ_API" \
+                    -d @/tmp/groq_payload_70b.json || echo "Groq Failed")
+                  
+                  if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
+                     MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
+                     if [[ ! -z "$MSG_70B" ]] && [[ "$MSG_70B" != "null" ]]; then
+                        echo "✅ 70B model succeeded."
+                        echo "## 🚀 Release $TAG" > changelog.txt
+                        echo "" >> changelog.txt
+                        echo "$MSG_70B" >> changelog.txt
+                        AI_SUCCESS=true
                      else
-                        echo "⚠️ 70B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
+                        echo "⚠️ 70B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                      fi
+                  else
+                     echo "⚠️ 70B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                   fi
                fi
                
                if [ "$AI_SUCCESS" = false ]; then
                   echo "⚠️ Groq AI Failed (all tiers exhausted)."
                fi
-            fi
+             fi
 
             # --- TIER 3: DENOISED GIT LOG FALLBACK ---
             if [ "$AI_SUCCESS" = false ]; then
