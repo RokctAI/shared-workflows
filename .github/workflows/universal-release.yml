@@ -1492,6 +1492,21 @@ jobs:
 
             echo "changelog_path=changelog.txt" >> $GITHUB_OUTPUT
 
+      - name: Pre-emptive RC Purge
+        if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'true'
+        env:
+           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+           TAG="${{ env.TAG_NAME }}"
+           echo "🧹 Pre-emptive Purge for static tag $TAG..."
+           # Delete existing release object if it exists (prevents drafts)
+           gh release delete "$TAG" --yes 2>/dev/null || true
+           # Delete existing remote tag
+           git push origin --delete "$TAG" 2>/dev/null || true
+           # Delete existing local tag
+           git tag -d "$TAG" 2>/dev/null || true
+           echo "✅ Environment cleaned for fresh $TAG."
+
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         env:
@@ -1559,12 +1574,13 @@ jobs:
            TAGS_TO_PRUNE=$(echo "$ALL_RC_TAGS" | grep -v "^$CURRENT_TAG$" || true)
            
            if [[ -n "$TAGS_TO_PRUNE" ]]; then
-              echo "Pruning other RCs for this version..."
+              echo "Pruning older RCs for this version..."
               for TAG in $TAGS_TO_PRUNE; do
                  echo "   Deleting $TAG..."
+                 # Release deletion with --cleanup-tag removes both object and tag
                  gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+                 # Force remote deletion to be absolutely sure
                  git push origin --delete "$TAG" 2>/dev/null || true
-                 git tag -d "$TAG" 2>/dev/null || true
               done
               echo "✅ Rolling cleanup complete. Only $CURRENT_TAG remains."
            else
