@@ -1451,26 +1451,39 @@ jobs:
                
                # --- TIER 2A: 8B Model with full diff (131K TPM) ---
                # Full diff with per-file cap (new files can be huge)
-               DIFF_FULL=$(git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | awk '
+               git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | awk '
                  /^diff --git/ { file_lines=0 }
                  { file_lines++; if (file_lines <= 200) print }
                  file_lines == 200 { print "... (truncated, file too large)" }
-               ' || echo "")
+               ' > /tmp/diff_full.txt 2>/dev/null || echo "" > /tmp/diff_full.txt
                
-               echo "  Full diff size: $(echo "$DIFF_FULL" | wc -c) bytes"
+               echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
+               
+               # Build user message via temp file to avoid shell argument limits
+               {
+                 echo "Repository: ${{ github.repository }}"
+                 echo "Version: $TAG"
+                 echo ""
+                 echo "Commit Log:"
+                 echo "$LOG"
+                 echo ""
+                 echo "Code Diff:"
+                 cat /tmp/diff_full.txt
+               } > /tmp/groq_user.txt
                
                GROQ_PAYLOAD=$(jq -n \
                  --arg model "llama-3.1-8b-instant" \
                  --arg system "$SYSTEM_PROMPT" \
-                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nCode Diff:\n$DIFF_FULL" \
+                 --rawfile user /tmp/groq_user.txt \
                  '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+               echo "$GROQ_PAYLOAD" > /tmp/groq_payload.json
                  
-               echo "  8B payload size: $(echo "$GROQ_PAYLOAD" | wc -c) bytes"
+               echo "  8B payload size: $(wc -c < /tmp/groq_payload.json) bytes"
                
                GROQ_RESPONSE=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
                  -H "Content-Type: application/json" \
                  -H "Authorization: Bearer $GROQ_API" \
-                 -d "$GROQ_PAYLOAD" || echo "Groq Failed")
+                 -d @/tmp/groq_payload.json || echo "Groq Failed")
                  
                if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
                   GROQ_ERROR=$(echo "$GROQ_RESPONSE" | jq -r '.error.type // empty')
@@ -1485,19 +1498,32 @@ jobs:
                   elif [[ "$GROQ_ERROR" == "tokens" ]] || [[ "$GROQ_RESPONSE" == *"rate_limit"* ]]; then
                      # --- TIER 2B: 70B Model with compact diff (12K TPM) ---
                      echo "⚠️ 8B token limit hit. Escalating to 70B with compact diff..."
-                     DIFF_COMPACT=$(git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -300 || echo "")
-                     echo "  Compact diff size: $(echo "$DIFF_COMPACT" | wc -c) bytes"
+                     git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -300 > /tmp/diff_compact.txt || echo "" > /tmp/diff_compact.txt
+                     echo "  Compact diff size: $(wc -c < /tmp/diff_compact.txt) bytes"
+                     
+                     # Build compact user message
+                     {
+                       echo "Repository: ${{ github.repository }}"
+                       echo "Version: $TAG"
+                       echo ""
+                       echo "Commit Log:"
+                       echo "$LOG"
+                       echo ""
+                       echo "Code Diff (changes only, no context):"
+                       cat /tmp/diff_compact.txt
+                     } > /tmp/groq_user_70b.txt
                      
                      GROQ_PAYLOAD_70B=$(jq -n \
                        --arg model "llama-3.3-70b-versatile" \
                        --arg system "$SYSTEM_PROMPT" \
-                       --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nCode Diff (changes only, no context):\n$DIFF_COMPACT" \
+                       --rawfile user /tmp/groq_user_70b.txt \
                        '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                     echo "$GROQ_PAYLOAD_70B" > /tmp/groq_payload_70b.json
                      
                      GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
                        -H "Content-Type: application/json" \
                        -H "Authorization: Bearer $GROQ_API" \
-                       -d "$GROQ_PAYLOAD_70B" || echo "Groq Failed")
+                       -d @/tmp/groq_payload_70b.json || echo "Groq Failed")
                      
                      if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
                         MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
