@@ -1498,20 +1498,21 @@ jobs:
                   elif [[ "$GROQ_ERROR" == "tokens" ]] || [[ "$GROQ_RESPONSE" == *"rate_limit"* ]]; then
                      # --- TIER 2B: 70B Model with compact diff (12K TPM) ---
                      echo "⚠️ 8B token limit hit. Escalating to 70B with compact diff..."
-                     git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -300 > /tmp/diff_compact.txt || echo "" > /tmp/diff_compact.txt
+                     git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -100 > /tmp/diff_compact.txt || echo "" > /tmp/diff_compact.txt
                      echo "  Compact diff size: $(wc -c < /tmp/diff_compact.txt) bytes"
                      
-                     # Build compact user message
+                     # Build compact user message (cap commit log to 50 lines for token budget)
                      {
                        echo "Repository: ${{ github.repository }}"
                        echo "Version: $TAG"
                        echo ""
                        echo "Commit Log:"
-                       echo "$LOG"
+                       echo "$LOG" | head -50
                        echo ""
-                       echo "Code Diff (changes only, no context):"
+                       echo "Code Diff (changes only):"
                        cat /tmp/diff_compact.txt
                      } > /tmp/groq_user_70b.txt
+                     echo "  70B user message size: $(wc -c < /tmp/groq_user_70b.txt) bytes"
                      
                      GROQ_PAYLOAD_70B=$(jq -n \
                        --arg model "llama-3.3-70b-versatile" \
@@ -1519,6 +1520,7 @@ jobs:
                        --rawfile user /tmp/groq_user_70b.txt \
                        '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
                      echo "$GROQ_PAYLOAD_70B" > /tmp/groq_payload_70b.json
+                     echo "  70B payload size: $(wc -c < /tmp/groq_payload_70b.json) bytes"
                      
                      GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
                        -H "Content-Type: application/json" \
@@ -1533,15 +1535,17 @@ jobs:
                            echo "" >> changelog.txt
                            echo "$MSG_70B" >> changelog.txt
                            AI_SUCCESS=true
+                        else
+                           echo "⚠️ 70B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                         fi
+                     else
+                        echo "⚠️ 70B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                      fi
                   fi
                fi
                
                if [ "$AI_SUCCESS" = false ]; then
-                  echo "⚠️ Groq AI Failed. Debug info:"
-                  echo "  Payload size: $(echo "$GROQ_PAYLOAD" | wc -c) bytes"
-                  echo "  Response: ${GROQ_RESPONSE:0:500}"
+                  echo "⚠️ Groq AI Failed (all tiers exhausted)."
                fi
             fi
 
