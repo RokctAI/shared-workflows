@@ -1373,7 +1373,7 @@ jobs:
            GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
-           PREV_TAG=$(git tag --sort=-v:refname | grep -v "$TAG" | head -n 1 || true)
+           PREV_TAG=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | grep -v "$TAG" | head -n 1 || true)
            
            echo "## 🚀 Release $TAG" > changelog.txt
            
