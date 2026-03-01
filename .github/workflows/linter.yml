@@ -7,6 +7,12 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
   schedule:
     - cron: "0 0 * * *"
   push:
