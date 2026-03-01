@@ -1513,7 +1513,7 @@ jobs:
                     echo "Version: $TAG"
                     echo ""
                     echo "Commit Log:"
-                    echo "$LOG" | head -50 2>/dev/null
+                    (echo "$LOG" | head -50) 2>/dev/null
                     echo ""
                     echo "Code Diff (changes only):"
                     cat /tmp/diff_compact.txt
