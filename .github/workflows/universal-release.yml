@@ -847,15 +847,15 @@ jobs:
                 fi
              done
              
-             # Format for Changelog (Normalize bots to @github-actions, except dependabot)
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like rokctbot)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
              
              echo "authors=$UNIQUE_AUTHORS" >> $GITHUB_OUTPUT
              echo "reviewers=$UNIQUE_REVIEWERS" >> $GITHUB_OUTPUT
              
              # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokctbot)(\[bot\])?$/github-actions/' | while read user; do
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | while read user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
              
@@ -1432,8 +1432,15 @@ jobs:
                STYLE RULES:
                - Focus on high-level LOGICAL changes and human-readable features.
                - Descriptions should be detailed and explain the 'what' and 'why'.
-               - DO NOT mention specific file names, file paths, or internal implementation details (e.g. 'Updated universal-linter.yml') unless they are part of a major public API change.
+               - ABSOLUTELY DO NOT mention specific file names, file paths, or internal implementation details. This is the #1 most important rule.
+                 BAD: 'Fixed authentication issues with updates to auth.py'
+                 BAD: 'Added new tests for test_strategic_objective.py, test_pillar.py'
+                 BAD: 'Improved build process with updates to build.yml'
+                 GOOD: 'Fixed a Redis cache key serialization issue in the login flow that prevented successful authentication in headless environments'
+                 GOOD: 'Added comprehensive test coverage for strategic planning, KPI tracking, and wallet lending features'
+                 GOOD: 'Streamlined CI/CD pipeline for faster and more reliable release builds'
                - Use bullet points.
+               - Group related commits into a SINGLE bullet point describing the logical change, not one bullet per file.
                - Include PR/Issue references if they appear in the log (e.g. #123).
                 - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'.
                 - ALWAYS preserve the commit links in the log (format: [hash](link))."
