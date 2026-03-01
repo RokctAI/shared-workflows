@@ -1381,12 +1381,9 @@ jobs:
             if [ -z "$PREV_TAG" ]; then
                LOG="Initial Release"
                DIFF_STAT="Initial Release"
-               DIFF_CONTEXT=""
             else
                 LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
-                # Capture diff summary and truncated code diff for AI context
                 DIFF_STAT=$(git diff "$PREV_TAG"..HEAD --stat -- . ":!.rokct" 2>/dev/null || echo "No diff stats available")
-                DIFF_CONTEXT=$(git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | head -100 || echo "")
             fi
             
              AI_SUCCESS=false
@@ -1425,8 +1422,8 @@ jobs:
             if [ "$AI_SUCCESS" = false ] && [ ! -z "$GROQ_API" ]; then
                echo "☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
                
-               # System Prompt for Groq (Tier 2) - Enforcing human-readable logical feature summaries
-               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. 
+               # System Prompt for Groq - Enforcing human-readable logical feature summaries
+               SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log and code diff. 
                
                CATEGORIZATION RULES:
                Use exactly these headers if relevant:
@@ -1450,26 +1447,68 @@ jobs:
                - Include PR/Issue references if they appear in the log (e.g. #123).
                 - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'.
                 - ALWAYS preserve the commit links in the log (format: [hash](link)).
-                - You are provided with a CODE DIFF below the commit log. Use it to understand WHAT actually changed. The commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth for describing changes."
+                - Use the CODE DIFF to understand what ACTUALLY changed. Commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth."
+               
+               # --- TIER 2A: 8B Model with full diff (131K TPM) ---
+               # Full diff with per-file cap (new files can be huge)
+               DIFF_FULL=$(git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | awk '
+                 /^diff --git/ { file_lines=0 }
+                 { file_lines++; if (file_lines <= 200) print }
+                 file_lines == 200 { print "... (truncated, file too large)" }
+               ' || echo "")
+               
+               echo "  Full diff size: $(echo "$DIFF_FULL" | wc -c) bytes"
                
                GROQ_PAYLOAD=$(jq -n \
-                 --arg model "llama-3.3-70b-versatile" \
+                 --arg model "llama-3.1-8b-instant" \
                  --arg system "$SYSTEM_PROMPT" \
-                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nDiff Summary:\n$DIFF_STAT\n\nCode Diff (truncated):\n$DIFF_CONTEXT" \
+                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nCode Diff:\n$DIFF_FULL" \
                  '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
                  
+               echo "  8B payload size: $(echo "$GROQ_PAYLOAD" | wc -c) bytes"
+               
                GROQ_RESPONSE=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
                  -H "Content-Type: application/json" \
                  -H "Authorization: Bearer $GROQ_API" \
                  -d "$GROQ_PAYLOAD" || echo "Groq Failed")
                  
                if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
-                  MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content' || echo "Groq Error")
-                  if [[ "$MSG" != "Groq Error" ]] && [[ "$MSG" != "null" ]]; then
+                  GROQ_ERROR=$(echo "$GROQ_RESPONSE" | jq -r '.error.type // empty')
+                  MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content // empty')
+                  
+                  if [[ ! -z "$MSG" ]] && [[ "$MSG" != "null" ]]; then
+                     echo "✅ 8B model succeeded."
                      echo "## 🚀 Release $TAG" > changelog.txt
                      echo "" >> changelog.txt
                      echo "$MSG" >> changelog.txt
                      AI_SUCCESS=true
+                  elif [[ "$GROQ_ERROR" == "tokens" ]] || [[ "$GROQ_RESPONSE" == *"rate_limit"* ]]; then
+                     # --- TIER 2B: 70B Model with compact diff (12K TPM) ---
+                     echo "⚠️ 8B token limit hit. Escalating to 70B with compact diff..."
+                     DIFF_COMPACT=$(git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -300 || echo "")
+                     echo "  Compact diff size: $(echo "$DIFF_COMPACT" | wc -c) bytes"
+                     
+                     GROQ_PAYLOAD_70B=$(jq -n \
+                       --arg model "llama-3.3-70b-versatile" \
+                       --arg system "$SYSTEM_PROMPT" \
+                       --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nCode Diff (changes only, no context):\n$DIFF_COMPACT" \
+                       '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                     
+                     GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
+                       -H "Content-Type: application/json" \
+                       -H "Authorization: Bearer $GROQ_API" \
+                       -d "$GROQ_PAYLOAD_70B" || echo "Groq Failed")
+                     
+                     if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
+                        MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
+                        if [[ ! -z "$MSG_70B" ]] && [[ "$MSG_70B" != "null" ]]; then
+                           echo "✅ 70B model succeeded."
+                           echo "## 🚀 Release $TAG" > changelog.txt
+                           echo "" >> changelog.txt
+                           echo "$MSG_70B" >> changelog.txt
+                           AI_SUCCESS=true
+                        fi
+                     fi
                   fi
                fi
                
