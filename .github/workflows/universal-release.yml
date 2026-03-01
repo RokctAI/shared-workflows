@@ -1377,24 +1377,30 @@ jobs:
            
            echo "## 🚀 Release $TAG" > changelog.txt
            
-           # Capture Log
-           if [ -z "$PREV_TAG" ]; then
-              LOG="Initial Release"
-           else
-               LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
-           fi
-           
-            AI_SUCCESS=false
+            # Capture Log
+            if [ -z "$PREV_TAG" ]; then
+               LOG="Initial Release"
+               DIFF_STAT="Initial Release"
+               DIFF_CONTEXT=""
+            else
+                LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
+                # Capture diff summary and truncated code diff for AI context
+                DIFF_STAT=$(git diff "$PREV_TAG"..HEAD --stat -- . ":!.rokct" 2>/dev/null || echo "No diff stats available")
+                DIFF_CONTEXT=$(git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | head -200 || echo "")
+            fi
             
-            # --- TIER 1: BRAIN API ---
-            if [ ! -z "$BRAIN_ENDPOINT" ] && [ ! -z "$BRAIN_TOKEN" ]; then
-               echo "🧠 Calling Brain Writer API..."
-               
-               JSON_PAYLOAD=$(jq -n \
-                --arg repo "${{ github.server_url }}/${{ github.repository }}" \
-                --arg ver "$TAG" \
-                --arg log "$LOG" \
-                '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+             AI_SUCCESS=false
+             
+             # --- TIER 1: BRAIN API ---
+             if [ ! -z "$BRAIN_ENDPOINT" ] && [ ! -z "$BRAIN_TOKEN" ]; then
+                echo "🧠 Calling Brain Writer API..."
+                
+                JSON_PAYLOAD=$(jq -n \
+                 --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+                 --arg ver "$TAG" \
+                 --arg log "$LOG" \
+                 --arg diff "$DIFF_STAT" \
+                 '{repo_url: $repo, version_name: $ver, commit_log: $log, diff_summary: $diff}')
                
                RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
                
@@ -1443,12 +1449,13 @@ jobs:
                - Group related commits into a SINGLE bullet point describing the logical change, not one bullet per file.
                - Include PR/Issue references if they appear in the log (e.g. #123).
                 - Keep it concise and professional. Do not include introductory text like 'Here are the release notes'.
-                - ALWAYS preserve the commit links in the log (format: [hash](link))."
+                - ALWAYS preserve the commit links in the log (format: [hash](link)).
+                - You are provided with a CODE DIFF below the commit log. Use it to understand WHAT actually changed. The commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth for describing changes."
                
                GROQ_PAYLOAD=$(jq -n \
                  --arg model "llama-3.3-70b-versatile" \
                  --arg system "$SYSTEM_PROMPT" \
-                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG" \
+                 --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG\n\nDiff Summary:\n$DIFF_STAT\n\nCode Diff (truncated):\n$DIFF_CONTEXT" \
                  '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
                  
                GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" \
