@@ -286,8 +286,8 @@ jobs:
 
           # Install ERPNext if requested
           if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
-             echo "Installing ERPNext..."
-             bench get-app erpnext --resolve-deps --skip-assets
+             echo "Installing ERPNext (version-16)..."
+             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
           fi
 
           # Configure git to use GitHub token for private repos
@@ -439,8 +439,8 @@ jobs:
           echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
           
           # 3. Install ERPNext (Standard Dependency)
-          echo "Installing ERPNext (latest)..."
-          bench get-app erpnext --branch develop --resolve-deps --skip-assets
+          echo "Installing ERPNext (version-16)..."
+          bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
           
           # 4. Install Control (The Installer)
           if [ -d "$GITHUB_WORKSPACE/control" ]; then
