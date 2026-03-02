@@ -20,7 +20,7 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 *   **🧹 Maintenance Bots**: Auto-merge Dependabot, Stale issue closer, PR Assignee, Labeler, and more.
 *   **⚡ Dynamic Source Rename**: Transparently rebrands Android source paths (e.g., `com.example` -> `com.juvo.runner`) on the fly for client builds, based on an explicit `app-type` input.
 *   **🤫 Silent Transformation**: Perfroms all renames and package updates without exposing original vendor names in the CI logs.
-*   **🧠 AI Release Notes**: Professional, logical change summaries using Brain API or Groq AI (Llama 3.3 70B), with denoised logs and clickable commit links.
+*   **🧠 AI Release Notes**: Diff-aware release notes using Brain API or Groq AI (`groq/compound` → `llama-3.3-70b`), reading actual code changes to produce professional feature summaries — not file name lists.
 *   **⏳ Historical Backfill**: Ability to retrospectively regenerate AI release notes for all past stable releases via a single workflow input (`backfill_ai_notes_cutoff_version`).
 
 ---
@@ -193,10 +193,18 @@ If you have a repository with many historical releases that lack professional AI
 
 ## ⚡ AI Tiering & Groq API Setup
 
-To ensure high-quality release notes without depending on a central server, we implement a **Tiered AI Strategy**:
+To ensure high-quality release notes without depending on a central server, we implement a **Tiered AI Strategy** with **diff-aware generation** — the AI reads actual code changes, not just commit messages:
+
 1.  **Tier 1 (Brain)**: Primary internal API (High Precision).
-2.  **Tier 2 (Groq)**: Fallback using Llama 3.3 70B (High Speed/Privacy).
-3.  **Tier 3 (Git Log)**: Last resort denoised commit logs.
+2.  **Tier 2A (Groq Compound)**: `groq/compound` with full code diff (70K TPM).
+3.  **Tier 2B (Groq 70B)**: Fallback `llama-3.3-70b-versatile` with compact diff (12K TPM).
+4.  **Tier 3 (Git Log)**: Last resort denoised commit logs.
+
+### Before & After
+
+| Before (File names only) | After (AI + Code Diff) |
+| :---: | :---: |
+| ![Before](./images/release_notes_before.png) | ![After](./images/release_notes_after.png) |
 
 ### **Setting up Groq (Tier 2 Fallback)**
 We highly recommend setting up a Groq API key to ensure your release notes always look professional.
