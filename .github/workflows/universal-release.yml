@@ -1451,7 +1451,13 @@ jobs:
                 - Use the CODE DIFF to understand what ACTUALLY changed. Commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth."
                
                # Full diff with per-file cap (new files can be huge)
-               git diff "$PREV_TAG"..HEAD -- . ":!.rokct" 2>/dev/null | awk '
+               # Exclude binary/image files — they add no useful context for AI
+               git diff "$PREV_TAG"..HEAD -- . ":!.rokct" \
+                 ":!*.png" ":!*.jpg" ":!*.jpeg" ":!*.gif" ":!*.ico" ":!*.webp" ":!*.bmp" \
+                 ":!*.svg" ":!*.woff" ":!*.woff2" ":!*.ttf" ":!*.eot" ":!*.otf" \
+                 ":!*.pdf" ":!*.zip" ":!*.tar.gz" ":!*.jks" ":!*.keystore" \
+                 ":!*.lock" ":!package-lock.json" ":!yarn.lock" ":!pnpm-lock.yaml" \
+                 2>/dev/null | awk '
                  /^diff --git/ { file_lines=0 }
                  { file_lines++; if (file_lines <= 200) print }
                  file_lines == 200 { print "... (truncated, file too large)" }
@@ -1505,7 +1511,12 @@ jobs:
                   echo "  ⚠️ Compound failed. Escalating to 70B with compact diff..."
                   [[ ! -z "$GROQ_RESPONSE" ]] && echo "  Response: ${GROQ_RESPONSE:0:300}"
                   
-                  git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" 2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
+                  git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" \
+                    ":!*.png" ":!*.jpg" ":!*.jpeg" ":!*.gif" ":!*.ico" ":!*.webp" ":!*.bmp" \
+                    ":!*.svg" ":!*.woff" ":!*.woff2" ":!*.ttf" ":!*.eot" ":!*.otf" \
+                    ":!*.pdf" ":!*.zip" ":!*.tar.gz" ":!*.jks" ":!*.keystore" \
+                    ":!*.lock" ":!package-lock.json" ":!yarn.lock" ":!pnpm-lock.yaml" \
+                    2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
                   
                   # Build compact user message (cap commit log for token budget)
                   {
