@@ -96,6 +96,40 @@ def fix_merge_workflow(content):
             
     return content
 
+def fix_release_strategy(workflow_dir):
+    """Ensure release_strategy is aligned between build.yml and release.yml.
+    release.yml is the canonical source. If both exist and differ, align build.yml to release.yml.
+    If only build.yml exists, enforce 'weekly' as the fleet default."""
+    build_path = os.path.join(workflow_dir, "build.yml")
+    release_path = os.path.join(workflow_dir, "release.yml")
+
+    if not os.path.exists(build_path):
+        return None  # Nothing to fix
+
+    with open(build_path, 'r', encoding='utf-8') as f:
+        build_content = f.read()
+
+    if '# rokct-ignore' in build_content:
+        return None
+
+    # Determine the canonical strategy
+    canonical = 'weekly'  # Fleet default
+    if os.path.exists(release_path):
+        with open(release_path, 'r', encoding='utf-8') as f:
+            release_content = f.read()
+        match = re.search(r"release_strategy:\s*['\"]?(\w+)['\"]?", release_content)
+        if match:
+            canonical = match.group(1)
+
+    # Check build.yml's current strategy
+    match = re.search(r"release_strategy:\s*['\"]?(\w+)['\"]?", build_content)
+    if match and match.group(1) != canonical:
+        new_content = build_content.replace(match.group(0), f"release_strategy: '{canonical}'")
+        return new_content
+
+    return None
+
+
 def fix_dependabot(path, check_only=False):
     if not os.path.exists(path): return False
     with open(path, 'r', encoding='utf-8') as f:
@@ -160,6 +194,18 @@ def main():
                     else:
                         print(f"⚠️ {path} needs standardization")
                     changed = True
+
+        # Align release_strategy between build.yml and release.yml
+        updated_build = fix_release_strategy(workflow_dir)
+        if updated_build is not None:
+            build_path = os.path.join(workflow_dir, "build.yml")
+            if not check_only:
+                with open(build_path, 'w', encoding='utf-8') as f:
+                    f.write(updated_build)
+                print(f"✅ Aligned release_strategy in build.yml")
+            else:
+                print(f"⚠️ build.yml release_strategy is misaligned")
+            changed = True
 
     # Fix Dependabot
     if fix_dependabot(".github/dependabot.yml", check_only):
