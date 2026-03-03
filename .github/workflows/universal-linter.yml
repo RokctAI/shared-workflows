@@ -360,6 +360,7 @@ jobs:
       - name: Verify Python Formatting
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.force-fix != true
         run: |
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
           if [[ -n $(git status -s) ]]; then
             echo "❌ Python code is NOT formatted correctly. Please run autopep8 locally."
             git status -s

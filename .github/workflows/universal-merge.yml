@@ -33,6 +33,8 @@ jobs:
         run: |
           AUTHOR="${{ github.event.pull_request.user.login }}"
           ALLOWED="${{ inputs.allowed_users }}"
+          # Strip spaces around commas for reliable matching
+          ALLOWED=$(echo "$ALLOWED" | sed 's/ *, */,/g')
           if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
             echo "User $AUTHOR is authorized."
             echo "authorized=true" >> $GITHUB_OUTPUT
@@ -40,6 +42,8 @@ jobs:
             echo "User $AUTHOR is NOT authorized."
             echo "authorized=false" >> $GITHUB_OUTPUT
           fi
+
+      - uses: actions/checkout@v4
 
       - name: Check Critical Files
         id: check_files
