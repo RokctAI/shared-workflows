@@ -86,7 +86,7 @@ jobs:
       run_ci: ${{ needs.detect.outputs.type != 'none' }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
       # Deployment Configuration (Immediate release on Main)
-      release_strategy: 'immediate'
+      release_strategy: 'weekly'
       build_android: true
       # Environment configuration
       node-version: ${{ inputs.node-version }}
