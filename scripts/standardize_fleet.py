@@ -129,6 +129,34 @@ def fix_release_strategy(workflow_dir):
 
     return None
 
+def fix_release_push_dedup(workflow_dir):
+    """When both build.yml and release.yml exist, remove push triggers from release.yml.
+    build.yml handles pushes (CI on every commit). release.yml handles weekly cron + manual dispatch.
+    Having push in both causes duplicate CI runs."""
+    build_path = os.path.join(workflow_dir, "build.yml")
+    release_path = os.path.join(workflow_dir, "release.yml")
+
+    if not os.path.exists(build_path) or not os.path.exists(release_path):
+        return None
+
+    with open(release_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    if '# rokct-ignore' in content:
+        return None
+
+    # Remove push: branches: [main, develop] block from release.yml
+    # Match the push block with its branches sub-key
+    new_content = re.sub(
+        r'\n\s*push:\s*\n\s*branches:\s*\[.*?\]\s*\n',
+        '\n',
+        content
+    )
+
+    if new_content != content:
+        return new_content
+    return None
+
 
 def fix_dependabot(path, check_only=False):
     if not os.path.exists(path): return False
@@ -205,6 +233,18 @@ def main():
                 print(f"✅ Aligned release_strategy in build.yml")
             else:
                 print(f"⚠️ build.yml release_strategy is misaligned")
+            changed = True
+
+        # Remove push triggers from release.yml when build.yml exists
+        updated_release = fix_release_push_dedup(workflow_dir)
+        if updated_release is not None:
+            release_path = os.path.join(workflow_dir, "release.yml")
+            if not check_only:
+                with open(release_path, 'w', encoding='utf-8') as f:
+                    f.write(updated_release)
+                print(f"✅ Removed push trigger from release.yml (build.yml handles pushes)")
+            else:
+                print(f"⚠️ release.yml has duplicate push trigger")
             changed = True
 
     # Fix Dependabot
