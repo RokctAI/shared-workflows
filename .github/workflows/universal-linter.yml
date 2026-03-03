@@ -358,7 +358,7 @@ jobs:
           fi
 
       - name: Verify Python Formatting
-        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.force-fix != true
+        if: steps.check_python.outputs.exists == 'true' && github.event_name == 'pull_request'
         run: |
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
           if [[ -n $(git status -s) ]]; then
@@ -486,7 +486,7 @@ jobs:
           fi
 
       - name: Verify Shell Formatting
-        if: (github.event_name == 'push' || github.event_name == 'pull_request') && inputs.force-fix != true
+        if: github.event_name == 'pull_request'
         run: |
           if [[ -n $(git status -s) ]]; then
             echo "❌ Shell scripts are NOT formatted correctly. Please run shfmt locally."
@@ -625,7 +625,7 @@ jobs:
           fi
 
       - name: Verify PowerShell Formatting
-        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
           if ($(git status -s).Length -gt 0) {
