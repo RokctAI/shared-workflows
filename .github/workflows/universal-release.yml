@@ -1009,11 +1009,18 @@ jobs:
             # Compare against calculated TARGET
             # Use --diff-filter=ACMRT to EXCLUDE Deleted files (D) to prevent zip warnings
             # Filter out .env/ and .github/ folders
-            if git diff --name-only --diff-filter=ACMRT "$PREV_TAG".."$TARGET" | grep -vE '^(\.env\/|\.github\/)' > changed_files.txt; then
-               # Check if file has content
-               if [ -s changed_files.txt ]; then
-                  zip -r update_package.zip -@ < changed_files.txt
-                  echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
+            # Also exclude whitespace-only changes (from auto-fix PRs)
+            git diff --name-only --diff-filter=ACMRT "$PREV_TAG".."$TARGET" | grep -vE '^(\.env\/|\.github\/)' > all_changed.txt
+            git diff -w --name-only --diff-filter=ACMRT "$PREV_TAG".."$TARGET" | grep -vE '^(\.env\/|\.github\/)' > content_changed.txt
+            # Only include files with actual content changes (not just whitespace)
+            if [ -s content_changed.txt ]; then
+               comm -12 <(sort all_changed.txt) <(sort content_changed.txt) > changed_files.txt
+            else
+               cp all_changed.txt changed_files.txt
+            fi
+            if [ -s changed_files.txt ]; then
+               zip -r update_package.zip -@ < changed_files.txt
+               echo "zip_path=update_package.zip" >> $GITHUB_OUTPUT
                else
                   echo "No files changed."
                fi
