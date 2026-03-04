@@ -493,6 +493,15 @@ jobs:
           fi
           # ----------------------------------
           
+          # Apply monorepo overrides for control BEFORE install-app runs.
+          # control is excluded from install_stack's app loop, and its after_install
+          # (seeders) needs files from monorepo to already be in place.
+          if [ -d "monorepo_overrides/control" ]; then
+             echo "🔥 Applying Monorepo Overrides for Control (Pre-Install)..."
+             cp -rf monorepo_overrides/control/. apps/control/
+             echo "   ✅ Control overrides applied."
+          fi
+          
           echo "Integrating into site: $SITE_NAME"
           
           # Installation Trigger
