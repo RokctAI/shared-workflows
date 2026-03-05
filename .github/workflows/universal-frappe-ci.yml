@@ -434,194 +434,20 @@ jobs:
         run: |
           echo "Registry detected as RokctAI. Triggering Native Ecosystem Compilation..."
           
-          # --- COPIED SETUP STEPS (Native Initialization) ---
+          # Download and execute the Golden Build Script
+          wget -qO build_ecosystem.sh https://raw.githubusercontent.com/RokctAI/shared-workflows/main/scripts/build_ecosystem.sh
+          chmod +x build_ecosystem.sh
           
-          # RokctAI: Start Database Service
-          echo "RokctAI: Start Database Service"
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-            if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-               echo "Starting MariaDB..."
-               docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
-               timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
-            else
-               echo "Starting PostgreSQL (pgvector/pgvector)..."
-               docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
-               timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
-               echo "Enabling pgextensions in template1..."
-               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
-            fi
-          else
-            echo "Bootstrap detected. Skipping Docker Database startup (install.sh will handle native setup)."
-          fi
-
-          # RokctAI: Setup CI Identity & Services (Git + Redis)
-          echo "RokctAI: Setup CI Identity & Services"
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
-          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
+          # Pass required inputs as environment variables
+          export BOOTSTRAP="${{ inputs.bootstrap }}"
+          export DB_TYPE="${{ inputs.db-type }}"
+          export DB_PW="${{ env.DB_PW }}"
+          export RUN_TESTS="true"
+          export GITHUB_TOKEN="${{ steps.app-token.outputs.token || github.token }}"
+          export INSTALL_PAYMENTS="${{ inputs.install-payments }}"
+          export INSTALL_ERPNEXT="${{ inputs.install-erpnext }}"
           
-          echo "✅ Global Git config updated."
-
-          echo "Starting Redis instances manually..."
-          sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
-          sudo redis-server --port 11000 --daemonize yes
-          sudo redis-server --port 12000 --daemonize yes
-          sudo redis-server --port 13000 --daemonize yes
-          for port in 11000 12000 13000; do
-             while ! nc -z localhost $port; do sleep 1; done
-          done
-          echo "✅ Redis instances ready."
-
-          # RokctAI: Bench Initialization / Bootstrap
-          echo "RokctAI: Bench Initialization / Bootstrap"
-          # 3. Path A: Manual Installation
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             npm install -g yarn
-             ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
-             bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
-          fi
-
-          # 4. Path B: Bootstrap Installation
-          if [ "${{ inputs.bootstrap }}" == "true" ]; then
-             npm install -g yarn
-             ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
-             
-             if [ -d "monorepo_overrides/bench" ]; then
-                echo "🔥 Applying Bench Overrides..."
-                BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
-                cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
-             fi
-
-             wget https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh
-             chmod +x install.sh
-             sudo CI=true DB_TYPE=${{ inputs.db-type }} ./install.sh
-             
-             if [ -d "/home/frappe/frappe-bench" ]; then
-                if [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ]; then rm -rf frappe-bench; fi
-                sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-                sudo chown -R $USER:$USER /home/frappe/frappe-bench
-             fi
-
-             # RokctAI: Sync Workspace Code
-             echo "RokctAI: Sync Workspace Code"
-             cd frappe-bench
-             APP_NAME_BOOTSTRAP="${{ github.event.repository.name }}"
-             APP_NAME_BOOT_LOWER=$(echo "$APP_NAME_BOOTSTRAP" | tr '[:upper:]' '[:lower:]')
-             [ -d "apps/$APP_NAME_BOOT_LOWER" ] && TARGET_DIR="$APP_NAME_BOOT_LOWER" || TARGET_DIR="$APP_NAME_BOOTSTRAP"
-             sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
-             cd ..
-          fi
-
-          # RokctAI: Install App & Run Tests
-          echo "RokctAI: Install App & Run Tests"
-          cd frappe-bench
-          if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
-          
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench set-config -g db_host 127.0.0.1
-             bench set-config -g redis_cache redis://127.0.0.1:6379
-             bench set-config -g redis_queue redis://127.0.0.1:6379
-             bench set-config -g redis_socketio redis://127.0.0.1:6379
-          fi
-
-          bench pip install setuptools
-          
-          if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench get-app payments --branch version-15 --resolve-deps --skip-assets
-          fi
-
-          if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
-          fi
-
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
-          fi
-
-          # Detect Actual App Directory & Name (Mandatory Hacks)
-          cd apps
-          # Priority 1: Match Repo Name logic
-          REPO_NAME_VAL="${{ github.event.repository.name }}"
-          APP_DIR_MATCH=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
-          
-          if [ -n "$APP_DIR_MATCH" ]; then
-              cd "$APP_DIR_MATCH"
-              if [ -f "pyproject.toml" ]; then
-                 APP_NAME_DET=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
-              elif [ -f "setup.py" ]; then
-                 APP_NAME_DET=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
-              else
-                 APP_NAME_DET="$REPO_NAME_VAL"
-              fi
-              cd ..
-          else
-              APP_NAME_DET="$REPO_NAME_VAL"
-          fi
-          cd .. # Back to bench root
-
-          # 1. Renaming Hack (Parity)
-          if [[ -n "$APP_DIR_MATCH" && "$APP_NAME_DET" != "$APP_DIR_MATCH" && -n "$APP_NAME_DET" ]]; then
-             echo "Renaming apps/$APP_DIR_MATCH to apps/$APP_NAME_DET"
-             mv "apps/$APP_DIR_MATCH" "apps/$APP_NAME_DET"
-             bench pip install -e "apps/$APP_NAME_DET"
-          fi
-
-          # 2. Generalized Module Aliasing (Nuclear Strategy)
-          # Injects frappe<appname> -> apps/<appname>/<appname> directly into site-packages
-          if [ -d "apps/$APP_NAME_DET/$APP_NAME_DET" ]; then
-             ALIAS_NAME="frappe${APP_NAME_DET}"
-             PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-             S_PACKAGES="env/lib/python${PY_VER}/site-packages"
-             
-             if [ -d "$S_PACKAGES" ]; then
-                echo "Injecting Nuclear Alias into site-packages: $S_PACKAGES/$ALIAS_NAME -> $PWD/apps/$APP_NAME_DET/$APP_NAME_DET"
-                ln -sf "$PWD/apps/$APP_NAME_DET/$APP_NAME_DET" "$S_PACKAGES/$ALIAS_NAME"
-             fi
-             
-             # Also keep the internal app-level alias for local imports consistency
-             if [ ! -d "apps/$APP_NAME_DET/$ALIAS_NAME" ]; then
-                cd apps/$APP_NAME_DET && ln -sf $APP_NAME_DET $ALIAS_NAME && cd ../..
-             fi
-          fi
-
-          # 3. Namespace Package Fix
-          echo "Ensuring __init__.py exists in app directories..."
-          find apps/$APP_NAME_DET/$APP_NAME_DET -type d | while read dir; do
-             if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
-          done
-
-          # 4. API Deprecation Patch (Non-blocking)
-          if [ -d "apps/$APP_NAME_DET" ]; then
-             echo "Patching update_site_config usage in $APP_NAME_DET..."
-             grep -r "frappe.utils.update_site_config" apps/$APP_NAME_DET | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
-          fi
-
-          # 5. Forced App Registration (Crucial for Path B/Bootstrap)
-          echo "Registering app in editable mode..."
-          bench pip install -e "apps/$APP_NAME_DET"
-
-          # Site Logic
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             SITE_NAME_FINAL="test_site"
-             if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-                bench new-site $SITE_NAME_FINAL --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
-             else
-                bench new-site $SITE_NAME_FINAL --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
-             fi
-          else
-             SITE_NAME_FINAL=$(ls sites | grep .local | head -n 1)
-             SITE_NAME_FINAL=${SITE_NAME_FINAL:-rpanel.local}
-          fi
-
-          # App Registration
-          if ! grep -q "^$APP_NAME_DET$" sites/apps.txt; then echo "$APP_NAME_DET" >> sites/apps.txt; fi
-
-          # Final Execution (Migration + Run Tests)
-          bench --site $SITE_NAME_FINAL migrate
-          set -o pipefail
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then bench --site $SITE_NAME_FINAL install-app $APP_NAME_DET; fi
-          bench --site $SITE_NAME_FINAL run-tests --app $APP_NAME_DET 2>&1 | tee test_output.log
+          ./build_ecosystem.sh
 
           # ==========================================================
           # --- EXTENDED ECOSYSTEM INTEGRATION (Original Logic) ---
