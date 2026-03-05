@@ -569,11 +569,16 @@ jobs:
 
           # 2. Generalized Module Aliasing (Fixes ModuleNotFoundError: frappe<app>)
           # Creates apps/rpanel/frapperpanel -> apps/rpanel/rpanel
+          # AND apps/frapperpanel -> apps/rpanel/rpanel
           if [ -d "apps/$APP_NAME_DET/$APP_NAME_DET" ]; then
              ALIAS_NAME="frappe${APP_NAME_DET}"
              if [ ! -d "apps/$APP_NAME_DET/$ALIAS_NAME" ]; then
-                echo "Creating alias: apps/$APP_NAME_DET/$ALIAS_NAME -> apps/$APP_NAME_DET/$APP_NAME_DET"
-                ln -s $APP_NAME_DET apps/$APP_NAME_DET/$ALIAS_NAME
+                echo "Creating internal alias: apps/$APP_NAME_DET/$ALIAS_NAME -> $APP_NAME_DET"
+                cd apps/$APP_NAME_DET && ln -sf $APP_NAME_DET $ALIAS_NAME && cd ../..
+             fi
+             if [ ! -d "apps/$ALIAS_NAME" ]; then
+                echo "Creating bench-level alias: apps/$ALIAS_NAME -> $APP_NAME_DET/$APP_NAME_DET"
+                cd apps && ln -sf $APP_NAME_DET/$APP_NAME_DET $ALIAS_NAME && cd ..
              fi
           fi
 
