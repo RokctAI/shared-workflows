@@ -434,7 +434,36 @@ jobs:
         run: |
           echo "Registry detected as RokctAI. Triggering Native Ecosystem Compilation..."
           
-          # 1. Initialize Bench
+          # --- COPIED SETUP STEPS (Native Initialization) ---
+          
+          # 1. Start Database Service (PostgreSQL)
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             echo "Starting MariaDB..."
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
+             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+          else
+             echo "Starting PostgreSQL (pgvector/pgvector)..."
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+             echo "Enabling pgextensions in template1..."
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+          fi
+
+          # 2. Setup CI Identity & Services (Git + Redis)
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
+          
+          echo "Starting Redis instances manually..."
+          sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
+          sudo redis-server --port 11000 --daemonize yes
+          sudo redis-server --port 12000 --daemonize yes
+          sudo redis-server --port 13000 --daemonize yes
+          
+          # --------------------------------------------------
+
+          # 3. Initialize Bench
           npm install -g yarn
           ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
           bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
