@@ -182,7 +182,7 @@ jobs:
           echo "✅ Redis instances ready (Ports: 11000, 12000, 13000)."
 
       - name: Install Frappe Bench (Manual)
-        if: github.repository_owner != 'RokctAI' && inputs.bootstrap == false
+        if: inputs.bootstrap == false
         run: |
           npm install -g yarn
           ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
@@ -260,7 +260,6 @@ jobs:
           fi
 
       - name: Install App & Run Tests
-        if: github.repository_owner != 'RokctAI' && inputs.bootstrap == false
         working-directory: frappe-bench
         run: |
           # 1. Standard Environment Activation
