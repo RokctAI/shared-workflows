@@ -567,18 +567,21 @@ jobs:
              bench pip install -e "apps/$APP_NAME_DET"
           fi
 
-          # 2. Generalized Module Aliasing (Fixes ModuleNotFoundError: frappe<app>)
-          # Creates apps/rpanel/frapperpanel -> apps/rpanel/rpanel
-          # AND apps/frapperpanel -> apps/rpanel/rpanel
+          # 2. Generalized Module Aliasing (Nuclear Strategy)
+          # Injects frappe<appname> -> apps/<appname>/<appname> directly into site-packages
           if [ -d "apps/$APP_NAME_DET/$APP_NAME_DET" ]; then
              ALIAS_NAME="frappe${APP_NAME_DET}"
-             if [ ! -d "apps/$APP_NAME_DET/$ALIAS_NAME" ]; then
-                echo "Creating internal alias: apps/$APP_NAME_DET/$ALIAS_NAME -> $APP_NAME_DET"
-                cd apps/$APP_NAME_DET && ln -sf $APP_NAME_DET $ALIAS_NAME && cd ../..
+             PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+             S_PACKAGES="env/lib/python${PY_VER}/site-packages"
+             
+             if [ -d "$S_PACKAGES" ]; then
+                echo "Injecting Nuclear Alias into site-packages: $S_PACKAGES/$ALIAS_NAME -> $PWD/apps/$APP_NAME_DET/$APP_NAME_DET"
+                ln -sf "$PWD/apps/$APP_NAME_DET/$APP_NAME_DET" "$S_PACKAGES/$ALIAS_NAME"
              fi
-             if [ ! -d "apps/$ALIAS_NAME" ]; then
-                echo "Creating bench-level alias: apps/$ALIAS_NAME -> $APP_NAME_DET/$APP_NAME_DET"
-                cd apps && ln -sf $APP_NAME_DET/$APP_NAME_DET $ALIAS_NAME && cd ..
+             
+             # Also keep the internal app-level alias for local imports consistency
+             if [ ! -d "apps/$APP_NAME_DET/$ALIAS_NAME" ]; then
+                cd apps/$APP_NAME_DET && ln -sf $APP_NAME_DET $ALIAS_NAME && cd ../..
              fi
           fi
 
@@ -588,11 +591,15 @@ jobs:
              if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
           done
 
-          # 4. API Deprecation Patch
+          # 4. API Deprecation Patch (Non-blocking)
           if [ -d "apps/$APP_NAME_DET" ]; then
              echo "Patching update_site_config usage in $APP_NAME_DET..."
              grep -r "frappe.utils.update_site_config" apps/$APP_NAME_DET | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
           fi
+
+          # 5. Forced App Registration (Crucial for Path B/Bootstrap)
+          echo "Registering app in editable mode..."
+          bench pip install -e "apps/$APP_NAME_DET"
 
           # Site Logic
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
