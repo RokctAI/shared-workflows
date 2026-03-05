@@ -260,7 +260,8 @@ jobs:
           fi
 
       - name: Install App & Run Tests
-        if: github.repository_owner != 'RokctAI' && (inputs.bootstrap == false || inputs.bootstrap == true) # covers both cases for community forks
+        if: github.repository_owner != 'RokctAI'
+        working-directory: frappe-bench
         run: |
           # 1. Standard Environment Activation
           if [ -f "env/bin/activate" ]; then
@@ -425,7 +426,7 @@ jobs:
 
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
-        if: success() && github.repository_owner == 'RokctAI' && inputs.bootstrap == false
+        if: success() && github.repository_owner == 'RokctAI'
         working-directory: ${{ github.workspace }}
         shell: bash
         env:
