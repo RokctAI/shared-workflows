@@ -425,7 +425,7 @@ jobs:
 
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
-        if: success() && github.repository_owner == 'RokctAI' && inputs.bootstrap == true
+        if: false # user requested: disable for now, we will remove it later when docker built
         working-directory: frappe-bench
         shell: bash
         env:
