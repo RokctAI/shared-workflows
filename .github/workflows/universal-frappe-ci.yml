@@ -436,7 +436,8 @@ jobs:
           
           # --- COPIED SETUP STEPS (Native Initialization) ---
           
-          # 1. Start Database Service (PostgreSQL)
+          # RokctAI: Start Database Service
+          echo "RokctAI: Start Database Service"
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
              docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
@@ -451,7 +452,8 @@ jobs:
              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
           fi
 
-          # 2. Setup CI Identity & Services (Git + Redis)
+          # RokctAI: Setup CI Identity & Services (Git + Redis)
+          echo "RokctAI: Setup CI Identity & Services"
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
           
@@ -467,6 +469,8 @@ jobs:
           done
           echo "✅ Redis instances ready."
 
+          # RokctAI: Bench Initialization / Bootstrap
+          echo "RokctAI: Bench Initialization / Bootstrap"
           # 3. Path A: Manual Installation
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              npm install -g yarn
@@ -495,7 +499,8 @@ jobs:
                 sudo chown -R $USER:$USER /home/frappe/frappe-bench
              fi
 
-             # Sync Workspace Code
+             # RokctAI: Sync Workspace Code
+             echo "RokctAI: Sync Workspace Code"
              cd frappe-bench
              APP_NAME_BOOTSTRAP="${{ github.event.repository.name }}"
              APP_NAME_BOOT_LOWER=$(echo "$APP_NAME_BOOTSTRAP" | tr '[:upper:]' '[:lower:]')
@@ -504,7 +509,8 @@ jobs:
              cd ..
           fi
 
-          # 5. Core Testing & App Installation
+          # RokctAI: Install App & Run Tests
+          echo "RokctAI: Install App & Run Tests"
           cd frappe-bench
           if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
           
