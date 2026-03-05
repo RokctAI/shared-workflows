@@ -586,7 +586,7 @@ jobs:
           # 4. API Deprecation Patch
           if [ -d "apps/$APP_NAME_DET" ]; then
              echo "Patching update_site_config usage in $APP_NAME_DET..."
-             grep -r "frappe.utils.update_site_config" apps/$APP_NAME_DET | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
+             grep -r "frappe.utils.update_site_config" apps/$APP_NAME_DET | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
           fi
 
           # Site Logic
