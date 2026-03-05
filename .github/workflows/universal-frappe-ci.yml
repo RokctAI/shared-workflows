@@ -182,7 +182,7 @@ jobs:
           echo "✅ Redis instances ready (Ports: 11000, 12000, 13000)."
 
       - name: Install Frappe Bench (Manual)
-        if: inputs.bootstrap == false
+        if: github.repository_owner != 'RokctAI' && inputs.bootstrap == false
         run: |
           npm install -g yarn
           ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
@@ -260,6 +260,7 @@ jobs:
           fi
 
       - name: Install App & Run Tests
+        if: github.repository_owner != 'RokctAI' && inputs.bootstrap == false
         working-directory: frappe-bench
         run: |
           # 1. Standard Environment Activation
@@ -425,20 +426,57 @@ jobs:
 
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
-        if: false # user requested: disable for now, we will remove it later when docker built
-        working-directory: frappe-bench
+        if: success() && github.repository_owner == 'RokctAI' && inputs.bootstrap == false
+        working-directory: ${{ github.workspace }}
         shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          echo "Registry detected as RokctAI. Triggering Native Ecosystem Compilation..."
+          
+          # 1. Initialize Bench
+          npm install -g yarn
+          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
+          cd frappe-bench
+          
           if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
-
-          echo "Registry detected as RokctAI. Triggering extended platform integration..."
+          
+          # 2. Configure Service Database connections
+          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+             bench set-config -g db_host 127.0.0.1
+             bench new-site platform.rokct.ai --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
+          else
+             bench set-config -g db_host 127.0.0.1
+             bench new-site platform.rokct.ai --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+          fi
+          
+          echo "platform.rokct.ai" > sites/currentsite.txt
           
           # 0. Map Platform Host (Prevents Cleanup/Seeder 404 errors)
           echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
           
-          # 3. Install ERPNext (Standard Dependency)
+          # Configure Git for Private Repos
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # 3. Natively Install the Core App (e.g. rpanel)
+          bench pip install setuptools
+          APP_REPO="${{ github.server_url }}/${{ github.repository }}"
+          echo "Fetching Native Core Repository: $APP_REPO"
+          bench get-app $APP_REPO --branch ${{ github.ref_name }} --skip-assets
+          
+          # Detect App Name (rpanel, etc.)
+          cd apps
+          APP_DIR=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" -printf "%f\n" | head -n 1)
+          cd ..
+          
+          if [ -n "$APP_DIR" ]; then
+             bench --site platform.rokct.ai install-app $APP_DIR
+             # Run unit tests
+             bench --site platform.rokct.ai run-tests --app $APP_DIR 2>&1 | tee test_output.log
+          fi
+          
+          # 4. Install ERPNext (Standard Dependency)
           echo "Installing ERPNext (version-16)..."
           bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
           
