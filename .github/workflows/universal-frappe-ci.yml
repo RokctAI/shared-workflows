@@ -438,18 +438,22 @@ jobs:
           
           # RokctAI: Start Database Service
           echo "RokctAI: Start Database Service"
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-             echo "Starting MariaDB..."
-             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
-             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+            if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+               echo "Starting MariaDB..."
+               docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
+               timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+            else
+               echo "Starting PostgreSQL (pgvector/pgvector)..."
+               docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+               timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+               echo "Enabling pgextensions in template1..."
+               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+               docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+            fi
           else
-             echo "Starting PostgreSQL (pgvector/pgvector)..."
-             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
-             timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
-             echo "Enabling pgextensions in template1..."
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+            echo "Bootstrap detected. Skipping Docker Database startup (install.sh will handle native setup)."
           fi
 
           # RokctAI: Setup CI Identity & Services (Git + Redis)
