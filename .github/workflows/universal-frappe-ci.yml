@@ -539,30 +539,77 @@ jobs:
              bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
           fi
 
-          # Detect App Name & Site
+          # Detect Actual App Directory & Name (Mandatory Hacks)
           cd apps
-          REPO_IDENTIFIER="${{ github.event.repository.name }}"
-          APP_DIR_FINAL=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
-          cd ..
+          # Priority 1: Match Repo Name logic
+          REPO_NAME_VAL="${{ github.event.repository.name }}"
+          APP_DIR_MATCH=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
           
+          if [ -n "$APP_DIR_MATCH" ]; then
+              cd "$APP_DIR_MATCH"
+              if [ -f "pyproject.toml" ]; then
+                 APP_NAME_DET=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
+              elif [ -f "setup.py" ]; then
+                 APP_NAME_DET=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+              else
+                 APP_NAME_DET="$REPO_NAME_VAL"
+              fi
+              cd ..
+          else
+              APP_NAME_DET="$REPO_NAME_VAL"
+          fi
+          cd .. # Back to bench root
+
+          # 1. Renaming Hack (Parity)
+          if [[ -n "$APP_DIR_MATCH" && "$APP_NAME_DET" != "$APP_DIR_MATCH" && -n "$APP_NAME_DET" ]]; then
+             echo "Renaming apps/$APP_DIR_MATCH to apps/$APP_NAME_DET"
+             mv "apps/$APP_DIR_MATCH" "apps/$APP_NAME_DET"
+             bench pip install -e "apps/$APP_NAME_DET"
+          fi
+
+          # 2. Generalized Module Aliasing (Fixes ModuleNotFoundError: frappe<app>)
+          # Creates apps/rpanel/frapperpanel -> apps/rpanel/rpanel
+          if [ -d "apps/$APP_NAME_DET/$APP_NAME_DET" ]; then
+             ALIAS_NAME="frappe${APP_NAME_DET}"
+             if [ ! -d "apps/$APP_NAME_DET/$ALIAS_NAME" ]; then
+                echo "Creating alias: apps/$APP_NAME_DET/$ALIAS_NAME -> apps/$APP_NAME_DET/$APP_NAME_DET"
+                ln -s $APP_NAME_DET apps/$APP_NAME_DET/$ALIAS_NAME
+             fi
+          fi
+
+          # 3. Namespace Package Fix
+          echo "Ensuring __init__.py exists in app directories..."
+          find apps/$APP_NAME_DET/$APP_NAME_DET -type d | while read dir; do
+             if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
+          done
+
+          # 4. API Deprecation Patch
+          if [ -d "apps/$APP_NAME_DET" ]; then
+             echo "Patching update_site_config usage in $APP_NAME_DET..."
+             grep -r "frappe.utils.update_site_config" apps/$APP_NAME_DET | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
+          fi
+
           # Site Logic
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              SITE_NAME_FINAL="test_site"
-             [ "${{ inputs.db-type }}" == "mariadb" ] && bench new-site $SITE_NAME_FINAL --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket || bench new-site $SITE_NAME_FINAL --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+             if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+                bench new-site $SITE_NAME_FINAL --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
+             else
+                bench new-site $SITE_NAME_FINAL --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+             fi
           else
              SITE_NAME_FINAL=$(ls sites | grep .local | head -n 1)
              SITE_NAME_FINAL=${SITE_NAME_FINAL:-rpanel.local}
           fi
 
           # App Registration
-          APP_NAME_VAL=$(ls apps | grep -vE "^(frappe|erpnext|payments)$" | head -n 1)
-          if ! grep -q "^$APP_NAME_VAL$" sites/apps.txt; then echo "$APP_NAME_VAL" >> sites/apps.txt; fi
+          if ! grep -q "^$APP_NAME_DET$" sites/apps.txt; then echo "$APP_NAME_DET" >> sites/apps.txt; fi
 
-          # Final Run
+          # Final Execution (Migration + Run Tests)
           bench --site $SITE_NAME_FINAL migrate
           set -o pipefail
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then bench --site $SITE_NAME_FINAL install-app $APP_NAME_VAL; fi
-          bench --site $SITE_NAME_FINAL run-tests --app $APP_NAME_VAL 2>&1 | tee test_output.log
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then bench --site $SITE_NAME_FINAL install-app $APP_NAME_DET; fi
+          bench --site $SITE_NAME_FINAL run-tests --app $APP_NAME_DET 2>&1 | tee test_output.log
 
           # ==========================================================
           # --- EXTENDED ECOSYSTEM INTEGRATION (Original Logic) ---
