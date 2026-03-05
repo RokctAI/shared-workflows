@@ -455,144 +455,163 @@ jobs:
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "git@github.com:"
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
           
+          echo "✅ Global Git config updated."
+
           echo "Starting Redis instances manually..."
           sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
           sudo redis-server --port 11000 --daemonize yes
           sudo redis-server --port 12000 --daemonize yes
           sudo redis-server --port 13000 --daemonize yes
-          
-          # --------------------------------------------------
+          for port in 11000 12000 13000; do
+             while ! nc -z localhost $port; do sleep 1; done
+          done
+          echo "✅ Redis instances ready."
 
-          # 3. Initialize Bench
-          npm install -g yarn
-          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
+          # 3. Path A: Manual Installation
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             npm install -g yarn
+             ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
+             bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
+          fi
+
+          # 4. Path B: Bootstrap Installation
+          if [ "${{ inputs.bootstrap }}" == "true" ]; then
+             npm install -g yarn
+             ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
+             
+             if [ -d "monorepo_overrides/bench" ]; then
+                echo "🔥 Applying Bench Overrides..."
+                BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+                cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
+             fi
+
+             wget https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh
+             chmod +x install.sh
+             sudo CI=true DB_TYPE=${{ inputs.db-type }} ./install.sh
+             
+             if [ -d "/home/frappe/frappe-bench" ]; then
+                if [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ]; then rm -rf frappe-bench; fi
+                sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
+                sudo chown -R $USER:$USER /home/frappe/frappe-bench
+             fi
+
+             # Sync Workspace Code
+             cd frappe-bench
+             APP_NAME_BOOTSTRAP="${{ github.event.repository.name }}"
+             APP_NAME_BOOT_LOWER=$(echo "$APP_NAME_BOOTSTRAP" | tr '[:upper:]' '[:lower:]')
+             [ -d "apps/$APP_NAME_BOOT_LOWER" ] && TARGET_DIR="$APP_NAME_BOOT_LOWER" || TARGET_DIR="$APP_NAME_BOOTSTRAP"
+             sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
+             cd ..
+          fi
+
+          # 5. Core Testing & App Installation
           cd frappe-bench
-          
           if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
           
-          # 2. Configure Service Database connections
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
              bench set-config -g db_host 127.0.0.1
-             bench new-site platform.rokct.ai --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
-          else
-             bench set-config -g db_host 127.0.0.1
-             bench new-site platform.rokct.ai --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+             bench set-config -g redis_cache redis://127.0.0.1:6379
+             bench set-config -g redis_queue redis://127.0.0.1:6379
+             bench set-config -g redis_socketio redis://127.0.0.1:6379
           fi
-          
-          echo "platform.rokct.ai" > sites/currentsite.txt
-          
-          # 0. Map Platform Host (Prevents Cleanup/Seeder 404 errors)
-          echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
-          
-          # Configure Git for Private Repos
-          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-          
-          # 3. Natively Install the Core App (e.g. rpanel)
+
           bench pip install setuptools
-          APP_REPO="${{ github.server_url }}/${{ github.repository }}"
-          echo "Fetching Native Core Repository: $APP_REPO"
-          bench get-app $APP_REPO --branch ${{ github.ref_name }} --skip-assets
           
-          # Detect App Name (rpanel, etc.)
+          if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench get-app payments --branch version-15 --resolve-deps --skip-assets
+          fi
+
+          if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
+          fi
+
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
+          fi
+
+          # Detect App Name & Site
           cd apps
-          APP_DIR=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" -printf "%f\n" | head -n 1)
+          REPO_IDENTIFIER="${{ github.event.repository.name }}"
+          APP_DIR_FINAL=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
           cd ..
           
-          if [ -n "$APP_DIR" ]; then
-             bench --site platform.rokct.ai install-app $APP_DIR
-             # Run unit tests
-             bench --site platform.rokct.ai run-tests --app $APP_DIR 2>&1 | tee test_output.log
+          # Site Logic
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             SITE_NAME_FINAL="test_site"
+             [ "${{ inputs.db-type }}" == "mariadb" ] && bench new-site $SITE_NAME_FINAL --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket || bench new-site $SITE_NAME_FINAL --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+          else
+             SITE_NAME_FINAL=$(ls sites | grep .local | head -n 1)
+             SITE_NAME_FINAL=${SITE_NAME_FINAL:-rpanel.local}
           fi
+
+          # App Registration
+          APP_NAME_VAL=$(ls apps | grep -vE "^(frappe|erpnext|payments)$" | head -n 1)
+          if ! grep -q "^$APP_NAME_VAL$" sites/apps.txt; then echo "$APP_NAME_VAL" >> sites/apps.txt; fi
+
+          # Final Run
+          bench --site $SITE_NAME_FINAL migrate
+          set -o pipefail
+          if [ "${{ inputs.bootstrap }}" == "false" ]; then bench --site $SITE_NAME_FINAL install-app $APP_NAME_VAL; fi
+          bench --site $SITE_NAME_FINAL run-tests --app $APP_NAME_VAL 2>&1 | tee test_output.log
+
+          # ==========================================================
+          # --- EXTENDED ECOSYSTEM INTEGRATION (Original Logic) ---
+          # ==========================================================
+
+          echo "Merging into Platform Ecosystem..."
           
-          # 4. Install ERPNext (Standard Dependency)
+          # 0. Map Platform Host
+          echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
+          
+          # 3. Install ERPNext (Standard Dependency)
           echo "Installing ERPNext (version-16)..."
-          bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
+          # Only get if not already there from bootstrap
+          if [ ! -d "apps/erpnext" ]; then
+             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
+          fi
           
           # 4. Install Control (The Installer)
           if [ -d "$GITHUB_WORKSPACE/control" ]; then
              echo "🔥 Using LOCAL Control Panel from workspace..."
-             # We copy it into apps/control manually to ensure OUR fixes (recursion, transactions) are used
              mkdir -p apps/control
              cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
-             # Ensure registration
              bench pip install -e apps/control
           else
-             echo "Installing Control Panel via HTTPS (Token-based)..."
+             echo "Installing Control Panel via HTTPS..."
              bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
           fi
           
-          # --- BENCH RE-PATCH (Safety against install.sh usage) ---
+          # RE-PATCH Bench
           if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
-             echo "🔥 Re-Applying Bench Overrides (Safety)..."
              BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
              cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
           fi
-          # --------------------------------------------------------
 
-          # 4. Integrate into site
-          # Extract site name from sites folder
-          ORIG_SITE=$(ls sites | grep .local | head -n 1)
-          ORIG_SITE=${ORIG_SITE:-test_site}
-          
+          # Integrate into platform site
           SITE_NAME="platform.rokct.ai"
-          echo "Moving $ORIG_SITE to $SITE_NAME..."
-          mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
-          
-          # Update current site txt
+          echo "Migrating $SITE_NAME_FINAL to $SITE_NAME..."
+          mv "sites/$SITE_NAME_FINAL" "sites/$SITE_NAME" || true
           echo "$SITE_NAME" > sites/currentsite.txt
           
-          # --- MONOREPO OVERRIDES STAGING ---
-          # We stage the Monorepo so that install_stack.py can find local versions of apps (rcore, etc.)
-          echo "🔥 Staging Monorepo Overrides for Install Stack..."
-          if [ -d "$GITHUB_WORKSPACE" ]; then
-             # Create a symlink or copy to 'monorepo_overrides' at bench root
-             # install_stack.py looks for 'monorepo_overrides' in BENCH_PATH
-             mkdir -p monorepo_overrides
-             # We copy essential apps that we want to override from workspace
-             for app in rcore paas paas_customer paas_driver paas_manager paas_pos paas_webapp IoT brain control; do
-                if [ -d "$GITHUB_WORKSPACE/$app" ]; then
-                   echo "   - Overriding $app"
-                   cp -r "$GITHUB_WORKSPACE/$app" "monorepo_overrides/"
-                fi
-             done
-             echo "   ✅ Staged local apps into 'monorepo_overrides'."
-          fi
-          # ----------------------------------
+          # MONOREPO OVERRIDES STAGING
+          mkdir -p monorepo_overrides
+          for app in rcore paas paas_customer paas_driver paas_manager paas_pos paas_webapp IoT brain control; do
+             [ -d "$GITHUB_WORKSPACE/$app" ] && cp -r "$GITHUB_WORKSPACE/$app" "monorepo_overrides/"
+          done
           
-          # Apply monorepo overrides for control BEFORE install-app runs.
-          # control is excluded from install_stack's app loop, and its after_install
-          # (seeders) needs files from monorepo to already be in place.
           if [ -d "monorepo_overrides/control" ]; then
-             echo "🔥 Applying Monorepo Overrides for Control (Pre-Install)..."
              cp -rf monorepo_overrides/control/. apps/control/
-             echo "   ✅ Control overrides applied."
           fi
           
-          echo "Integrating into site: $SITE_NAME"
-          
-          # Installation Trigger
-          # we install control. control's hooks (install_stack.py) will then fetch/override and install rcore/payments/etc.
-          # install_stack.py also handles registration in apps.txt robustly.
           bench --site $SITE_NAME install-app erpnext control
-          
-          # 5. Verify Installation
-          echo "Verifying platform bundle..."
           bench --site $SITE_NAME execute frappe.get_installed_apps
           
-          # 6. Generate Golden Seed (Golden DB)
-          echo "Generating Golden DB Seed..."
+          # Golden Seed
           bench --site $SITE_NAME backup
-          # Find the backup file (usually YYYYMMDD_HHMMSS-site_name-database.sql.gz)
-          # We use head -n 1 just in case, though there should be only one.
           BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
           if [ -f "$BACKUP_FILE" ]; then
-             echo "Backup found: $BACKUP_FILE"
              mkdir -p apps/seed_data
              cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
-             echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
-          else
-             echo "⚠️ Backup failed or file not found."
           fi
 
       - name: Archive Apps (Artifact)
