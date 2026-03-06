@@ -264,11 +264,18 @@ echo "RokctAI: Checking ecosystem dependencies..."
 for extra_app in lending rcore; do
     echo "Checking for $extra_app..."
     if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null)" ]; then
-        echo "RokctAI: Fetching missing dependency app: $extra_app"
-        # Ensure url is set for auth
-        REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"
-        bench get-app "$REPO_URL" --branch main --resolve-deps --skip-assets || \
-        bench get-app "$extra_app" --branch main --resolve-deps --skip-assets || true
+        if [ "$extra_app" = "lending" ]; then
+             REPO_URL="https://github.com/frappe/lending.git"
+             BRANCH="develop"
+        else
+             REPO_URL="https://github.com/RokctAI/${extra_app}.git"
+             BRANCH="develop"
+             [ -n "$GITHUB_TOKEN" ] && REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"
+        fi
+        
+        echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
+        bench get-app "$REPO_URL" --branch "$BRANCH" --resolve-deps --skip-assets || \
+        bench get-app "$REPO_URL" --resolve-deps --skip-assets || true
     else
         echo "✅ $extra_app already present."
     fi
