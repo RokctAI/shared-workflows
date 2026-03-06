@@ -195,15 +195,65 @@ if [ "$BOOTSTRAP" = "false" ]; then
     echo "$SITE_NAME" > sites/currentsite.txt
     bench --site $SITE_NAME install-app $APP_NAME
 else
-    SITE_NAME=$(ls sites | grep .local | head -n 1)
-    SITE_NAME=${SITE_NAME:-rpanel.local}
+    # Bootstrap path: rename site to platform.rokct.ai if it's not already
+    ORIG_SITE=$(ls sites | grep .local | head -n 1)
+    ORIG_SITE=${ORIG_SITE:-rpanel.local}
+    SITE_NAME="platform.rokct.ai"
+    if [ "$ORIG_SITE" != "$SITE_NAME" ] && [ -d "sites/$ORIG_SITE" ]; then
+        echo "Renaming $ORIG_SITE to $SITE_NAME..."
+        mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
+    fi
+    echo "$SITE_NAME" > sites/currentsite.txt
 fi
 
-# Final Migration
+# 3. Standard Dependencies (ERPNext, Payments)
+if [ "$INSTALL_PAYMENTS" = "true" ]; then
+    echo "Installing Payments..."
+    if [ ! -d "apps/payments" ]; then
+        bench get-app payments --branch version-15 --resolve-deps --skip-assets || true
+    fi
+    bench --site $SITE_NAME install-app payments || true
+fi
+
+if [ "$INSTALL_ERPNEXT" = "true" ]; then
+    echo "Installing ERPNext (version-16)..."
+    if [ ! -d "apps/erpnext" ]; then
+        bench get-app erpnext --branch version-16 --resolve-deps --skip-assets || true
+    fi
+    bench --site $SITE_NAME install-app erpnext || true
+fi
+
+# 4. Control App Installation (The Installer)
+if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
+    echo "🔥 Using LOCAL Control Panel from workspace..."
+    mkdir -p apps/control
+    cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
+    bench pip install -e apps/control
+elif [ ! -d "apps/control" ]; then
+    echo "Installing Control Panel via HTTPS..."
+    bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
+fi
+
+# 5. Monorepo Overrides Staging & Application
+if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
+    echo "Applying Monorepo Overrides..."
+    # Bench Overrides
+    if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
+        BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+        cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+    fi
+    # Control Overrides
+    if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/control" ]; then
+        cp -rf "$GITHUB_WORKSPACE/monorepo_overrides/control/." "apps/control/"
+    fi
+fi
+
+# Final Migration & App Installation
+bench --site $SITE_NAME install-app control || true
 bench --site $SITE_NAME migrate
 
 # RokctAI: Stack Installation (Control)
-if [ -d "apps/control" ]; then
+if [ -d "apps/control" ] && [ -f "apps/control/install_stack.py" ]; then
     echo "RokctAI: Running Stack Installer..."
     python3 apps/control/install_stack.py $SITE_NAME
     

@@ -446,70 +446,11 @@ jobs:
           export GITHUB_TOKEN="${{ steps.app-token.outputs.token || github.token }}"
           export GITHUB_REPOSITORY="${{ github.repository }}"
           export GITHUB_REF_NAME="${{ github.ref_name }}"
+          export GITHUB_WORKSPACE="${{ github.workspace }}"
           export INSTALL_PAYMENTS="${{ inputs.install-payments }}"
           export INSTALL_ERPNEXT="${{ inputs.install-erpnext }}"
           
           ./build_ecosystem.sh
-
-          # ==========================================================
-          # --- EXTENDED ECOSYSTEM INTEGRATION (Original Logic) ---
-          # ==========================================================
-
-          echo "Merging into Platform Ecosystem..."
-          
-          # 0. Map Platform Host
-          echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
-          
-          # 3. Install ERPNext (Standard Dependency)
-          echo "Installing ERPNext (version-16)..."
-          # Only get if not already there from bootstrap
-          if [ ! -d "apps/erpnext" ]; then
-             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
-          fi
-          
-          # 4. Install Control (The Installer)
-          if [ -d "$GITHUB_WORKSPACE/control" ]; then
-             echo "🔥 Using LOCAL Control Panel from workspace..."
-             mkdir -p apps/control
-             cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
-             bench pip install -e apps/control
-          else
-             echo "Installing Control Panel via HTTPS..."
-             bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
-          fi
-          
-          # RE-PATCH Bench
-          if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
-             BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
-             cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
-          fi
-
-          # Integrate into platform site
-          SITE_NAME="platform.rokct.ai"
-          echo "Migrating $SITE_NAME_FINAL to $SITE_NAME..."
-          mv "sites/$SITE_NAME_FINAL" "sites/$SITE_NAME" || true
-          echo "$SITE_NAME" > sites/currentsite.txt
-          
-          # MONOREPO OVERRIDES STAGING
-          mkdir -p monorepo_overrides
-          for app in rcore paas paas_customer paas_driver paas_manager paas_pos paas_webapp IoT brain control; do
-             [ -d "$GITHUB_WORKSPACE/$app" ] && cp -r "$GITHUB_WORKSPACE/$app" "monorepo_overrides/"
-          done
-          
-          if [ -d "monorepo_overrides/control" ]; then
-             cp -rf monorepo_overrides/control/. apps/control/
-          fi
-          
-          bench --site $SITE_NAME install-app erpnext control
-          bench --site $SITE_NAME execute frappe.get_installed_apps
-          
-          # Golden Seed
-          bench --site $SITE_NAME backup
-          BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
-          if [ -f "$BACKUP_FILE" ]; then
-             mkdir -p apps/seed_data
-             cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
-          fi
 
       - name: Archive Apps (Artifact)
         if: success()
