@@ -240,16 +240,16 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
     # Bench Overrides
     if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
         echo "Applying Bench Overrides..."
-        # Try to find bench module path using the VENV python, then fallbacks
-        BENCH_PATH=$(env/bin/python -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
-                     python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
-                     echo "")
+        # Try to find bench module path using pip show (more reliable than import for paths)
+        ST_LIB=$(env/bin/python -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo "")
+        [ -z "$ST_LIB" ] && ST_LIB=$(python3 -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo "")
         
-        if [ -n "$BENCH_PATH" ]; then
+        if [ -n "$ST_LIB" ] && [ -d "$ST_LIB/bench" ]; then
+            BENCH_PATH="$ST_LIB/bench"
             echo "Found bench at $BENCH_PATH. Applying overrides..."
             cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
         else
-            echo "⚠️ Warning: 'bench' module not found in Python. Skipping bench overrides."
+            echo "⚠️ Warning: 'bench' module path not found. Skipping bench overrides."
         fi
     fi
     # Control Overrides
@@ -260,12 +260,21 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
 fi
 
 # 6. Ensure Stack Dependencies (Apps requested by install_stack.py)
+echo "RokctAI: Checking ecosystem dependencies..."
 for extra_app in lending rcore; do
-    if [ ! -d "apps/$extra_app" ]; then
-        echo "RokctAI: Pre-fetching dependency app: $extra_app"
-        bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git --resolve-deps --skip-assets || true
+    echo "Checking for $extra_app..."
+    if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null)" ]; then
+        echo "RokctAI: Fetching missing dependency app: $extra_app"
+        # Ensure url is set for auth
+        REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"
+        bench get-app "$REPO_URL" --branch main --resolve-deps --skip-assets || \
+        bench get-app "$extra_app" --branch main --resolve-deps --skip-assets || true
+    else
+        echo "✅ $extra_app already present."
     fi
 done
+
+echo "Current apps directory: $(ls apps)"
 
 # Final Migration & App Installation
 bench --site $SITE_NAME install-app control || true
