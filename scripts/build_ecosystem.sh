@@ -152,19 +152,18 @@ bench pip install -e "apps/$APP_NAME"
 # --- 5. Ecosystem Compilation ---
 echo "RokctAI: Compiling Ecosystem..."
 
-# Map platform host for all environments
-if [ "$IS_DOCKER" = "false" ]; then
-    echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
-fi
+# Map platform host
+echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
 
 # Site Setup
 if [ "$BOOTSTRAP" = "false" ]; then
-    SITE_NAME="test_site"
+    SITE_NAME="platform.rokct.ai"
     if [ "$DB_TYPE" = "mariadb" ]; then
-        bench new-site $SITE_NAME --db-root-password $DB_PW --admin-password admin --no-mariadb-socket
+        bench new-site $SITE_NAME --db-root-password $DB_PW --admin-password admin --no-mariadb-socket || true
     else
-        bench new-site $SITE_NAME --db-type postgres --db-root-password $DB_PW --admin-password admin
+        bench new-site $SITE_NAME --db-type postgres --db-root-password $DB_PW --admin-password admin || true
     fi
+    echo "$SITE_NAME" > sites/currentsite.txt
     bench --site $SITE_NAME install-app $APP_NAME
 else
     SITE_NAME=$(ls sites | grep .local | head -n 1)
@@ -173,6 +172,21 @@ fi
 
 # Final Migration
 bench --site $SITE_NAME migrate
+
+# RokctAI: Stack Installation (Control)
+if [ -d "apps/control" ]; then
+    echo "RokctAI: Running Stack Installer..."
+    python3 apps/control/install_stack.py $SITE_NAME
+    
+    echo "RokctAI: Generating Golden DB Seed..."
+    bench --site $SITE_NAME backup
+    BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
+    if [ -f "$BACKUP_FILE" ]; then
+        mkdir -p apps/seed_data
+        cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
+        echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
+    fi
+fi
 
 # Run Tests if explicitly requested (usually CI only)
 if [ "$RUN_TESTS" = "true" ]; then
