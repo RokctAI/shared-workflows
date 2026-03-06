@@ -182,7 +182,7 @@ bench pip install -e "apps/$APP_NAME"
 echo "RokctAI: Compiling Ecosystem..."
 
 # Map platform host
-echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts
+echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts || echo "Skipped: /etc/hosts is read-only"
 
 # Site Setup
 if [ "$BOOTSTRAP" = "false" ]; then
