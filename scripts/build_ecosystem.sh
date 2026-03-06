@@ -87,12 +87,18 @@ elif [ "$IS_DOCKER" = "true" ]; then
     sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
 fi
 
-# --- 3. Bench Initialization ---
-echo "RokctAI: Bench Initialization..."
+# --- 3. Bench Initialization & CLI Setup ---
+echo "RokctAI: Bench Initialization & CLI Setup..."
+
+# Ensure bench CLI is installed regardless of path
+if ! command -v bench > /dev/null; then
+    echo "Installing frappe-bench CLI..."
+    $PY_BIN -m pip install --user frappe-bench || pip install --user frappe-bench
+    export PATH="$HOME/.local/bin:$PATH"
+fi
 
 if [ "$BOOTSTRAP" = "false" ]; then
     if [ ! -d "frappe-bench" ]; then
-        pip install frappe-bench
         bench init --skip-redis-config-generation --skip-assets --python $PY_BIN frappe-bench
     fi
 else
@@ -122,6 +128,9 @@ fi
 
 # --- 4. Workspace Sync & Mandatory Hacks ---
 echo "RokctAI: Applying Mandatory Hacks & Sync..."
+
+# Ensure path is updated for current shell
+export PATH="$HOME/.local/bin:$PATH"
 
 cd frappe-bench
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
