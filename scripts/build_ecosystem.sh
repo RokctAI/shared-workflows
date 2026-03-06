@@ -302,7 +302,11 @@ if [ -d "apps/control" ] && [ -f "apps/control/install_stack.py" ]; then
     fi
 fi
 
-# Run Tests if explicitly requested (usually CI only)
+# 9. Full-Stack Ecosystem Verification (Un-Mocked)
+echo "RokctAI: Triggering Full-Stack Integration Verification..."
+bench --site "$SITE_NAME" run-tests --app control --module control.tests.test_ecosystem_integration --skip-before-tests || true
+
+# Run Standard App Tests if explicitly requested (usually CI only)
 if [ "$RUN_TESTS" = "true" ]; then
     echo "RokctAI: Running Tests for $APP_NAME..."
     bench --site $SITE_NAME run-tests --app $APP_NAME
