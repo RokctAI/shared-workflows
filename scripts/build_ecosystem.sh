@@ -240,8 +240,8 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
     # Bench Overrides
     if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
         echo "Applying Bench Overrides..."
-        # Try to find bench module path using multiple methods
-        BENCH_PATH=$($PY_BIN -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
+        # Try to find bench module path using the VENV python, then fallbacks
+        BENCH_PATH=$(env/bin/python -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
                      python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
                      echo "")
         
@@ -258,6 +258,14 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
         cp -rf "$GITHUB_WORKSPACE/monorepo_overrides/control/." "apps/control/"
     fi
 fi
+
+# 6. Ensure Stack Dependencies (Apps requested by install_stack.py)
+for extra_app in lending rcore; do
+    if [ ! -d "apps/$extra_app" ]; then
+        echo "RokctAI: Pre-fetching dependency app: $extra_app"
+        bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git --resolve-deps --skip-assets || true
+    fi
+done
 
 # Final Migration & App Installation
 bench --site $SITE_NAME install-app control || true
