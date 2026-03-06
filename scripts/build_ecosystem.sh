@@ -239,11 +239,22 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
     echo "Applying Monorepo Overrides..."
     # Bench Overrides
     if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
-        BENCH_PATH=$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")
-        cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+        echo "Applying Bench Overrides..."
+        # Try to find bench module path using multiple methods
+        BENCH_PATH=$($PY_BIN -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
+                     python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))" 2>/dev/null || \
+                     echo "")
+        
+        if [ -n "$BENCH_PATH" ]; then
+            echo "Found bench at $BENCH_PATH. Applying overrides..."
+            cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
+        else
+            echo "⚠️ Warning: 'bench' module not found in Python. Skipping bench overrides."
+        fi
     fi
     # Control Overrides
     if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/control" ]; then
+        echo "Applying Control Overrides..."
         cp -rf "$GITHUB_WORKSPACE/monorepo_overrides/control/." "apps/control/"
     fi
 fi
