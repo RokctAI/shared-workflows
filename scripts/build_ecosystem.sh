@@ -97,19 +97,24 @@ if [ "$BOOTSTRAP" = "false" ]; then
     fi
 else
     # Bootstrap path (install.sh)
+    echo "Current Directory Status: $(ls -F)"
     if [ ! -f "install.sh" ]; then
         # Use GITHUB_REPOSITORY and GITHUB_REF_NAME if available, otherwise fallback
         REPO_PATH=${GITHUB_REPOSITORY:-"RokctAI/rpanel"}
         REF_PATH=${GITHUB_REF_NAME:-"main"}
-        echo "Downloading install.sh from https://raw.githubusercontent.com/${REPO_PATH}/${REF_PATH}/install.sh"
+        echo "DEBUG: install.sh missing. Attempting download from ${REPO_PATH}/${REF_PATH}..."
         wget -q https://raw.githubusercontent.com/${REPO_PATH}/${REF_PATH}/install.sh
         
         if [ ! -f "install.sh" ]; then
             echo "❌ Failed to download install.sh from ${REPO_PATH}/${REF_PATH}"
+            ls -la
             exit 1
         fi
         chmod +x install.sh
+    else
+        echo "DEBUG: install.sh already exists. Type: $(file install.sh)"
     fi
+    echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE ./install.sh"
     sudo CI=true DB_TYPE=$DB_TYPE ./install.sh
     
     if [ -d "/home/frappe/frappe-bench" ]; then
