@@ -210,7 +210,7 @@ fi
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
     echo "Installing Payments..."
     if [ ! -d "apps/payments" ]; then
-        bench get-app payments --branch version-15 --resolve-deps --skip-assets || true
+        bench get-app payments --branch develop --resolve-deps --skip-assets || true
     fi
     bench --site $SITE_NAME install-app payments || true
 fi
