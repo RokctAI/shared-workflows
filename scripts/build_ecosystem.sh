@@ -53,7 +53,11 @@ if [ "$IS_DOCKER" = "false" ]; then
     sudo redis-server --port 12000 --daemonize yes
     sudo redis-server --port 13000 --daemonize yes
     for port in 11000 12000 13000; do
-       while ! nc -z localhost $port; do sleep 1; done
+       if command -v nc > /dev/null; then
+           while ! nc -z localhost $port; do sleep 1; done
+       else
+           sleep 2
+       fi
     done
     echo "✅ Redis instances ready."
 else
