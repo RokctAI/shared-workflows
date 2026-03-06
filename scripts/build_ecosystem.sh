@@ -98,7 +98,16 @@ if [ "$BOOTSTRAP" = "false" ]; then
 else
     # Bootstrap path (install.sh)
     if [ ! -f "install.sh" ]; then
-        wget https://raw.githubusercontent.com/RokctAI/rPanel/main/install.sh
+        # Use GITHUB_REPOSITORY and GITHUB_REF_NAME if available, otherwise fallback
+        REPO_PATH=${GITHUB_REPOSITORY:-"RokctAI/rpanel"}
+        REF_PATH=${GITHUB_REF_NAME:-"main"}
+        echo "Downloading install.sh from https://raw.githubusercontent.com/${REPO_PATH}/${REF_PATH}/install.sh"
+        wget -q https://raw.githubusercontent.com/${REPO_PATH}/${REF_PATH}/install.sh
+        
+        if [ ! -f "install.sh" ]; then
+            echo "❌ Failed to download install.sh from ${REPO_PATH}/${REF_PATH}"
+            exit 1
+        fi
         chmod +x install.sh
     fi
     sudo CI=true DB_TYPE=$DB_TYPE ./install.sh

@@ -444,6 +444,8 @@ jobs:
           export DB_PW="${{ env.DB_PW }}"
           export RUN_TESTS="true"
           export GITHUB_TOKEN="${{ steps.app-token.outputs.token || github.token }}"
+          export GITHUB_REPOSITORY="${{ github.repository }}"
+          export GITHUB_REF_NAME="${{ github.ref_name }}"
           export INSTALL_PAYMENTS="${{ inputs.install-payments }}"
           export INSTALL_ERPNEXT="${{ inputs.install-erpnext }}"
           
