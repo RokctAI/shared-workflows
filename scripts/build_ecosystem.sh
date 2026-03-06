@@ -45,8 +45,7 @@ fi
 
 # Redis Startup
 if [ "$IS_DOCKER" = "false" ]; then
-    echo "Starting Redis instances..."
-    # Ensure redis-server is installed
+    echo "Starting Redis instances (Host/CI)..."
     if ! command -v redis-server > /dev/null; then
         sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
     fi
@@ -57,16 +56,14 @@ if [ "$IS_DOCKER" = "false" ]; then
        while ! nc -z localhost $port; do sleep 1; done
     done
     echo "✅ Redis instances ready."
+else
+    echo "Starting Redis Service (Docker)..."
+    sudo service redis-server start || true
 fi
 
-# PostgreSQL Startup (Host/CI with Bootstrap=false only)
-# If BOOTSTRAP=true, install.sh handles it.
-# In Docker, we assume the DB is either external or started separately.
+# PostgreSQL Startup
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-    echo "Starting PostgreSQL Service..."
-    # Note: In CI we use Docker for DB if BOOTSTRAP=false to get pgvector easily
-    # However, to maintain parity, we should ideally use native if possible.
-    # For now, sticking to the CI's working Docker approach for DB-as-a-service.
+    echo "Starting PostgreSQL Service (CI Docker DB)..."
     if ! docker ps -a | grep -q db-service; then
         docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg15
     fi
@@ -75,6 +72,19 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
     docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
     docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
     echo "✅ PostgreSQL ready."
+elif [ "$IS_DOCKER" = "true" ]; then
+    echo "Starting PostgreSQL Service (Docker Native)..."
+    sudo service postgresql start || true
+    # Wait for postgres to be ready
+    for i in {1..30}; do
+        if pg_isready -q; then break; fi
+        echo "Waiting for PostgreSQL..."
+        sleep 2
+    done
+    sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$DB_PW';" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
 fi
 
 # --- 3. Bench Initialization ---
