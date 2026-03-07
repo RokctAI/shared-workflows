@@ -267,8 +267,8 @@ for extra_app in lending rcore; do
         fi
         
         echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
-        bench get-app "$REPO_URL" --branch "$BRANCH" --resolve-deps --skip-assets || \
-        bench get-app "$REPO_URL" --resolve-deps --skip-assets || true
+        bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets || \
+        bench get-app "$REPO_URL" --skip-assets || true
     else
         echo "✅ $extra_app already present."
     fi
