@@ -235,7 +235,7 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
     bench pip install -e apps/control
 elif [ ! -d "apps/control" ]; then
     echo "Installing Control Panel via HTTPS..."
-    bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets
+    bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets || true
 fi
 
 # 5. Monorepo Overrides Staging & Application
@@ -246,7 +246,7 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
         echo "Applying Bench Overrides..."
         # Try to find bench module path using pip show (more reliable than import for paths)
         ST_LIB=$(env/bin/python -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo "")
-        [ -z "$ST_LIB" ] && ST_LIB=$(python3 -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo "")
+        if [ -z "$ST_LIB" ]; then ST_LIB=$(python3 -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo ""); fi
         
         if [ -n "$ST_LIB" ] && [ -d "$ST_LIB/bench" ]; then
             BENCH_PATH="$ST_LIB/bench"
@@ -267,14 +267,14 @@ fi
 echo "RokctAI: Checking ecosystem dependencies..."
 for extra_app in lending rcore; do
     echo "Checking for $extra_app..."
-    if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null)" ]; then
+    if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
         if [ "$extra_app" = "lending" ]; then
              REPO_URL="https://github.com/frappe/lending.git"
              BRANCH="develop"
         else
              REPO_URL="https://github.com/RokctAI/${extra_app}.git"
              BRANCH="develop"
-             [ -n "$GITHUB_TOKEN" ] && REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"
+             if [ -n "$GITHUB_TOKEN" ]; then REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"; fi
         fi
         
         echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
