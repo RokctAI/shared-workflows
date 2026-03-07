@@ -96,8 +96,8 @@ echo "RokctAI: Bench Initialization & CLI Setup..."
 
 # Ensure bench CLI is installed regardless of path
 if ! command -v bench > /dev/null; then
-    echo "Installing frappe-bench CLI..."
-    $PY_BIN -m pip install --user frappe-bench || pip install --user frappe-bench
+    echo "Installing frappe-bench CLI from Frappenize fork..."
+    $PY_BIN -m pip install --user git+https://github.com/Frappenize/bench.git@rokct || pip install --user git+https://github.com/Frappenize/bench.git@rokct
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
@@ -214,15 +214,15 @@ fi
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
     echo "Installing Payments..."
     if [ ! -d "apps/payments" ]; then
-        bench get-app payments --branch develop --resolve-deps --skip-assets || true
+        bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets || true
     fi
     bench --site $SITE_NAME install-app payments || true
 fi
 
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
-    echo "Installing ERPNext (version-16)..."
+    echo "Installing ERPNext..."
     if [ ! -d "apps/erpnext" ]; then
-        bench get-app erpnext --branch version-16 --resolve-deps --skip-assets || true
+        bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets || true
     fi
     bench --site $SITE_NAME install-app erpnext || true
 fi
@@ -234,28 +234,16 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
     cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
     bench pip install -e apps/control
 elif [ ! -d "apps/control" ]; then
-    echo "Installing Control Panel via HTTPS..."
-    bench get-app https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git --resolve-deps --skip-assets || true
+    echo "Installing Control Panel via HTTPS (Fetching latest tag)..."
+    CONTROL_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git"
+    LATEST_TAG=$(git ls-remote --tags "$CONTROL_URL" | grep -vE 'rc|beta|alpha|dev|\^' | awk -F/ '{print $3}' | sort -V -r | head -n1)
+    if [ -z "$LATEST_TAG" ]; then LATEST_TAG="main"; fi
+    bench get-app "$CONTROL_URL" --branch "$LATEST_TAG" --resolve-deps --skip-assets || true
 fi
 
 # 5. Monorepo Overrides Staging & Application
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
     echo "Applying Monorepo Overrides..."
-    # Bench Overrides
-    if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/bench" ]; then
-        echo "Applying Bench Overrides..."
-        # Try to find bench module path using pip show (more reliable than import for paths)
-        ST_LIB=$(env/bin/python -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo "")
-        if [ -z "$ST_LIB" ]; then ST_LIB=$(python3 -m pip show frappe-bench 2>/dev/null | grep Location | cut -d' ' -f2 || echo ""); fi
-        
-        if [ -n "$ST_LIB" ] && [ -d "$ST_LIB/bench" ]; then
-            BENCH_PATH="$ST_LIB/bench"
-            echo "Found bench at $BENCH_PATH. Applying overrides..."
-            cp -r "$GITHUB_WORKSPACE/monorepo_overrides/bench/bench/"* "$BENCH_PATH/" || true
-        else
-            echo "⚠️ Warning: 'bench' module path not found. Skipping bench overrides."
-        fi
-    fi
     # Control Overrides
     if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/control" ]; then
         echo "Applying Control Overrides..."
@@ -269,12 +257,13 @@ for extra_app in lending rcore; do
     echo "Checking for $extra_app..."
     if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
         if [ "$extra_app" = "lending" ]; then
-             REPO_URL="https://github.com/frappe/lending.git"
-             BRANCH="develop"
+             REPO_URL="https://github.com/Frappenize/lending.git"
+             BRANCH="rokct"
         else
              REPO_URL="https://github.com/RokctAI/${extra_app}.git"
-             BRANCH="develop"
              if [ -n "$GITHUB_TOKEN" ]; then REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"; fi
+             BRANCH=$(git ls-remote --tags "$REPO_URL" | grep -vE 'rc|beta|alpha|dev|\^' | awk -F/ '{print $3}' | sort -V -r | head -n1)
+             if [ -z "$BRANCH" ]; then BRANCH="main"; fi
         fi
         
         echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
