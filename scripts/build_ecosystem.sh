@@ -123,7 +123,7 @@ else
     echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE bash ./install.sh"
     sudo CI=true DB_TYPE=$DB_TYPE bash ./install.sh
     
-    if [ -d "/home/frappe/frappe-bench" ]; then
+    if [ -d "/home/frappe/frappe-bench" ] && [ "$PWD" != "/home/frappe" ]; then
         [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ] && rm -rf frappe-bench
         sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
         sudo chown -R $USER:$USER /home/frappe/frappe-bench
