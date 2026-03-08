@@ -426,7 +426,7 @@ jobs:
 
 
       - name: Extended Platform Integration (Trick in a Trick) 🎩✨
-        if: success() && github.repository_owner == 'RokctAI'
+        if: success() && github.repository == 'RokctAI/rpanel'
         working-directory: ${{ github.workspace }}
         shell: bash
         env:
