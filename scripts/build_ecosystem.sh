@@ -71,7 +71,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
     if ! docker ps -a | grep -q db-service; then
         docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg15
     fi
-    timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do sleep 2; done'
+    timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
     docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
     docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
     docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
@@ -81,7 +81,7 @@ elif [ "$IS_DOCKER" = "true" ]; then
     sudo service postgresql start || true
     # Wait for postgres to be ready
     for i in {1..30}; do
-        if pg_isready -q; then break; fi
+        if sudo -u postgres psql -c '\q' > /dev/null 2>&1; then break; fi
         echo "Waiting for PostgreSQL..."
         sleep 2
     done
@@ -253,26 +253,30 @@ fi
 
 # 6. Ensure Stack Dependencies (Apps requested by install_stack.py)
 echo "RokctAI: Checking ecosystem dependencies..."
-for extra_app in lending rcore; do
-    echo "Checking for $extra_app..."
-    if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
-        if [ "$extra_app" = "lending" ]; then
-             REPO_URL="https://github.com/Frappenize/lending.git"
-             BRANCH="rokct"
+if [ "$APP_NAME" = "rpanel" ]; then
+    for extra_app in lending rcore; do
+        echo "Checking for $extra_app..."
+        if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
+            if [ "$extra_app" = "lending" ]; then
+                REPO_URL="https://github.com/Frappenize/lending.git"
+                BRANCH="rokct"
+            else
+                REPO_URL="https://github.com/RokctAI/${extra_app}.git"
+                if [ -n "$GITHUB_TOKEN" ]; then REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"; fi
+                BRANCH=$(git ls-remote --tags "$REPO_URL" | grep -vE 'rc|beta|alpha|dev|\^' | awk -F/ '{print $3}' | sort -V -r | head -n1)
+                if [ -z "$BRANCH" ]; then BRANCH="main"; fi
+            fi
+            
+            echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
+            bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets || \
+            bench get-app "$REPO_URL" --skip-assets || true
         else
-             REPO_URL="https://github.com/RokctAI/${extra_app}.git"
-             if [ -n "$GITHUB_TOKEN" ]; then REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"; fi
-             BRANCH=$(git ls-remote --tags "$REPO_URL" | grep -vE 'rc|beta|alpha|dev|\^' | awk -F/ '{print $3}' | sort -V -r | head -n1)
-             if [ -z "$BRANCH" ]; then BRANCH="main"; fi
+            echo "✅ $extra_app already present."
         fi
-        
-        echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
-        bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets || \
-        bench get-app "$REPO_URL" --skip-assets || true
-    else
-        echo "✅ $extra_app already present."
-    fi
-done
+    done
+else
+    echo "Skipping extended platform dependencies for $APP_NAME."
+fi
 
 echo "Current apps directory: $(ls apps)"
 
