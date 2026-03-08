@@ -144,8 +144,10 @@ if [ -z "$APP_NAME" ]; then
     # Try to find an app that isn't standard
     APP_NAME=$(find apps -maxdepth 1 -type d ! -name "apps" ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
     APP_NAME=${APP_NAME:-"rpanel"} # fallback
+    export APP_NAME
 fi
 
+export APP_NAME
 echo "Target App Detected: $APP_NAME"
 
 # Renaming Hack (if folder doesn't match naming convention)
