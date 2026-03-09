@@ -186,7 +186,7 @@ jobs:
         run: |
           npm install -g yarn
           ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
         if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == true
@@ -282,13 +282,13 @@ jobs:
           # Install Payments if requested (Required by some apps like rcore)
           if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
              echo "Installing Payments App..."
-             bench get-app payments --branch version-15 --resolve-deps --skip-assets
+             bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets
           fi
 
           # Install ERPNext if requested
           if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
              echo "Installing ERPNext (version-16)..."
-             bench get-app erpnext --branch version-16 --resolve-deps --skip-assets
+             bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets
           fi
 
           # Configure git to use GitHub token for private repos
