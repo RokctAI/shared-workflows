@@ -160,22 +160,15 @@ jobs:
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
           echo "✅ .env/production.env written."
           
-          # Truncate before marker if present (Fleet Standard)
+          # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
              sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
           fi
           
-          FINAL_SIZE=$(wc -c < .env/production.env)
-          # Validation: Check for minimum size to prevent partial secrets
-          if [ $FINAL_SIZE -lt 2500 ]; then
-             echo "⚠️ WARNING: .env size ($FINAL_SIZE bytes) is smaller than expected (approx 2529 bytes)."
-             echo "This might indicate an old or corrupted secret. Please verify 'PRODUCTION_ENV' in GitHub Secrets."
-             # We don't exit 1 here to allow for legitimate shrinking, but it's a loud warning.
-          fi
-          
-          # Normalize line endings (CRLF -> LF) to prevent Bash errors (Standardization)
+          # Normalize line endings
           sed -i 's/\r$//' .env/production.env
+          echo "✅ .env/production.env ready for Flutter."
 
       # Dynamic Source Rename (Skip on develop)
       - name: Dynamic Source Rename
@@ -464,11 +457,14 @@ jobs:
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
           
-          # Truncate before marker if present (Fleet Standard)
+          # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
              sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
           fi
+          
+          # Normalize line endings
+          sed -i 's/\r$//' .env/production.env
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
