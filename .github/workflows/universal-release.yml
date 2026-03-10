@@ -1046,15 +1046,15 @@ jobs:
                 ENV_CONTENT="$CLIENT_ENV"
              fi
              
-             if [ ! -z "$ENV_CONTENT" ]; then
                 echo "$ENV_CONTENT" | base64 --decode > .env.raw
                 
-                # Truncate before marker if present (Fleet Standard)
-                if grep -q "##########END_FLUTTER##########" .env.raw; then
-                   echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-                   sed -i '/##########END_FLUTTER##########/,$d' .env.raw
+                # Truncate at NextJS marker
+                if grep -q "##########END_NEXTJS##########" .env.raw; then
+                   echo "✂️ Next.js release: Stopping at ##########END_NEXTJS##########"
+                   sed -i '/##########END_NEXTJS##########/,$d' .env.raw
                 fi
-                
+
+                # Normalize line endings
                 sed -i 's/\r$//' .env.raw
                 mv .env.raw .env
                 
@@ -1127,7 +1127,7 @@ jobs:
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
           echo "✅ .env/production.env written."
           
-          # Truncate before marker if present (Fleet Standard)
+          # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
              sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
@@ -1135,6 +1135,7 @@ jobs:
           
           # Normalize line endings
           sed -i 's/\r$//' .env/production.env
+          echo "✅ .env/production.env ready for Flutter release."
 
       # Decode Google Services JSON if provided (Dynamic Resolution)
       - name: Decode Google Services JSON
