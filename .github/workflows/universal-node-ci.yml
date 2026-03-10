@@ -118,16 +118,16 @@ jobs:
           if [ -n "$ENV_CONTENT" ]; then
              echo "$ENV_CONTENT" | base64 --decode > .env.raw
              
-             # Truncate before marker if present (Fleet Standard)
-             if grep -q "##########END_FLUTTER##########" .env.raw; then
-                echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-                sed -i '/##########END_FLUTTER##########/,$d' .env.raw
+             # Truncate at NextJS marker
+             if grep -q "##########END_NEXTJS##########" .env.raw; then
+                echo "✂️ Node build: Stopping at ##########END_NEXTJS##########"
+                sed -i '/##########END_NEXTJS##########/,$d' .env.raw
              fi
-             
+
              # Normalize line endings
              sed -i 's/\r$//' .env.raw
              mv .env.raw .env
-             echo "✅ Client-specific .env vault decoded seamlessly."
+             echo "✅ .env ready for Node/NextJS."
           fi
 
       - name: Resolve Environment Variables
