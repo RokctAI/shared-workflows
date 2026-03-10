@@ -160,6 +160,12 @@ jobs:
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
           echo "✅ .env/production.env written."
           
+          # Truncate before marker if present (Fleet Standard)
+          if grep -q "##########END_FLUTTER##########" .env/production.env; then
+             echo "✂️ Truncating .env at ##########END_FLUTTER##########"
+             sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
+          fi
+          
           FINAL_SIZE=$(wc -c < .env/production.env)
           # Validation: Check for minimum size to prevent partial secrets
           if [ $FINAL_SIZE -lt 2500 ]; then
@@ -457,6 +463,12 @@ jobs:
           fi
           mkdir -p .env
           echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          
+          # Truncate before marker if present (Fleet Standard)
+          if grep -q "##########END_FLUTTER##########" .env/production.env; then
+             echo "✂️ Truncating .env at ##########END_FLUTTER##########"
+             sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
+          fi
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
