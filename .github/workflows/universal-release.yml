@@ -458,7 +458,7 @@ jobs:
             git add .github/.rc-cleanup-done
             git commit -m "chore: mark RC cleanup as completed"
             
-            BRANCH_NAME="auto-standardize-${{ github.ref_name }}"
+            BRANCH_NAME="auto-std-${{ github.ref_name }}-${{ github.run_id }}"
             
             # Check if PR already exists
             EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
