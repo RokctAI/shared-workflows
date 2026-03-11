@@ -1,0 +1,128 @@
+name: Universal PR Resurrector (Zombie Protection)
+
+on:
+  workflow_call:
+    secrets:
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
+
+jobs:
+  resurrect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Check and Resurrect PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = context.ref.replace('refs/heads/', '');
+            // Skip protected branches
+            if (['main', 'master', 'develop'].includes(branch)) return;
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            console.log(`Push detected on branch: ${branch}`);
+
+            // 1. Check if there's already an open PR for this branch
+            const openPRs = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: `${owner}:${branch}`,
+              state: 'open',
+            });
+
+            if (openPRs.data.length > 0) {
+              console.log('Open PR already exists, skipping.');
+              return;
+            }
+
+            // 2. Look for a previously merged PR from this branch
+            // We search for closed PRs with this head branch, sorted by most recently updated
+            const mergedPRs = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: `${owner}:${branch}`,
+              state: 'closed',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 5,
+            });
+
+            const mergedPR = mergedPRs.data.find(pr => pr.merged_at !== null);
+
+            if (!mergedPR) {
+              console.log('No previously merged PR found for this branch, skipping.');
+              return;
+            }
+
+            console.log(`Found merged PR #${mergedPR.number}: "${mergedPR.title}"`);
+
+            // 3. Create a new PR based on the previous one
+            const baseBranch = mergedPR.base.ref;
+            const newTitle = `[Follow-up] ${mergedPR.title}`;
+            const newBody = [
+              `### 🧟 Zombie Branch Detected`,
+              `This PR was automatically created because branch \`${branch}\` received new commits after PR #${mergedPR.number} was merged and the original branch was deleted.`,
+              ``,
+              `**Original PR:** #${mergedPR.number} — ${mergedPR.title}`,
+              `**Original author:** @${mergedPR.user.login}`,
+              ``,
+              `---`,
+              ``,
+              mergedPR.body || '_No original description._',
+            ].join('\n');
+
+            try {
+              const newPR = await github.rest.pulls.create({
+                owner,
+                repo,
+                title: newTitle,
+                body: newBody,
+                head: branch,
+                base: baseBranch,
+              });
+
+              console.log(`Created new PR #${newPR.data.number}: ${newPR.data.html_url}`);
+
+              // 4. Copy labels from the original PR
+              if (mergedPR.labels.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: newPR.data.number,
+                  labels: mergedPR.labels.map(l => l.name),
+                });
+              }
+
+              // 5. Re-assign requested reviewers
+              const reviewers = mergedPR.requested_reviewers?.map(r => r.login) || [];
+              if (reviewers.length > 0) {
+                await github.rest.pulls.requestReviewers({
+                  owner,
+                  repo,
+                  pull_number: newPR.data.number,
+                  reviewers,
+                });
+              }
+
+            } catch (err) {
+              if (err.message.includes('No commits between')) {
+                console.log('No new commits between branch and base, skipping PR creation.');
+              } else {
+                throw err;
+              }
+            }
