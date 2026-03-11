@@ -92,8 +92,33 @@ def fix_merge_workflow(content):
         
         if needs_update:
             new_allowed = ", ".join(allowed)
-            content = content.replace(match.group(0), f"allowed_users: '{new_allowed}'")
-            
+    return content
+
+def fix_workflow_node_version(content):
+    if '# rokct-ignore' in content: return content
+    
+    # 1. Bump node-version: 20 -> 24
+    # Handles: node-version: 20, node-version: '20', node-version: "20", node-version: [20], node-version: ["20"]
+    content = re.sub(r'node-version:\s*([\'"]?20[\'"]?|\[\s*[\'"]?20[\'"]?\s*\])', 'node-version: 24', content)
+    
+    # 2. Inject FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    if 'FORCE_JAVASCRIPT_ACTIONS_TO_NODE24' not in content:
+        env_line = "  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"
+        
+        # Check if env: block already exists at top level (no leading whitespace)
+        if re.search(r'^env:', content, re.MULTILINE):
+            # Append to existing env: block
+            content = re.sub(r'(^env:.*?\n)', r'\1' + env_line + "\n", content, flags=re.MULTILINE)
+        # Create env: block
+        env_block = f"\nenv:\n{env_line}\n"
+        
+        # Insert after name: line (safest place for top-level env)
+        if re.search(r'^name:', content, re.MULTILINE):
+            content = re.sub(r'(^name:.*?\n)', r'\1' + env_block, content, flags=re.MULTILINE)
+        else:
+            # Fallback to top of file
+            content = env_block + content
+                
     return content
 
 def fix_release_strategy(workflow_dir):
@@ -208,6 +233,7 @@ def main():
                     content = f.read()
                 
                 new_content = fix_workflow_permissions(content)
+                new_content = fix_workflow_node_version(new_content)
                 new_content = fix_workflow_inputs(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
                 
