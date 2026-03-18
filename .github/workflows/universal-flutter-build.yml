@@ -110,9 +110,89 @@ jobs:
           cache: true
 
       - name: Get Dependencies
+        id: build_process
         run: |
           flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build --delete-conflicting-outputs > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: Parse build logs and create error_log.md
+        if: env.build_failed == 'true'
+        run: |
+          python3 -c "
+          import re
+          import sys
+          import os
+
+          try:
+              with open('build_log.txt', 'r') as f:
+                  log = f.read()
+          except FileNotFoundError:
+              sys.exit(0)
+
+          errors = {}
+          pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
+          
+          matches = re.findall(pattern, log, re.DOTALL)
+          for filepath, details in matches:
+              errors[filepath] = details.strip()
+
+          with open('error_log.md', 'w') as md:
+              md.write('# 🤖 Android Build Errors\n\n')
+              md.write('The following syntax errors were found during the build process:\n\n')
+              
+              if not errors:
+                  md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
+              else:
+                  for filepath, details in errors.items():
+                      md.write(f'## \`{filepath}\`\n')
+                      for line in details.split('\n'):
+                          line = line.strip()
+                          if line:
+                              md.write(f'- {line}\n')
+                      md.write('\n')
+          "
+
+      - name: Generate App Token
+        id: app-token
+        if: env.build_failed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Commit & Surface Build Errors (PR-First)
+        if: env.build_failed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          git config user.name "rokctbot[bot]"
+          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="fix/build-errors-android-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add error_log.md
+          git commit -m "fix: report android build errors [skip ci]"
+          
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "🚨 Build Failure: Android Errors Found" \
+                         --body "Automated report for failed Android build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
+                         --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          fi
+
+      - name: Upload Error Log as Artifact
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-error-log
+          path: error_log.md
+
+      - name: Fail job if build failed
+        if: env.build_failed == 'true'
+        run: |
+          echo "Build failed. Check the android-build-error-log artifact or the opened PR for details."
+          exit 1
 
       # Decode Google Services JSON if provided (Dynamic Resolution)
       - name: Decode Google Services JSON
@@ -384,9 +464,91 @@ jobs:
           cache: true
 
       - name: Get Dependencies
+        id: build_process
         run: |
           flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build --delete-conflicting-outputs > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: Parse build logs and create error_log.md
+        if: env.build_failed == 'true'
+        shell: bash
+        run: |
+          python3 -c "
+          import re
+          import sys
+          import os
+
+          try:
+              with open('build_log.txt', 'r') as f:
+                  log = f.read()
+          except FileNotFoundError:
+              sys.exit(0)
+
+          errors = {}
+          pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
+          
+          matches = re.findall(pattern, log, re.DOTALL)
+          for filepath, details in matches:
+              errors[filepath] = details.strip()
+
+          with open('error_log.md', 'w') as md:
+              md.write('# 🪟 Windows Build Errors\n\n')
+              md.write('The following syntax errors were found during the build process:\n\n')
+              
+              if not errors:
+                  md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
+              else:
+                  for filepath, details in errors.items():
+                      md.write(f'## \`{filepath}\`\n')
+                      for line in details.split('\n'):
+                          line = line.strip()
+                          if line:
+                              md.write(f'- {line}\n')
+                      md.write('\n')
+          "
+
+      - name: Generate App Token
+        id: app-token
+        if: env.build_failed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Commit & Surface Build Errors (PR-First)
+        if: env.build_failed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          git config user.name "rokctbot[bot]"
+          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="fix/build-errors-windows-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add error_log.md
+          git commit -m "fix: report windows build errors [skip ci]"
+          
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "🚨 Build Failure: Windows Errors Found" \
+                         --body "Automated report for failed Windows build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
+                         --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          fi
+
+      - name: Upload Error Log as Artifact
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-error-log
+          path: error_log.md
+
+      - name: Fail job if build failed
+        if: env.build_failed == 'true'
+        run: |
+          echo "Build failed. Check the windows-build-error-log artifact or the opened PR for details."
+          exit 1
 
       - name: Build Windows
         run: |
@@ -505,9 +667,89 @@ jobs:
           cache: true
 
       - name: Get Dependencies
+        id: build_process
         run: |
           flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build --delete-conflicting-outputs > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+        continue-on-error: true
+
+      - name: Parse build logs and create error_log.md
+        if: env.build_failed == 'true'
+        run: |
+          python3 -c "
+          import re
+          import sys
+          import os
+
+          try:
+              with open('build_log.txt', 'r') as f:
+                  log = f.read()
+          except FileNotFoundError:
+              sys.exit(0)
+
+          errors = {}
+          pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
+          
+          matches = re.findall(pattern, log, re.DOTALL)
+          for filepath, details in matches:
+              errors[filepath] = details.strip()
+
+          with open('error_log.md', 'w') as md:
+              md.write('# 🍎 iOS/MacOS Build Errors\n\n')
+              md.write('The following syntax errors were found during the build process:\n\n')
+              
+              if not errors:
+                  md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
+              else:
+                  for filepath, details in errors.items():
+                      md.write(f'## \`{filepath}\`\n')
+                      for line in details.split('\n'):
+                          line = line.strip()
+                          if line:
+                              md.write(f'- {line}\n')
+                      md.write('\n')
+          "
+
+      - name: Generate App Token
+        id: app-token
+        if: env.build_failed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Commit & Surface Build Errors (PR-First)
+        if: env.build_failed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          git config user.name "rokctbot[bot]"
+          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="fix/build-errors-ios-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add error_log.md
+          git commit -m "fix: report ios build errors [skip ci]"
+          
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "🚨 Build Failure: iOS Errors Found" \
+                         --body "Automated report for failed iOS build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
+                         --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          fi
+
+      - name: Upload Error Log as Artifact
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-macos-build-error-log
+          path: error_log.md
+
+      - name: Fail job if build failed
+        if: env.build_failed == 'true'
+        run: |
+          echo "Build failed. Check the ios-macos-build-error-log artifact or the opened PR for details."
+          exit 1
 
       # Helper for iOS Pods
       - name: Install Cocoapods
