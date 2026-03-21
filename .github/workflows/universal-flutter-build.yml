@@ -423,7 +423,11 @@ jobs:
           if [ -f .env/production.env ]; then
             BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
           fi
-          flutter build apk $BUILD_ARGS
+          flutter build apk $BUILD_ARGS 2>&1 | tee flutter_build_log.txt
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "flutter_build_failed=true" >> $GITHUB_ENV
+            exit 1
+          fi
 
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle'
@@ -432,7 +436,11 @@ jobs:
           if [ -f .env/production.env ]; then
             BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
           fi
-          flutter build appbundle $BUILD_ARGS
+          flutter build appbundle $BUILD_ARGS 2>&1 | tee flutter_build_log.txt
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "flutter_build_failed=true" >> $GITHUB_ENV
+            exit 1
+          fi
 
       - name: Upload Artifact (APK)
         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
@@ -447,6 +455,40 @@ jobs:
         with:
           name: app-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
+
+      # --- NEW: COMPILATION ERROR SURFACING LOGIC ---
+      - name: Generate App Token for Compile Error
+        id: compile-app-token
+        if: failure() && env.flutter_build_failed == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Commit & Surface Compile Errors (PR-First)
+        if: failure() && env.flutter_build_failed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.compile-app-token.outputs.token || github.token }}
+        run: |
+          echo "# 🚨 Flutter Compilation Errors" > compile_error_log.md
+          echo "\`\`\`text" >> compile_error_log.md
+          tail -n 150 flutter_build_log.txt >> compile_error_log.md || echo "Could not read log" >> compile_error_log.md
+          echo "\`\`\`" >> compile_error_log.md
+          
+          git config user.name "rokctbot[bot]"
+          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="fix/compile-errors-android-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add compile_error_log.md
+          git commit -m "fix: report flutter compile errors [skip ci]" || true
+          
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "🚨 Compilation Failure: Android Build Crash" \
+                         --body "Automated report for failed Android compilation in run ${{ github.run_id }}.\n\nReview the attached \`compile_error_log.md\`." \
+                         --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          fi
 
   build-windows:
     name: 🪟 Windows Build
