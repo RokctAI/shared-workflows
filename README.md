@@ -232,7 +232,7 @@ We use a **Tiered Automation** strategy to stay fork-friendly:
 
 *   **Tier 1: Code Formatting (Everyone)**: **NO App required.** Modern linters will automatically fix Python whitespace, Shell script formatting, and JS/TS style using the default `GITHUB_TOKEN`.
 *   **Tier 2: Workflow Updates (Optional)**: **App Required.** If you want your CI to automatically get new features and fixes for your `.github/workflows` when they are released in the shared workflows, you must set up a GitHub App.
-*   **Tier 3: Private Clones (Maintainers)**: **App Required.** Internal RokctAI integrations (like cloning `control.git`) require a GitHub App and are only active for repositories owned by **@RokctAI**.
+*   **Tier 3: Private Clones (Maintainers)**: **App Required.** Internal RokctAI integrations (like cloning `control.git` or `rPaaS.git`) require a GitHub App and are only active for repositories owned by **@RokctAI**.
 
 ### 🧪 1. Create a GitHub App (To get new features automatically)
 1.  Go to your account settings > Developer settings > GitHub Apps > **New GitHub App**.

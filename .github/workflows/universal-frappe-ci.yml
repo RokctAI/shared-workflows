@@ -239,7 +239,9 @@ jobs:
           APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
           
           # We need to find which directory to replace. install.sh usually uses lowercase
-          if [ -d "apps/$APP_NAME_LOWER" ]; then
+          if [ "$APP_NAME" == "rPaaS" ] && [ -d "apps/paas" ]; then
+             TARGET_DIR="paas"
+          elif [ -d "apps/$APP_NAME_LOWER" ]; then
              TARGET_DIR="$APP_NAME_LOWER"
           else
              TARGET_DIR="$APP_NAME"
@@ -296,8 +298,13 @@ jobs:
           
           # Fetch key app (the repo calling this workflow)
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
+             # SPECIAL CASE: rPaaS -> paas
+             GET_APP_OPTS="--skip-assets"
+             if [[ "${{ github.repository }}" == *"rPaaS" ]]; then
+                GET_APP_OPTS="--app-name paas --skip-assets"
+             fi
              # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
-             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
+             bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} $GET_APP_OPTS
           fi
           
           # Detect actual app directory and name
@@ -307,9 +314,12 @@ jobs:
           
           cd apps
           
-          # Priority 1: Check if directory matches Repo Name (e.g. rCore)
+          # Priority 0: Handle rPaaS -> paas explicitly
           REPO_NAME="${{ github.event.repository.name }}"
-          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
+          if [[ "$REPO_NAME" == "rPaaS" && -d "paas" ]]; then
+              APP_DIR="paas"
+          # Priority 1: Check if directory matches Repo Name (e.g. rCore)
+          elif [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
               APP_DIR="$REPO_NAME"
           # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
           elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then

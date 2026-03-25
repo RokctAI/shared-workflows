@@ -279,6 +279,10 @@ done
 echo "Current apps directory: $(ls apps)"
 
 # Final Migration & App Installation
+if [ -d "apps/paas" ]; then
+  echo "Installing PaaS..."
+  bench --site $SITE_NAME install-app paas || true
+fi
 bench --site $SITE_NAME install-app control || true
 bench --site $SITE_NAME migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
@@ -299,6 +303,9 @@ fi
 
 # 9. Full-Stack Ecosystem Verification (Un-Mocked)
 echo "RokctAI: Triggering Full-Stack Integration Verification..."
+if [ -d "apps/paas" ]; then
+  bench --site "$SITE_NAME" run-tests --app paas --module paas.paas.tests.test_ecosystem_integration --skip-before-tests || true
+fi
 bench --site "$SITE_NAME" run-tests --app control --module control.control.tests.test_ecosystem_integration --skip-before-tests || true
 
 # Run Standard App Tests if explicitly requested (usually CI only)
