@@ -297,6 +297,13 @@ if [ -d "apps/control" ] && [ -f "apps/control/install_stack.py" ]; then
   fi
 fi
 
+echo "Baking API Schemas into rcore/security/schemas..."
+
+# Run the generator to update the manifest and LLM tool schemas
+bench --site "$SITE_NAME" execute rcore.security.manager.generate_api_schemas
+
+echo "Security schemas updated."
+
 # 9. Full-Stack Ecosystem Verification (Un-Mocked)
 echo "RokctAI: Triggering Full-Stack Integration Verification..."
 bench --site "$SITE_NAME" run-tests --app control --module control.control.tests.test_ecosystem_integration --skip-before-tests || true
