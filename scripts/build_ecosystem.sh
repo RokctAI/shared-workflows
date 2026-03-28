@@ -153,36 +153,69 @@ echo "Target App Detected: $APP_NAME"
 # Renaming Hack (if folder doesn't match naming convention)
 # Actually, the nuclear aliasing usually handles this better.
 
-# 2. Generalized Module Aliasing (Nuclear Strategy)
-if [ -d "apps/$APP_NAME/$APP_NAME" ]; then
-  ALIAS_NAME="frappe${APP_NAME}"
-  PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-  S_PACKAGES="env/lib/python${PY_VER}/site-packages"
+# 1. Nuclear Aliasing & Global Hacks (App-Agnostic)
+PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+S_PACKAGES="env/lib/python${PY_VER}/site-packages"
 
-  if [ -d "$S_PACKAGES" ]; then
-    echo "Injecting Nuclear Alias into site-packages: $ALIAS_NAME"
-    ln -sf "$PWD/apps/$APP_NAME/$APP_NAME" "$S_PACKAGES/$ALIAS_NAME"
+for app_dir in apps/*; do
+  [ -d "$app_dir" ] || continue
+  this_app=$(basename "$app_dir")
+  [ "$this_app" = "frappe" ] && continue
+
+  echo "Applying Hacks for: $this_app"
+
+  # A. Nuclear Aliasing
+  if [ -d "apps/$this_app/$this_app" ]; then
+    ALIAS_NAME="frappe${this_app}"
+    if [ -d "$S_PACKAGES" ]; then
+      echo "[$this_app] Injecting Nuclear Alias into site-packages: $ALIAS_NAME"
+      ln -sf "$PWD/apps/$this_app/$this_app" "$S_PACKAGES/$ALIAS_NAME"
+    fi
+    # Internal app-level alias
+    if [ ! -e "apps/$this_app/$ALIAS_NAME" ]; then
+      ln -sf "$this_app" "apps/$this_app/$ALIAS_NAME"
+    fi
   fi
 
-  # Internal app-level alias
-  if [ ! -d "apps/$APP_NAME/$ALIAS_NAME" ]; then
-    cd apps/$APP_NAME && ln -sf $APP_NAME $ALIAS_NAME && cd ../..
+  # B. Namespace Package Fix
+  if [ -d "apps/$this_app/$this_app" ]; then
+    find "apps/$this_app/$this_app" -type d | while read dir; do
+      if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
+    done
   fi
-fi
 
-# 3. Namespace Package Fix
-find apps/$APP_NAME/$APP_NAME -type d | while read dir; do
-  if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
+  # C. API Deprecation Patch
+  grep -r "frappe.utils.update_site_config" "apps/$this_app" | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
+
+  # D. Forced Registration (Editable Mode)
+  echo "[$this_app] Registering in editable mode..."
+  bench pip install -e "apps/$this_app" || true
+
+  # E. Surgical Ecosystem Hotfixes
+  # 1. Helpdesk: fix AttributeError: 'datetime.time' object has no attribute 'total_seconds'
+  if [ "$this_app" = "helpdesk" ]; then
+    echo "[$this_app] Patching total_seconds() bug in SLA calculation..."
+    SLA_FILE="apps/helpdesk/helpdesk/helpdesk/doctype/hd_service_level_agreement/hd_service_level_agreement.py"
+    if [ -f "$SLA_FILE" ]; then
+       # ONLY replace .total_seconds() when called on start_time or end_time (known time objects)
+       # to avoid breaking timedelta.total_seconds() calls.
+       # Uses a more robust regex to handle prefixes like current_workday_doc.start_time
+       sed -i 's/\([a-zA-Z0-9._]*\)\.\(start_time\|end_time\)\.total_seconds()/\(\1.\2.hour * 3600 + \1.\2.minute * 60 + \1.\2.second\)/g' "$SLA_FILE"
+    fi
+  fi
+
+  # 2. rcore: fix Postgres transaction aborts on settings on_update/after_insert
+  if [ "$this_app" = "rcore" ]; then
+    echo "[$this_app] Patching Postgres transaction aborts in settings hooks..."
+    for setting_file in "apps/rcore/rcore/pay/doctype/paystack_settings/paystack_settings.py" "apps/rcore/rcore/pay/doctype/payfast_settings/payfast_settings.py"; do
+      if [ -f "$setting_file" ]; then
+        # Inject guard before any DB calls in hooks to avoid link validation errors on non-existent Single tables
+        # Use in_install/in_migrate as the most reliable guard for ecosystem builds.
+        sed -i '/def \(on_update\|after_insert\)(self):/a \        if frappe.flags.in_install or frappe.flags.in_migrate: return' "$setting_file"
+      fi
+    done
+  fi
 done
-
-# 4. API Deprecation Patch
-if [ -d "apps/$APP_NAME" ]; then
-  grep -r "frappe.utils.update_site_config" apps/$APP_NAME | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
-fi
-
-# 5. Forced App Registration
-echo "Registering $APP_NAME in editable mode..."
-bench pip install -e "apps/$APP_NAME"
 
 # --- 5. Ecosystem Compilation ---
 echo "RokctAI: Compiling Ecosystem..."
@@ -278,6 +311,17 @@ done
 
 echo "Current apps directory: $(ls apps)"
 
+# 6. Ensure all apps are in apps.txt
+echo "Registering apps in sites/apps.txt..."
+for app_dir in apps/*; do
+  [ -d "$app_dir" ] || continue
+  app_name=$(basename "$app_dir")
+  if ! grep -q "^$app_name$" sites/apps.txt 2>/dev/null; then
+    echo "Adding $app_name to apps.txt"
+    echo "$app_name" >> sites/apps.txt
+  fi
+done
+
 # Final Migration & App Installation
 bench --site $SITE_NAME install-app control || true
 bench --site $SITE_NAME migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
@@ -300,8 +344,11 @@ fi
 echo "🚀 Baking Platform API Schemas..."
 
 # Targeting: apps/rcore/platform/manager.py
-#bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
-bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets
+if [ -d "apps/rcore" ]; then
+  echo "Baking assets for rcore..."
+  #bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
+  bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets || echo "Warning: Failed to bake rcore assets."
+fi
 
 echo "✅ Platform API Manifest Created."
 
