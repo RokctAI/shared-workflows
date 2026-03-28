@@ -4,20 +4,38 @@ import subprocess
 import sys
 
 def fix_workflow_permissions(content):
-    if '# rokct-ignore' in content: return content
-    
-    # In open-source context, write-all is the most compatible way to 
-    # request all permissions enabled in the repository settings.
-    if 'permissions:' not in content:
-        perms_block = '\npermissions: write-all\n'
-        # Insert after the name: line at the top to be safe
-        if 'name:' in content:
-            content = re.sub(r'^(name:.*?\n)', r'\1' + perms_block, content)
+    if "# rokct-ignore" in content:
+        return content
+
+    # In our ecosystem, write-all is required to support nested workflows
+    # that may request escalated permissions (like universal-flutter-build).
+
+    # 1. Force top-level permissions to write-all
+    if re.search(r"^permissions:", content, re.MULTILINE):
+        # Replace existing top-level permissions block
+        content = re.sub(
+            r"^permissions:.*?(?=\n\S|\Z)",
+            "permissions: write-all",
+            content,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+    else:
+        # Inject top-level permissions: write-all
+        perms_block = "\npermissions: write-all\n"
+        if "name:" in content:
+            content = re.sub(r"^(name:.*?\n)", r"\1" + perms_block, content)
         else:
             content = perms_block + content
-    elif 'permissions: write-all' not in content:
-        # If there's already a complex block, we don't force write-all to avoid breaking custom setups
-        pass
+
+    # 2. Force job-level permissions to write-all if they exist
+    # (Matches any line starting with whitespace followed by permissions:)
+    content = re.sub(
+        r"^([ \t]+)permissions:.*?(?=\n\1\S|\n\S|\Z)",
+        r"\1permissions: write-all",
+        content,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
     return content
 
 def fix_workflow_triggers(content, file_name):
@@ -112,9 +130,13 @@ def fix_workflow_node_version(content):
 
         # Check if env: block already exists at top level (no leading whitespace)
         if re.search(r"^env:", content, re.MULTILINE):
-            # Append to existing env: block
+            # Append to existing env: block. We look for the env: line and insert after it.
             content = re.sub(
-                r"(^env:.*?\n)", r"\1" + env_line + "\n", content, flags=re.MULTILINE
+                r"(^env:[ \t]*\n)",
+                r"\1" + env_line + "\n",
+                content,
+                count=1,
+                flags=re.MULTILINE,
             )
         else:
             # Create env: block
