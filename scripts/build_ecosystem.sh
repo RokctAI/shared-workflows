@@ -264,10 +264,11 @@ for app_dir in apps/*; do
 	grep -r "frappe.utils.update_site_config" "apps/$this_app" | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
 
 	# F. Hook Guard (Postgres Stability)
-	# Inject guard into all on_update and after_insert hooks to prevent transaction aborts during installation
-	find "apps/$this_app" -name "*.py" | xargs -r grep -lE "def (on_update|after_insert)\(self\):" | while read -r hook_file; do
+	# Inject guard into all on_update and after_insert hooks to prevent transaction aborts during installation.
+	# We use a whitespace-aware sed to handle both tabs and spaces.
+	find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self\):" | while read -r hook_file; do
 		echo "[$this_app] Guarding hooks in $hook_file"
-		sed -i '/def \(on_update\|after_insert\)(self):/a \        if frappe.flags.in_install or frappe.flags.in_migrate: return' "$hook_file"
+		sed -i 's/^\([[:space:]]\+\)def \(on_update\|after_insert\)(self):/\0\n\1\1if frappe.flags.in_install or frappe.flags.in_migrate: return/' "$hook_file"
 	done
 
 	# G. Forced Registration (Editable Mode)
