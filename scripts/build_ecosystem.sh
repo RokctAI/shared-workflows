@@ -24,6 +24,34 @@ DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
 PY_BIN=${PY_BIN:-python3}
 
+# --- 0. Helper Functions ---
+sync_apps_txt() {
+	echo "RokctAI: Synchronizing sites/apps.txt..."
+	APPS_TXT="sites/apps.txt"
+	mkdir -p sites
+	echo "frappe" >"$APPS_TXT"
+	# Ensure all directories in apps/ are registered, excluding frappe itself
+	for app_dir in apps/*; do
+		[ -d "$app_dir" ] || continue
+		this_name=$(basename "$app_dir")
+		[ "$this_name" = "frappe" ] && continue
+		if ! grep -q "^$this_name$" "$APPS_TXT"; then
+			echo "$this_name" >>"$APPS_TXT"
+		fi
+	done
+	echo "✅ apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")"
+}
+
+safe_install_app() {
+	local app=$1
+	echo "[$app] Safe-installing on site $SITE_NAME..."
+	# Use direct Frappe API to bypass Click wrapper issues on Python 3.14
+	# We try multiple methods to ensure success
+	env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME'); frappe.connect(); from frappe.installer import install_app; install_app('$app')" ||
+		bench --site "$SITE_NAME" execute frappe.installer.install_app --args "['$app']" ||
+		bench --site "$SITE_NAME" install-app "$app"
+}
+
 # Detect if running in Docker
 if [ -f /.dockerenv ]; then
 	IS_DOCKER=true
@@ -165,6 +193,8 @@ if [ "$INSTALL_ERPNEXT" = "true" ]; then
 	fi
 fi
 
+sync_apps_txt
+
 # 4. Control App Installation (The Installer)
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
 	echo "🔥 Using LOCAL Control Panel from workspace..."
@@ -213,6 +243,8 @@ for extra_app in lending rcore; do
 		echo "✅ $extra_app already present."
 	fi
 done
+
+sync_apps_txt
 
 # --- 5. Global Ecosystem Hacks (Post-Fetch) ---
 echo "RokctAI: Applying Global Ecosystem Hacks..."
@@ -266,9 +298,21 @@ for app_dir in apps/*; do
 	# F. Hook Guard (Postgres Stability)
 	# Inject guard into all on_update and after_insert hooks to prevent transaction aborts during installation.
 	# We use a whitespace-aware sed to handle both tabs and spaces.
+	# We also handle docstrings by injecting after the def line, and ensuring we use the same whitespace type.
 	find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self\):" | while read -r hook_file; do
 		echo "[$this_app] Guarding hooks in $hook_file"
-		sed -i 's/^\([[:space:]]\+\)def \(on_update\|after_insert\)(self):/\0\n\1\1if frappe.flags.in_install or frappe.flags.in_migrate: return/' "$hook_file"
+		# Use python for safer injection that respects indentation
+		env/bin/python -c "
+import sys, re
+path = '$hook_file'
+with open(path, 'r') as f: content = f.read()
+pattern = r'^([ \t]+)def (on_update|after_insert)\(self\):'
+def repl(m):
+    indent = m.group(1)
+    return f'{m.group(0)}\n{indent}{indent}if frappe.flags.in_install or frappe.flags.in_migrate: return'
+new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
+with open(path, 'w') as f: f.write(new_content)
+" || true
 	done
 
 	# G. Forced Registration (Editable Mode)
@@ -303,6 +347,8 @@ if [ "$BOOTSTRAP" = "false" ]; then
 		bench new-site "$SITE_NAME" --db-type postgres --db-root-password "$DB_PW" --admin-password admin || true
 	fi
 	echo "$SITE_NAME" >sites/currentsite.txt
+	# Ensure apps.txt is synced before we start installing apps on site
+	sync_apps_txt
 else
 	# Bootstrap path: rename site to platform.rokct.ai if it's not already
 	ORIG_SITE=$(ls sites | grep .local | head -n 1)
@@ -317,39 +363,35 @@ fi
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
-	echo "Installing Payments on site..."
-	bench --site "$SITE_NAME" install-app payments || true
+	safe_install_app payments || true
 fi
 
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
-	echo "Installing ERPNext on site..."
-	bench --site "$SITE_NAME" install-app erpnext || true
+	safe_install_app erpnext || true
 fi
 
 # Install the Target App
-bench --site "$SITE_NAME" install-app "$APP_NAME" || true
+safe_install_app "$APP_NAME" || true
 
 echo "Current apps directory: $(ls apps)"
 
-# Ensure all apps are in apps.txt
-echo "Registering apps in sites/apps.txt..."
-for app_dir in apps/*; do
-	[ -d "$app_dir" ] || continue
-	app_name=$(basename "$app_dir")
-	if ! grep -q "^$app_name$" sites/apps.txt 2>/dev/null; then
-		echo "Adding $app_name to apps.txt"
-		echo "$app_name" >>sites/apps.txt
-	fi
-done
+sync_apps_txt
 
 # Final Migration & App Installation
-bench --site $SITE_NAME install-app control || true
-bench --site $SITE_NAME migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
+safe_install_app control || true
+bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
-# RokctAI: Stack Installation (Control)
-if [ -d "apps/control" ] && [ -f "apps/control/install_stack.py" ]; then
-	echo "RokctAI: Running Stack Installer..."
-	python3 apps/control/install_stack.py $SITE_NAME
+# RokctAI: Stack Installation
+STACK_INSTALLER=""
+if [ -f "../install_stack.py" ]; then
+	STACK_INSTALLER="../install_stack.py"
+elif [ -f "apps/control/install_stack.py" ]; then
+	STACK_INSTALLER="apps/control/install_stack.py"
+fi
+
+if [ -n "$STACK_INSTALLER" ]; then
+	echo "RokctAI: Running Stack Installer ($STACK_INSTALLER)..."
+	python3 "$STACK_INSTALLER" "$SITE_NAME"
 
 	echo "RokctAI: Generating Golden DB Seed..."
 	bench --site $SITE_NAME backup
