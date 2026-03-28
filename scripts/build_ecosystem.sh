@@ -191,6 +191,8 @@ fi
 
 # C. Stack Dependencies (Apps requested by install_stack.py)
 echo "RokctAI: Checking stack dependencies..."
+# Only fetch the core apps that build_ecosystem.sh originally fetched.
+# Others are expected to be present or handled by install_stack.py.
 for extra_app in lending rcore; do
 	echo "Checking for $extra_app..."
 	if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
@@ -236,30 +238,43 @@ for app_dir in apps/*; do
 		if [ ! -e "apps/$this_app/$ALIAS_NAME" ]; then
 			ln -sf "$this_app" "apps/$this_app/$ALIAS_NAME"
 		fi
+
+		# B. Special Module Aliasing (e.g., rcore -> frappebrain)
+		if [ "$this_app" = "rcore" ] && [ ! -d "apps/$this_app/frappebrain" ]; then
+			echo "[$this_app] Creating frappebrain alias..."
+			ln -sf "$this_app" "apps/$this_app/frappebrain"
+		fi
+
+		# C. Platform Module Linker
+		# If a top-level 'platform' directory exists but isn't in the package, link it
+		if [ -d "apps/$this_app/platform" ] && [ ! -d "apps/$this_app/$this_app/platform" ]; then
+			echo "[$this_app] Linking platform module into package..."
+			ln -sf "../platform" "apps/$this_app/$this_app/platform"
+		fi
 	fi
 
-	# B. Namespace Package Fix
+	# D. Namespace Package Fix
 	if [ -d "apps/$this_app/$this_app" ]; then
 		find "apps/$this_app/$this_app" -type d | while read dir; do
 			if [ ! -f "$dir/__init__.py" ]; then touch "$dir/__init__.py"; fi
 		done
 	fi
 
-	# C. API Deprecation Patch
+	# E. API Deprecation Patch
 	grep -r "frappe.utils.update_site_config" "apps/$this_app" | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g' || true
 
-	# D. Hook Guard (Postgres Stability)
+	# F. Hook Guard (Postgres Stability)
 	# Inject guard into all on_update and after_insert hooks to prevent transaction aborts during installation
 	find "apps/$this_app" -name "*.py" | xargs -r grep -lE "def (on_update|after_insert)\(self\):" | while read -r hook_file; do
 		echo "[$this_app] Guarding hooks in $hook_file"
 		sed -i '/def \(on_update\|after_insert\)(self):/a \        if frappe.flags.in_install or frappe.flags.in_migrate: return' "$hook_file"
 	done
 
-	# E. Forced Registration (Editable Mode)
+	# G. Forced Registration (Editable Mode)
 	echo "[$this_app] Registering in editable mode..."
 	bench pip install -e "apps/$this_app" || true
 
-	# F. Surgical Ecosystem Hotfixes
+	# H. Surgical Ecosystem Hotfixes
 	# 1. Helpdesk: fix AttributeError: 'datetime.time' object has no attribute 'total_seconds'
 	if [ "$this_app" = "helpdesk" ]; then
 		echo "[$this_app] Patching total_seconds() bug in SLA calculation..."
@@ -350,8 +365,10 @@ echo "🚀 Baking Platform API Schemas..."
 # Targeting: apps/rcore/platform/manager.py
 if [ -d "apps/rcore" ]; then
 	echo "Baking assets for rcore..."
-	#bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
-	bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets || echo "Warning: Failed to bake rcore assets."
+	# Try with package-relative path first, then absolute module path
+	bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets ||
+		bench --site "$SITE_NAME" execute rcore.rcore.platform.manager.bake_assets ||
+		echo "Warning: Failed to bake rcore assets."
 fi
 
 echo "✅ Platform API Manifest Created."
