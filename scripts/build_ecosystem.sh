@@ -300,7 +300,8 @@ fi
 echo "🚀 Baking Platform API Schemas..."
 
 # Targeting: apps/rcore/platform/manager.py
-bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
+#bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
+bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets
 
 echo "✅ Platform API Manifest Created."
 
