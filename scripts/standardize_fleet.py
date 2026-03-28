@@ -95,30 +95,40 @@ def fix_merge_workflow(content):
     return content
 
 def fix_workflow_node_version(content):
-    if '# rokct-ignore' in content: return content
-    
+    if "# rokct-ignore" in content:
+        return content
+
     # 1. Bump node-version: 20 -> 24
     # Handles: node-version: 20, node-version: '20', node-version: "20", node-version: [20], node-version: ["20"]
-    content = re.sub(r'node-version:\s*([\'"]?20[\'"]?|\[\s*[\'"]?20[\'"]?\s*\])', 'node-version: 24', content)
-    
+    content = re.sub(
+        r"node-version:\s*([\'\"]?20[\'\"]?|\[\s*[\'\"]?20[\'\"]?\s*\])",
+        "node-version: 24",
+        content,
+    )
+
     # 2. Inject FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    if 'FORCE_JAVASCRIPT_ACTIONS_TO_NODE24' not in content:
+    if "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24" not in content:
         env_line = "  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true"
-        
+
         # Check if env: block already exists at top level (no leading whitespace)
-        if re.search(r'^env:', content, re.MULTILINE):
+        if re.search(r"^env:", content, re.MULTILINE):
             # Append to existing env: block
-            content = re.sub(r'(^env:.*?\n)', r'\1' + env_line + "\n", content, flags=re.MULTILINE)
-        # Create env: block
-        env_block = f"\nenv:\n{env_line}\n"
-        
-        # Insert after name: line (safest place for top-level env)
-        if re.search(r'^name:', content, re.MULTILINE):
-            content = re.sub(r'(^name:.*?\n)', r'\1' + env_block, content, flags=re.MULTILINE)
+            content = re.sub(
+                r"(^env:.*?\n)", r"\1" + env_line + "\n", content, flags=re.MULTILINE
+            )
         else:
-            # Fallback to top of file
-            content = env_block + content
-                
+            # Create env: block
+            env_block = f"\nenv:\n{env_line}\n"
+
+            # Insert after name: line (safest place for top-level env)
+            if re.search(r"^name:", content, re.MULTILINE):
+                content = re.sub(
+                    r"(^name:.*?\n)", r"\1" + env_block, content, flags=re.MULTILINE
+                )
+            else:
+                # Fallback to top of file
+                content = env_block + content
+
     return content
 
 def fix_release_strategy(workflow_dir):
@@ -225,29 +235,31 @@ def main():
     # Fix Workflows
     workflow_dir = ".github/workflows"
     if os.path.exists(workflow_dir):
-        # Scan for standard and custom workflows
-        for file in ["build.yml", "release.yml", "merge.yml", "linter.yml"]:
+        # Scan ALL workflows in the directory for standardization
+        for file in os.listdir(workflow_dir):
+            if not file.endswith(".yml"):
+                continue
+
             path = os.path.join(workflow_dir, file)
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                new_content = fix_workflow_permissions(content)
-                new_content = fix_workflow_node_version(new_content)
-                new_content = fix_workflow_inputs(new_content)
-                new_content = fix_workflow_triggers(new_content, file)
-                
-                if file == "merge.yml":
-                    new_content = fix_merge_workflow(new_content)
-                
-                if new_content != content:
-                    if not check_only:
-                        with open(path, 'w', encoding='utf-8') as f:
-                            f.write(new_content)
-                        print(f"✅ Updated {path}")
-                    else:
-                        print(f"⚠️ {path} needs standardization")
-                    changed = True
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            new_content = fix_workflow_permissions(content)
+            new_content = fix_workflow_node_version(new_content)
+            new_content = fix_workflow_inputs(new_content)
+            new_content = fix_workflow_triggers(new_content, file)
+
+            if file == "merge.yml":
+                new_content = fix_merge_workflow(new_content)
+
+            if new_content != content:
+                if not check_only:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    print(f"✅ Updated {path}")
+                else:
+                    print(f"⚠️ {path} needs standardization")
+                changed = True
 
         # Align release_strategy between build.yml and release.yml
         updated_build = fix_release_strategy(workflow_dir)
