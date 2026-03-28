@@ -297,12 +297,12 @@ if [ -d "apps/control" ] && [ -f "apps/control/install_stack.py" ]; then
   fi
 fi
 
-echo "Baking API Schemas into rcore/security/schemas..."
+echo "🚀 Baking Platform API Schemas..."
 
-# Run the generator to update the manifest and LLM tool schemas
-bench --site "$SITE_NAME" execute rcore.security.manager.generate_api_schemas
+# Targeting: apps/rcore/platform/manager.py
+bench --site "$SITE_NAME" execute rcore.platform.manager.generate_api_schemas
 
-echo "Security schemas updated."
+echo "✅ Platform API Manifest Created."
 
 # 9. Full-Stack Ecosystem Verification (Un-Mocked)
 echo "RokctAI: Triggering Full-Stack Integration Verification..."
