@@ -6,11 +6,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-release
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-
+permissions: write-all
 on:
   push:
     branches: [main, develop]
