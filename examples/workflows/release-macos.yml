@@ -1,14 +1,19 @@
-﻿name: Build macOS (Stable Only)
+name: Build macOS (Stable Only)
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 
-permissions:
-  contents: write
 
+permissions: write-all
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # 🛑 Monthly Limit for macOS Builds (Cost Control)
   MAX_MONTHLY_BUILDS: 4
 
@@ -52,8 +57,7 @@ jobs:
     needs: check-quota
     # Only run if Quota Check passed AND is stable (or manual)
     if: needs.check-quota.outputs.should_run == 'true' && (github.event_name == 'workflow_dispatch' || !github.event.release.prerelease)
-    permissions:
-      contents: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
       build-type: macos
@@ -63,8 +67,7 @@ jobs:
   attach-macos:
     needs: build-macos
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: write-all
     steps:
       - name: Download macOS Artifact
         uses: actions/download-artifact@v4

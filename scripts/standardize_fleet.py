@@ -3,12 +3,10 @@ import re
 import subprocess
 import sys
 
+
 def fix_workflow_permissions(content):
     if "# rokct-ignore" in content:
         return content
-
-    # In our ecosystem, write-all is required to support nested workflows
-    # that may request escalated permissions (like universal-flutter-build).
 
     # 1. Force top-level permissions to write-all
     if re.search(r"^permissions:", content, re.MULTILINE):
@@ -21,96 +19,127 @@ def fix_workflow_permissions(content):
         )
     else:
         # Inject top-level permissions: write-all
-        perms_block = "\npermissions: write-all\n"
+        perms_block = "permissions: write-all\n"
         if "name:" in content:
-            content = re.sub(r"^(name:.*?\n)", r"\1" + perms_block, content)
+            content = re.sub(
+                r"^(name:.*?\n)", r"\1" + perms_block + "\n", content, count=1
+            )
         else:
-            content = perms_block + content
+            content = perms_block + "\n" + content
 
     # 2. Force job-level permissions to write-all if they exist
-    # (Matches any line starting with whitespace followed by permissions:)
+    # Matches lines starting with whitespace followed by permissions:
+    # We use a non-greedy match that stops at the next line with the same or less indentation.
+    def job_perms_repl(match):
+        indent = match.group(1)
+        return f"{indent}permissions: write-all"
+
     content = re.sub(
         r"^([ \t]+)permissions:.*?(?=\n\1\S|\n\S|\Z)",
-        r"\1permissions: write-all",
+        job_perms_repl,
         content,
         flags=re.MULTILINE | re.DOTALL,
     )
 
     return content
 
+
 def fix_workflow_triggers(content, file_name):
-    if '# rokct-ignore' in content: return content
-    
+    if "# rokct-ignore" in content:
+        return content
+
     # We want to ensure linter.yml has schedule and workflow_dispatch
     if file_name == "linter.yml":
-        if 'schedule:' not in content or 'workflow_dispatch:' not in content:
+        if "schedule:" not in content or "workflow_dispatch:" not in content:
             # Case 1: Short [push, pull_request] format
-            if re.search(r'on:\s*\[.*?\]', content):
-                content = re.sub(r'on:\s*\[(.*?)\]', r'on:\n  push:\n  pull_request:\n  schedule:\n    - cron: "0 0 * * *"\n  workflow_dispatch:', content)
-            elif 'on:' in content:
+            if re.search(r"on:\s*\[.*?\]", content):
+                content = re.sub(
+                    r"on:\s*\[(.*?)\]",
+                    r'on:\n  push:\n  pull_request:\n  schedule:\n    - cron: "0 0 * * *"\n  workflow_dispatch:',
+                    content,
+                )
+            elif "on:" in content:
                 # Case 2: Structured 'on:' - add missing ones once
                 new_triggers = ""
-                if 'workflow_dispatch:' not in content:
+                if "workflow_dispatch:" not in content:
                     new_triggers += "  workflow_dispatch:\n"
-                if 'schedule:' not in content:
-                    new_triggers += "  schedule:\n    - cron: \"0 0 * * *\"\n"
-                
+                if "schedule:" not in content:
+                    new_triggers += '  schedule:\n    - cron: "0 0 * * *"\n'
+
                 if new_triggers:
-                    content = re.sub(r'(on:.*?\n)', r'\1' + new_triggers, content)
+                    content = re.sub(r"(on:.*?\n)", r"\1" + new_triggers, content)
     return content
 
+
 def fix_workflow_inputs(content):
-    if '# rokct-ignore' in content: return content
-    
+    if "# rokct-ignore" in content:
+        return content
+
     # 1. workflow_dispatch inputs (additive only)
-    if 'workflow_dispatch:' in content and 'backfill_ai_notes_cutoff_version:' not in content:
+    if (
+        "workflow_dispatch:" in content
+        and "backfill_ai_notes_cutoff_version:" not in content
+    ):
         input_block = """      backfill_ai_notes_cutoff_version:
         type: string
         default: ""
         description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 """
         # More robust regex to find the inputs: line under workflow_dispatch
-        match = re.search(r'(workflow_dispatch:.*?\n\s+inputs:)', content, re.DOTALL)
+        match = re.search(r"(workflow_dispatch:.*?\n\s+inputs:)", content, re.DOTALL)
         if match:
             content = content.replace(match.group(1), match.group(1) + "\n" + input_block)
         else:
             # Fallback for when inputs: is missing
-            content = content.replace('workflow_dispatch:', 'workflow_dispatch:\n    inputs:\n' + input_block)
+            content = content.replace(
+                "workflow_dispatch:", "workflow_dispatch:\n    inputs:\n" + input_block
+            )
 
     # 2. universal-pipeline mapping (additive only)
-    if 'uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml' in content:
-        if 'backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}' not in content:
+    if "uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml" in content:
+        if (
+            "backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}"
+            not in content
+        ):
             # Look for with: block following the uses line
-            pattern = r'(uses: RokctAI/shared-workflows/\.github/workflows/universal-pipeline\.yml.*?with:)'
+            pattern = r"(uses: RokctAI/shared-workflows/\.github/workflows/universal-pipeline\.yml.*?with:)"
             match = re.search(pattern, content, re.DOTALL)
             if match:
-                content = content.replace(match.group(1), match.group(1) + "\n      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}")
-    
+                content = content.replace(
+                    match.group(1),
+                    match.group(1)
+                    + "\n      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}",
+                )
+
     return content
 
+
 def fix_merge_workflow(content):
-    if '# rokct-ignore' in content: return content
-    
+    if "# rokct-ignore" in content:
+        return content
+
     # Get bot name from env or default to rokctbot
     # This allows external devs to use their own app name
-    main_bot = os.environ.get('BOT_NAME', 'rokctbot')
+    main_bot = os.environ.get("BOT_NAME", "rokctbot")
     bot_variants = [main_bot, f"{main_bot}[bot]"]
-    
+
     # Ensure bots are in the allowed_users list
     match = re.search(r'allowed_users:\s*[\'"](.*?)[\'"]', content)
     if match:
         raw_allowed = match.group(1)
-        allowed = [u.strip() for u in raw_allowed.split(',')]
-        
+        allowed = [u.strip() for u in raw_allowed.split(",")]
+
         needs_update = False
         for bot in bot_variants:
             if bot not in allowed:
                 allowed.append(bot)
                 needs_update = True
-        
+
         if needs_update:
             new_allowed = ", ".join(allowed)
+            content = content.replace(match.group(0), f'allowed_users: "{new_allowed}"')
     return content
+
 
 def fix_workflow_node_version(content):
     if "# rokct-ignore" in content:
@@ -119,7 +148,7 @@ def fix_workflow_node_version(content):
     # 1. Bump node-version: 20 -> 24
     # Handles: node-version: 20, node-version: '20', node-version: "20", node-version: [20], node-version: ["20"]
     content = re.sub(
-        r"node-version:\s*([\'\"]?20[\'\"]?|\[\s*[\'\"]?20[\'\"]?\s*\])",
+        r"node-version:\s*([\'\"]?20[\'\"]?|\[\s*[\'\" ]?20[\'\" ]?\s*\])",
         "node-version: 24",
         content,
     )
@@ -132,7 +161,7 @@ def fix_workflow_node_version(content):
         if re.search(r"^env:", content, re.MULTILINE):
             # Append to existing env: block. We look for the env: line and insert after it.
             content = re.sub(
-                r"(^env:[ \t]*\n)",
+                r"(^env:.*?\n)",
                 r"\1" + env_line + "\n",
                 content,
                 count=1,
@@ -140,18 +169,23 @@ def fix_workflow_node_version(content):
             )
         else:
             # Create env: block
-            env_block = f"\nenv:\n{env_line}\n"
+            env_block = f"env:\n{env_line}\n"
 
             # Insert after name: line (safest place for top-level env)
             if re.search(r"^name:", content, re.MULTILINE):
                 content = re.sub(
-                    r"(^name:.*?\n)", r"\1" + env_block, content, flags=re.MULTILINE
+                    r"(^name:.*?\n)",
+                    r"\1\n" + env_block,
+                    content,
+                    flags=re.MULTILINE,
+                    count=1,
                 )
             else:
                 # Fallback to top of file
-                content = env_block + content
+                content = env_block + "\n" + content
 
     return content
+
 
 def fix_release_strategy(workflow_dir):
     """Ensure release_strategy is aligned between build.yml and release.yml.
@@ -163,16 +197,16 @@ def fix_release_strategy(workflow_dir):
     if not os.path.exists(build_path):
         return None  # Nothing to fix
 
-    with open(build_path, 'r', encoding='utf-8') as f:
+    with open(build_path, "r", encoding="utf-8") as f:
         build_content = f.read()
 
-    if '# rokct-ignore' in build_content:
+    if "# rokct-ignore" in build_content:
         return None
 
     # Determine the canonical strategy
-    canonical = 'weekly'  # Fleet default
+    canonical = "weekly"  # Fleet default
     if os.path.exists(release_path):
-        with open(release_path, 'r', encoding='utf-8') as f:
+        with open(release_path, "r", encoding="utf-8") as f:
             release_content = f.read()
         match = re.search(r"release_strategy:\s*['\"]?(\w+)['\"]?", release_content)
         if match:
@@ -181,10 +215,13 @@ def fix_release_strategy(workflow_dir):
     # Check build.yml's current strategy
     match = re.search(r"release_strategy:\s*['\"]?(\w+)['\"]?", build_content)
     if match and match.group(1) != canonical:
-        new_content = build_content.replace(match.group(0), f"release_strategy: '{canonical}'")
+        new_content = build_content.replace(
+            match.group(0), f"release_strategy: '{canonical}'"
+        )
         return new_content
 
     return None
+
 
 def fix_release_push_dedup(workflow_dir):
     """When both build.yml and release.yml exist, remove push triggers from release.yml.
@@ -196,19 +233,15 @@ def fix_release_push_dedup(workflow_dir):
     if not os.path.exists(build_path) or not os.path.exists(release_path):
         return None
 
-    with open(release_path, 'r', encoding='utf-8') as f:
+    with open(release_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    if '# rokct-ignore' in content:
+    if "# rokct-ignore" in content:
         return None
 
     # Remove push: branches: [main, develop] block from release.yml
     # Match the push block with its branches sub-key
-    new_content = re.sub(
-        r'\n\s*push:\s*\n\s*branches:\s*\[.*?\]\s*\n',
-        '\n',
-        content
-    )
+    new_content = re.sub(r"\n\s*push:\s*\n\s*branches:\s*\[.*?\]\s*\n", "\n", content)
 
     if new_content != content:
         return new_content
@@ -216,39 +249,57 @@ def fix_release_push_dedup(workflow_dir):
 
 
 def fix_dependabot(path, check_only=False):
-    if not os.path.exists(path): return False
-    with open(path, 'r', encoding='utf-8') as f:
+    if not os.path.exists(path):
+        return False
+    with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-    
-    if '# rokct-ignore' in content: return False
-    
+
+    if "# rokct-ignore" in content:
+        return False
+
     # Only standardise if it's explicitly weekly or daily and lacks a keep flag
-    new_content = re.sub(r'interval:\s*["\']?(weekly|daily)["\']?\s*(?!# rokct-keep)', 'interval: "monthly"', content)
+    new_content = re.sub(
+        r'interval:\s*["\']?(weekly|daily)["\']?\s*(?!# rokct-keep)',
+        'interval: "monthly"',
+        content,
+    )
     if new_content != content:
         if not check_only:
-            with open(path, 'w', encoding='utf-8') as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(new_content)
         return True
     return False
 
+
 def sync_submodules(check_only=False):
-    if os.path.exists('.gitmodules'):
+    if os.path.exists(".gitmodules"):
         if check_only:
             # In check mode we just see if submodules are out of sync without updating
             # This is complex to do accurately without network, so we skip check for now
             return False
 
-        with open('.gitmodules', 'r') as f:
+        with open(".gitmodules", "r") as f:
             modules = f.read()
-            
-        if 'The-Rokct-Protocol' in modules:
+
+        if "The-Rokct-Protocol" in modules:
             print("📦 Syncing The-Rokct-Protocol...")
             try:
-                subprocess.run(['git', 'submodule', 'update', '--remote', '--merge', 'The-Rokct-Protocol'], check=True)
+                subprocess.run(
+                    [
+                        "git",
+                        "submodule",
+                        "update",
+                        "--remote",
+                        "--merge",
+                        "The-Rokct-Protocol",
+                    ],
+                    check=True,
+                )
                 return True
             except Exception as e:
                 print(f"❌ Submodule sync failed: {e}")
     return False
+
 
 def main():
     check_only = "--check" in sys.argv
@@ -285,29 +336,34 @@ def main():
                         print(f"⚠️ {path} needs standardization")
                     changed = True
 
-    # Align release_strategy between build.yml and release.yml
-        updated_build = fix_release_strategy(workflow_dir)
-        if updated_build is not None:
-            build_path = os.path.join(workflow_dir, "build.yml")
-            if not check_only:
-                with open(build_path, 'w', encoding='utf-8') as f:
-                    f.write(updated_build)
-                print(f"✅ Aligned release_strategy in build.yml")
-            else:
-                print(f"⚠️ build.yml release_strategy is misaligned")
-            changed = True
+    # Secondary fixes (alignment between files)
+    for workflow_dir in target_dirs:
+        if os.path.exists(workflow_dir):
+            # Align release_strategy between build.yml and release.yml
+            updated_build = fix_release_strategy(workflow_dir)
+            if updated_build is not None:
+                build_path = os.path.join(workflow_dir, "build.yml")
+                if not check_only:
+                    with open(build_path, "w", encoding="utf-8") as f:
+                        f.write(updated_build)
+                    print(f"✅ Aligned release_strategy in build.yml")
+                else:
+                    print(f"⚠️ build.yml release_strategy is misaligned")
+                changed = True
 
-        # Remove push triggers from release.yml when build.yml exists
-        updated_release = fix_release_push_dedup(workflow_dir)
-        if updated_release is not None:
-            release_path = os.path.join(workflow_dir, "release.yml")
-            if not check_only:
-                with open(release_path, 'w', encoding='utf-8') as f:
-                    f.write(updated_release)
-                print(f"✅ Removed push trigger from release.yml (build.yml handles pushes)")
-            else:
-                print(f"⚠️ release.yml has duplicate push trigger")
-            changed = True
+            # Remove push triggers from release.yml when build.yml exists
+            updated_release = fix_release_push_dedup(workflow_dir)
+            if updated_release is not None:
+                release_path = os.path.join(workflow_dir, "release.yml")
+                if not check_only:
+                    with open(release_path, "w", encoding="utf-8") as f:
+                        f.write(updated_release)
+                    print(
+                        f"✅ Removed push trigger from release.yml (build.yml handles pushes)"
+                    )
+                else:
+                    print(f"⚠️ release.yml has duplicate push trigger")
+                changed = True
 
     # Fix Dependabot
     if fix_dependabot(".github/dependabot.yml", check_only):
@@ -331,6 +387,7 @@ def main():
             print("🛠️ Repository standardization complete.")
     else:
         print("🙌 Repository is already standardized.")
+
 
 if __name__ == "__main__":
     main()

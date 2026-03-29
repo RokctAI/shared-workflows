@@ -1,13 +1,21 @@
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 ﻿name: Link Checker
 on:
   schedule:
     - cron: '30 2 * * 0' # Weekly on Sunday
   workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
 
 jobs:
   links:
-    permissions:
-      contents: read
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@main
     secrets: inherit
 

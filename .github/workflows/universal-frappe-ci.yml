@@ -1,9 +1,8 @@
 name: Frappe App Test
 
+permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-permissions: write-all
 on:
   workflow_call:
     inputs:

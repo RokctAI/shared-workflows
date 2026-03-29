@@ -1,20 +1,25 @@
 name: Code Quality
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 on:
+  workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
+  schedule:
+    - cron: "0 0 * * *"
   push:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
+permissions: write-all
 jobs:
   lint:
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     secrets: inherit
 

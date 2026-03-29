@@ -1,13 +1,12 @@
-﻿name: Build iOS (Stable Only)
+name: Build iOS (Stable Only)
 
 on:
   release:
     types: [published]
 
-permissions:
-  contents: write
-
+permissions: write-all
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # 🛑 Monthly Limit for iOS Builds (Cost Control)
   MAX_MONTHLY_BUILDS: 4
 
@@ -45,8 +44,7 @@ jobs:
     needs: check-quota
     # Only run if Quota Check passed AND it's a stable release
     if: needs.check-quota.outputs.should_run == 'true' && (!github.event.release.prerelease)
-    permissions:
-      contents: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
       build-type: ios
@@ -56,8 +54,7 @@ jobs:
   attach-ipa:
     needs: build-ios
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: write-all
     steps:
       - name: Download IPA Artifact
         uses: actions/download-artifact@v4
