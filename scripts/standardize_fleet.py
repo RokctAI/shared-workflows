@@ -253,37 +253,39 @@ def sync_submodules(check_only=False):
 def main():
     check_only = "--check" in sys.argv
     changed = False
-    
+
     # Fix Workflows
-    workflow_dir = ".github/workflows"
-    if os.path.exists(workflow_dir):
-        # Scan ALL workflows in the directory for standardization
-        for file in os.listdir(workflow_dir):
-            if not file.endswith(".yml"):
-                continue
+    # We scan both .github/workflows and examples/workflows
+    target_dirs = [".github/workflows", "examples/workflows"]
+    for workflow_dir in target_dirs:
+        if os.path.exists(workflow_dir):
+            # Scan ALL workflows in the directory for standardization
+            for file in os.listdir(workflow_dir):
+                if not file.endswith(".yml"):
+                    continue
 
-            path = os.path.join(workflow_dir, file)
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
+                path = os.path.join(workflow_dir, file)
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-            new_content = fix_workflow_permissions(content)
-            new_content = fix_workflow_node_version(new_content)
-            new_content = fix_workflow_inputs(new_content)
-            new_content = fix_workflow_triggers(new_content, file)
+                new_content = fix_workflow_permissions(content)
+                new_content = fix_workflow_node_version(new_content)
+                new_content = fix_workflow_inputs(new_content)
+                new_content = fix_workflow_triggers(new_content, file)
 
-            if file == "merge.yml":
-                new_content = fix_merge_workflow(new_content)
+                if file == "merge.yml":
+                    new_content = fix_merge_workflow(new_content)
 
-            if new_content != content:
-                if not check_only:
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write(new_content)
-                    print(f"✅ Updated {path}")
-                else:
-                    print(f"⚠️ {path} needs standardization")
-                changed = True
+                if new_content != content:
+                    if not check_only:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write(new_content)
+                        print(f"✅ Updated {path}")
+                    else:
+                        print(f"⚠️ {path} needs standardization")
+                    changed = True
 
-        # Align release_strategy between build.yml and release.yml
+    # Align release_strategy between build.yml and release.yml
         updated_build = fix_release_strategy(workflow_dir)
         if updated_build is not None:
             build_path = os.path.join(workflow_dir, "build.yml")
