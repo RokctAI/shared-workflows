@@ -1,3 +1,6 @@
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 ﻿name: Auto Merge
 on:
   pull_request:
@@ -5,9 +8,7 @@ on:
 
 jobs:
   merge:
-    permissions:
-      contents: write
-      pull-requests: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-merge.yml@main
     with:
       allowed_users: 'RendaniSinyage,Rendani Sinyage'

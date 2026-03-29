@@ -1,3 +1,6 @@
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 ﻿name: Build (Smart)
 
 on:
@@ -45,11 +48,7 @@ on:
         default: ""
         description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
+permissions: write-all
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
   detect:
@@ -74,9 +73,7 @@ jobs:
   # --- 2. UNIFIED PIPELINE (Smart) ---
   pipeline:
     needs: detect
-    permissions:
-      contents: write
-      issues: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: ${{ needs.detect.outputs.type }}

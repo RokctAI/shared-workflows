@@ -1,7 +1,6 @@
 name: Universal Code Quality (Lint)
 
 permissions: write-all
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

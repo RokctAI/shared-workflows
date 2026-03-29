@@ -1,10 +1,11 @@
 name: Auto Release (Weekly)
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-release
   cancel-in-progress: true
 on:
-  push:
-    branches: [main, develop]
   schedule:
     - cron: '0 23 * * 5'
   workflow_dispatch:
@@ -39,11 +40,7 @@ on:
         default: ""
         description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
+permissions: write-all
 jobs:
   # --- 1. DETECT PROJECT TYPE ---
   detect:
@@ -68,10 +65,7 @@ jobs:
   # --- 2. UNIFIED PIPELINE ---
   release:
     needs: detect
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+    permissions: write-all
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
       project_type: ${{ needs.detect.outputs.type }}
