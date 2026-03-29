@@ -1,10 +1,9 @@
 name: Security Scan
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions: write-all
 on:
   push:
     branches: [main]

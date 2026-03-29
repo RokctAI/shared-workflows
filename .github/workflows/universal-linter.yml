@@ -1,5 +1,7 @@
 name: Universal Code Quality (Lint)
 
+permissions: write-all
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -41,14 +43,17 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
 
 jobs:
   standardize:
     name: 🔄 Fleet Standardizer (Auto-Fix)
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
@@ -165,10 +170,7 @@ jobs:
   lint-python:
     needs: telemetry
     name: 🐍 Python Lint (Flake8 & AutoPEP8)
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
@@ -375,10 +377,7 @@ jobs:
   lint-shell:
     needs: telemetry
     name: 🐚 Shell Script Lint (ShellCheck)
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
@@ -502,10 +501,7 @@ jobs:
   lint-powershell:
     needs: telemetry
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
@@ -642,10 +638,7 @@ jobs:
   lint-flutter:
     needs: telemetry
     name: 🐦 Flutter Analyze
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''
@@ -802,10 +795,7 @@ jobs:
   lint-node:
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     env:
       IS_SELF: ''

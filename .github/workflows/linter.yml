@@ -3,11 +3,7 @@ name: Code Quality
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-
+permissions: write-all
 on:
   workflow_dispatch:
     inputs:

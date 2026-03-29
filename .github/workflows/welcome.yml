@@ -1,8 +1,9 @@
 name: Welcome Bot
 
-permissions:
-  issues: write
-  pull-requests: write
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions: write-all
 on:
   pull_request:
     types: [opened]

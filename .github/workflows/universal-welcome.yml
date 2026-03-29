@@ -1,5 +1,10 @@
 name: Universal Welcome Bot
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions: write-all
+
 on:
   workflow_call:
     secrets:
