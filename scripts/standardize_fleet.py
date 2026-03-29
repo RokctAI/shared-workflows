@@ -114,20 +114,49 @@ def fix_workflow_inputs(content):
     return content
 
 
+def fix_bot_identity(content):
+    if "# rokct-ignore" in content:
+        return content
+
+    # Get bot name from env or default to rokct-maintainer
+    main_bot = os.environ.get("BOT_NAME", "rokct-maintainer")
+
+    if main_bot != "rokct-maintainer":
+        return content
+
+    # 1. Update specific bot emails if found (do this before global rename)
+    content = content.replace(
+        "2956274+rokctbot[bot]@users.noreply.github.com",
+        "rokct-maintainer[bot]@users.noreply.github.com",
+    )
+
+    # 2. Global rename of legacy bot to new bot identity
+    # We target both 'rokctbot' and 'rokctbot[bot]'
+    content = content.replace("rokctbot[bot]", "rokct-maintainer[bot]")
+    content = content.replace("rokctbot", "rokct-maintainer")
+
+    return content
+
+
 def fix_merge_workflow(content):
     if "# rokct-ignore" in content:
         return content
 
-    # Get bot name from env or default to rokctbot
+    # Get bot name from env or default to rokct-maintainer
     # This allows external devs to use their own app name
-    main_bot = os.environ.get("BOT_NAME", "rokctbot")
+    main_bot = os.environ.get("BOT_NAME", "rokct-maintainer")
     bot_variants = [main_bot, f"{main_bot}[bot]"]
 
     # Ensure bots are in the allowed_users list
     match = re.search(r'allowed_users:\s*[\'"](.*?)[\'"]', content)
     if match:
         raw_allowed = match.group(1)
+        # Split, strip, and filter out 'rokctbot' variants if we are migrating to 'rokct-maintainer'
         allowed = [u.strip() for u in raw_allowed.split(",")]
+
+        if main_bot == "rokct-maintainer":
+            # Remove legacy bot entries to keep it clean
+            allowed = [u for u in allowed if u not in ["rokctbot", "rokctbot[bot]"]]
 
         needs_update = False
         for bot in bot_variants:
@@ -135,7 +164,10 @@ def fix_merge_workflow(content):
                 allowed.append(bot)
                 needs_update = True
 
-        if needs_update:
+        # Unique entries only
+        allowed = sorted(list(set(allowed)))
+
+        if needs_update or main_bot == "rokct-maintainer":
             new_allowed = ", ".join(allowed)
             content = content.replace(match.group(0), f'allowed_users: "{new_allowed}"')
     return content
@@ -305,9 +337,11 @@ def main():
     check_only = "--check" in sys.argv
     changed = False
 
-    # Fix Workflows
-    # We scan both .github/workflows and examples/workflows
+    # Fix Workflows & Actions
+    # We scan .github/workflows, examples/workflows and .github/actions
     target_dirs = [".github/workflows", "examples/workflows"]
+    action_dirs = [".github/actions"]
+
     for workflow_dir in target_dirs:
         if os.path.exists(workflow_dir):
             # Scan ALL workflows in the directory for standardization
@@ -323,6 +357,7 @@ def main():
                 new_content = fix_workflow_node_version(new_content)
                 new_content = fix_workflow_inputs(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
+                new_content = fix_bot_identity(new_content)
 
                 if file == "merge.yml":
                     new_content = fix_merge_workflow(new_content)
@@ -365,6 +400,27 @@ def main():
                     print(f"⚠️ release.yml has duplicate push trigger")
                 changed = True
 
+    # Fix Actions
+    for action_dir in action_dirs:
+        if os.path.exists(action_dir):
+            for root, _, files in os.walk(action_dir):
+                for file in files:
+                    if file.endswith((".yml", ".yaml")):
+                        path = os.path.join(root, file)
+                        with open(path, "r", encoding="utf-8") as f:
+                            content = f.read()
+
+                        new_content = fix_bot_identity(content)
+
+                        if new_content != content:
+                            if not check_only:
+                                with open(path, "w", encoding="utf-8") as f:
+                                    f.write(new_content)
+                                print(f"✅ Updated {path} bot identity")
+                            else:
+                                print(f"⚠️ {path} needs bot identity standardization")
+                            changed = True
+
     # Fix Dependabot
     if fix_dependabot(".github/dependabot.yml", check_only):
         if not check_only:
@@ -387,7 +443,6 @@ def main():
             print("🛠️ Repository standardization complete.")
     else:
         print("🙌 Repository is already standardized.")
-
 
 
 if __name__ == "__main__":

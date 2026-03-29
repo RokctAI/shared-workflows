@@ -93,7 +93,7 @@ jobs:
 
       - name: Run Standardizer Engine
         env:
-          BOT_NAME: ${{ github.repository_owner == 'RokctAI' && 'rokctbot' || github.repository_owner }}
+          BOT_NAME: ${{ github.repository_owner == 'RokctAI' && 'rokct-maintainer' || github.repository_owner }}
         run: |
           if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" || "${{ inputs.force-fix }}" == "true" ]]; then
             python3 ${{ env.ENGINE_PATH }}

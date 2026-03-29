@@ -174,8 +174,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          git config user.name "rokctbot[bot]"
-          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          git config user.name "rokct-maintainer[bot]"
+          git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           
           BRANCH_NAME="fix/build-errors-android-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"
@@ -534,8 +534,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          git config user.name "rokctbot[bot]"
-          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          git config user.name "rokct-maintainer[bot]"
+          git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           
           BRANCH_NAME="fix/build-errors-windows-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"
@@ -738,8 +738,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          git config user.name "rokctbot[bot]"
-          git config user.email "2956274+rokctbot[bot]@users.noreply.github.com"
+          git config user.name "rokct-maintainer[bot]"
+          git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           
           BRANCH_NAME="fix/build-errors-ios-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"

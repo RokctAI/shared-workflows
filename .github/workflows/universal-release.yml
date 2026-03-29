@@ -257,7 +257,7 @@ jobs:
           git push origin "$TAG_NAME"
           
           # Release (Optional Stub)
-          gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." || true
+          gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." --draft=false || true
           
           # --- ARCHIVAL LOGIC (User Request: Archive previous LTS when new one created) ---
           PREV_BRANCH="version-$PREV_MAJOR"
@@ -777,8 +777,16 @@ jobs:
                     HASH=$(echo "${{ github.sha }}" | cut -c1-7)
                     SUFFIX="-dev-$HASH"
                 elif [[ "$REF_NAME" == "main" ]]; then
-                    MODE="rc" # Push to Main
-                    SUFFIX="-rc" # Simple static suffix for the target version
+                    # Check if version in file is a stable release (no -rc)
+                    FILE="${{ inputs.version_file || 'version.json' }}"
+                    CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || cat "$FILE" | grep -oP '"version":\s*"\K[^"]+')
+                    if [[ "$CUR_VER" != *"-rc"* ]]; then
+                        MODE="stable"
+                        SUFFIX=""
+                    else
+                        MODE="rc" # Push to Main
+                        SUFFIX="-rc" # Simple static suffix for the target version
+                    fi
                 elif [[ "$REF_NAME" == build_* ]]; then
                     MODE="client"
                     # Extract client from branch name (e.g. build_clientname-custom-tag -> clientname)
@@ -845,15 +853,15 @@ jobs:
                 fi
              done
              
-             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like rokctbot)
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like rokct-maintainer)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokct-maintainer|rokct-maintainer)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokct-maintainer|rokct-maintainer)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
              
              echo "authors=$UNIQUE_AUTHORS" >> $GITHUB_OUTPUT
              echo "reviewers=$UNIQUE_REVIEWERS" >> $GITHUB_OUTPUT
              
              # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions)(\[bot\])?$/github-actions/' | while read user; do
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|rokct-maintainer|rokct-maintainer)(\[bot\])?$/github-actions/' | while read user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
              
@@ -1644,6 +1652,7 @@ jobs:
               gh release edit "$TAG" \
                 --title "$TAG" \
                 --notes-file "changelog.txt" \
+                --draft=false \
                 $PRERELEASE_FLAG || echo "⚠️ gh release edit failed."
               # Upload/overwrite assets
               if [ ${#FILES[@]} -gt 0 ]; then
@@ -1655,6 +1664,7 @@ jobs:
                 --title "$TAG" \
                 --notes-file "changelog.txt" \
                 --target "${{ github.sha }}" \
+                --draft=false \
                 $PRERELEASE_FLAG \
                 "${FILES[@]}" || {
                   echo "⚠️ gh release create failed. Attempting edit fallback..."
@@ -1662,6 +1672,7 @@ jobs:
                   gh release create "$TAG" \
                     --title "$TAG" \
                     --notes-file "changelog.txt" \
+                    --draft=false \
                     $PRERELEASE_FLAG || echo "❌ Release creation completely failed."
                 }
            fi
