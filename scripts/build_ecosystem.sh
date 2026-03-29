@@ -219,6 +219,14 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; 
 	fi
 fi
 
+# 5b. Force Synchronization of install_stack.py
+# If we have a root-level install_stack.py, ensure apps/control/ uses it too.
+# This prevents the control app's before_install hook from using an old/broken version.
+if [ -f "../install_stack.py" ] && [ -d "apps/control" ]; then
+	echo "RokctAI: Synchronizing install_stack.py to control app..."
+	cp -f "../install_stack.py" "apps/control/install_stack.py"
+fi
+
 # C. Stack Dependencies (Apps requested by install_stack.py)
 echo "RokctAI: Checking stack dependencies..."
 # Only fetch the core apps that build_ecosystem.sh originally fetched.
