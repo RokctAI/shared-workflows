@@ -1,8 +1,19 @@
 name: Link Checker
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions: write-all
 on:
   schedule:
     - cron: '30 2 * * 0' # Weekly on Sunday
   workflow_dispatch:
+    inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
 
 jobs:
   links:

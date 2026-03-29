@@ -1,5 +1,7 @@
 name: Universal Release Workflow
 
+permissions: write-all
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -139,10 +141,7 @@ jobs:
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
     needs: checks
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     env:
@@ -283,10 +282,7 @@ jobs:
   # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
     needs: checks
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     if: inputs.one_time_cleanup_cutoff_date != ''
     env:

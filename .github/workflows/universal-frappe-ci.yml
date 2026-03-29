@@ -1,4 +1,9 @@
 name: Frappe App Test
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions: write-all
 on:
   workflow_call:
     inputs:
@@ -69,10 +74,7 @@ jobs:
 
   test:
     needs: telemetry
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
