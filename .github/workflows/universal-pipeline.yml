@@ -110,6 +110,8 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+      MONOREPO_PAT:
+        required: false
 
 jobs:
   # 0. PR RESURRECTOR (Catch-all for revived branches)
