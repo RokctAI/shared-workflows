@@ -205,22 +205,39 @@ jobs:
           exit 1
 
       # --- Fetch Google Services JSON from Monorepo (Smart Mandatory) ---
-      - name: Fetch Google Services JSON from Monorepo (Dynamic Resolution)
-        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
+      - name: "Fetch/Decode Google Services JSON (Priority: Local > Monorepo > Secret)"
+        if: github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
+          CLIENT_JSON: "${{ steps.client.outputs.client_upper != '' && secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] || '' }}"
+          DEFAULT_JSON: "${{ secrets.GOOGLE_SERVICES_JSON }}"
         run: |
           if [ -f android/app/google-services.json ]; then
-             echo "✅ android/app/google-services.json already exists. Skipping fetch."
+             echo "✅ android/app/google-services.json already exists. Skipping."
           else
              FILE_NAME="google-services.json"
-             if [ ! -z "$CLIENT_PREFIX" ]; then
-                LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-                FILE_NAME="${LOWER_PREFIX}_google-services.json"
+             [ ! -z "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
+             
+             # 1. Try Monorepo
+             if [ ! -z "$GH_TOKEN" ] && gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > android/app/google-services.json 2>/dev/null; then
+                echo "✅ Successfully synced $FILE_NAME from Monorepo."
+             else
+                # 2. Try Secrets
+                echo "⚠️ Not in Monorepo. Falling back to secrets..."
+                JSON_CONTENT="$DEFAULT_JSON"
+                if [ ! -z "$CLIENT_JSON" ]; then
+                   echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_PREFIX}"
+                   JSON_CONTENT="$CLIENT_JSON"
+                fi
+                
+                if [ ! -z "$JSON_CONTENT" ]; then
+                   echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
+                   echo "✅ Successfully decoded from secrets."
+                else
+                   echo "ℹ️ No Google Services configuration found."
+                fi
              fi
-             echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
-             gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > android/app/google-services.json
           fi
         continue-on-error: false
 
@@ -599,20 +616,40 @@ jobs:
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
-      - name: Fetch GoogleService-Info.plist from Monorepo (Dynamic Resolution)
-        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
+      - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Monorepo > Secret)"
+        if: github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
+          CLIENT_PLIST: "${{ steps.client.outputs.client_upper != '' && secrets[format('IOS_GOOGLE_SERVICE_INFO_PLIST_{0}', steps.client.outputs.client_upper)] || '' }}"
+          DEFAULT_PLIST: "${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}"
         run: |
-          FILE_NAME="GoogleService-Info.plist"
-          if [ ! -z "$CLIENT_PREFIX" ]; then
-             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-             FILE_NAME="${LOWER_PREFIX}_GoogleService-Info.plist"
+          if [ -f ios/Runner/GoogleService-Info.plist ]; then
+             echo "✅ ios/Runner/GoogleService-Info.plist already exists. Skipping."
+          else
+             FILE_NAME="GoogleService-Info.plist"
+             [ ! -z "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
+             
+             # 1. Try Monorepo
+             if [ ! -z "$GH_TOKEN" ] && gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
+                echo "✅ Successfully synced $FILE_NAME from Monorepo."
+             else
+                # 2. Try Secrets
+                echo "⚠️ Not in Monorepo. Falling back to secrets..."
+                PLIST_CONTENT="$DEFAULT_PLIST"
+                if [ ! -z "$CLIENT_PLIST" ]; then
+                   echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${CLIENT_PREFIX}"
+                   PLIST_CONTENT="$CLIENT_PLIST"
+                fi
+                
+                if [ ! -z "$PLIST_CONTENT" ]; then
+                   echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
+                   echo "✅ Successfully decoded from secrets."
+                else
+                   echo "ℹ️ No Google configuration found."
+                fi
+             fi
           fi
-          
-          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
-          gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > ios/Runner/GoogleService-Info.plist
         continue-on-error: false
 
       # --- Fetch Environment from Monorepo (Smart Mandatory) ---
