@@ -59,6 +59,8 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+      MONOREPO_PAT:
+        required: false
 
 jobs:
   telemetry:
@@ -84,6 +86,7 @@ jobs:
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -201,50 +204,43 @@ jobs:
           echo "Build failed. Check the android-build-error-log artifact or the opened PR for details."
           exit 1
 
-      # Decode Google Services JSON if provided (Dynamic Resolution)
-      - name: Decode Google Services JSON
+      # --- Fetch Google Services JSON from Monorepo (Smart Mandatory) ---
+      - name: Fetch Google Services JSON from Monorepo (Dynamic Resolution)
+        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
-          CLIENT_JSON: ${{ steps.client.outputs.client_upper != '' && secrets[format('GOOGLE_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] || '' }}
-          DEFAULT_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        if: env.CLIENT_JSON != '' || env.DEFAULT_JSON != ''
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
         run: |
           if [ -f android/app/google-services.json ]; then
-             echo "✅ android/app/google-services.json already exists. Skipping decode."
+             echo "✅ android/app/google-services.json already exists. Skipping fetch."
           else
-             echo "🔑 Decoding Google Services JSON..."
-             JSON_CONTENT="$DEFAULT_JSON"
-             if [ ! -z "$CLIENT_JSON" ]; then
-                CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-                echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_SUFFIX}"
-                JSON_CONTENT="$CLIENT_JSON"
+             FILE_NAME="google-services.json"
+             if [ ! -z "$CLIENT_PREFIX" ]; then
+                LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+                FILE_NAME="${LOWER_PREFIX}_google-services.json"
              fi
-             echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
+             echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
+             gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > android/app/google-services.json
           fi
+        continue-on-error: false
 
-      # Decode Production Environment (Skip on develop)
-      - name: Decode Production Environment
+      # --- Fetch Environment from Monorepo (Smart Mandatory) ---
+      - name: Fetch Production Environment from Monorepo (Skip on develop)
+        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
-          CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
-          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
-        if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
         run: |
-          # Clean start
-          rm -rf .env
+          # Clean start (matches original RM check)
           mkdir -p .env
-          
-          ENV_CONTENT="$DEFAULT_ENV"
-          if [ ! -z "$CLIENT_ENV" ]; then
-             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
-             ENV_CONTENT="$CLIENT_ENV"
+          FILE_NAME="production.env"
+          if [ ! -z "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
           
-          if [ -z "$ENV_CONTENT" ]; then
-             echo "❌ Error: Environment secret is empty."
-             exit 1
-          fi
-          
-          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
+          gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > .env/production.env
           echo "✅ .env/production.env written."
           
           # Truncate at Flutter marker
@@ -256,6 +252,7 @@ jobs:
           # Normalize line endings
           sed -i 's/\r$//' .env/production.env
           echo "✅ .env/production.env ready for Flutter."
+        continue-on-error: false
 
       # Dynamic Source Rename (Skip on develop)
       - name: Dynamic Source Rename
@@ -583,6 +580,7 @@ jobs:
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
       IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -600,36 +598,38 @@ jobs:
           echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
-      # Decode GoogleService-Info.plist if provided (Dynamic Resolution)
-      - name: Decode GoogleService-Info.plist
+      # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
+      - name: Fetch GoogleService-Info.plist from Monorepo (Dynamic Resolution)
+        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
-          CLIENT_PLIST: ${{ steps.client.outputs.client_upper != '' && secrets[format('IOS_GOOGLE_SERVICE_INFO_PLIST_{0}', steps.client.outputs.client_upper)] || '' }}
-          DEFAULT_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
-        if: env.CLIENT_PLIST != '' || env.DEFAULT_PLIST != ''
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
         run: |
-           PLIST_CONTENT="$DEFAULT_PLIST"
-           if [ ! -z "$CLIENT_PLIST" ]; then
-              CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-              echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${CLIENT_SUFFIX}"
-              PLIST_CONTENT="$CLIENT_PLIST"
-           fi
-           echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
-
-      # Decode Production Environment if provided (Dynamic Resolution)
-      - name: Decode Production Environment
-        env:
-          CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
-          DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
-        if: env.CLIENT_ENV != '' || env.DEFAULT_ENV != ''
-        run: |
-          ENV_CONTENT="$DEFAULT_ENV"
-          if [ ! -z "$CLIENT_ENV" ]; then
-             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
-             ENV_CONTENT="$CLIENT_ENV"
+          FILE_NAME="GoogleService-Info.plist"
+          if [ ! -z "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_GoogleService-Info.plist"
           fi
+          
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
+          gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > ios/Runner/GoogleService-Info.plist
+        continue-on-error: false
+
+      # --- Fetch Environment from Monorepo (Smart Mandatory) ---
+      - name: Fetch Production Environment from Monorepo (Dynamic Resolution)
+        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
+        env:
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
+        run: |
           mkdir -p .env
-          echo "$ENV_CONTENT" | base64 --decode > .env/production.env
+          FILE_NAME="production.env"
+          if [ ! -z "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_production.env"
+          fi
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
+          gh repo view RokctAI/Monorepo --file ".env/$FILE_NAME" > .env/production.env
           
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
@@ -639,6 +639,7 @@ jobs:
           
           # Normalize line endings
           sed -i 's/\r$//' .env/production.env
+        continue-on-error: false
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
