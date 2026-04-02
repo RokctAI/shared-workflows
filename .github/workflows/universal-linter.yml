@@ -59,7 +59,7 @@ jobs:
       ENGINE_PATH: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -76,7 +76,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -84,7 +84,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -176,7 +176,7 @@ jobs:
       findings: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -190,7 +190,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -198,7 +198,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -219,7 +219,7 @@ jobs:
 
       - name: Set up Python
         if: steps.check_python.outputs.exists == 'true'
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -382,7 +382,7 @@ jobs:
       IS_SELF: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -396,7 +396,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -404,7 +404,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -506,7 +506,7 @@ jobs:
       IS_SELF: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -520,7 +520,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -528,7 +528,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -644,7 +644,7 @@ jobs:
       findings: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -658,7 +658,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -666,7 +666,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -801,7 +801,7 @@ jobs:
       audit_findings: ''
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -815,7 +815,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -823,7 +823,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -844,7 +844,7 @@ jobs:
 
       - name: Setup Node
         if: steps.check_node.outputs.exists == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
 

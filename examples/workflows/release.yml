@@ -48,7 +48,7 @@ jobs:
     outputs:
       type: ${{ steps.check.outputs.type }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check Project Type
         id: check
         run: |
