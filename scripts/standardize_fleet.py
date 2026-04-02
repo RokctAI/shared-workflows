@@ -75,6 +75,19 @@ def fix_workflow_inputs(content):
     if "# rokct-ignore" in content:
         return content
 
+    # 0. Ensure MONOREPO_PAT is in secrets if we are fetching env or google-services
+    if "production.env" in content or "google-services.json" in content or "GoogleService-Info.plist" in content:
+        if "MONOREPO_PAT:" not in content:
+            # Inject into secrets block
+            if "secrets:" in content:
+                content = re.sub(
+                    r"(secrets:.*?\n)",
+                    r"\1      MONOREPO_PAT:\n        required: false\n",
+                    content,
+                    count=1,
+                    flags=re.DOTALL,
+                )
+
     # 1. workflow_dispatch inputs (additive only)
     if (
         "workflow_dispatch:" in content
@@ -357,6 +370,38 @@ def sync_submodules(check_only=False):
     return False
 
 
+def fix_monorepo_secrets(content):
+    if "# rokct-ignore" in content:
+        return content
+
+    # 1. Inject Monorepo fetch into Node CI if it's missing (legacy secret-only mode)
+    if "universal-node-ci.yml" in content or "package.json" in content:
+        if "gh api /repos/RokctAI/Monorepo/contents/.env/" not in content:
+            # We look for the step that decodes the production environment
+            pattern = r"(- name: Decode Production Environment.*?run: \|.*?\n)(.*?)(?=\n\s*- name:|\Z)"
+            def repl(m):
+                header = m.group(1)
+                indent = re.match(r"^(\s*)", m.group(2)).group(1) if m.group(2).strip() else "          "
+                new_step = f"""{header}{indent}FILE_NAME="production.env"
+{indent}# 1. Try Monorepo
+{indent}if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+{indent}   echo "✅ Successfully synced $FILE_NAME from Monorepo."
+{indent}else
+{indent}   # 2. Try Secrets Fallback...
+"""
+                return new_step
+
+            # This is a bit risky to do via regex on every repo's custom workflow,
+            # so we only do it if we are sure it's the standard RokctAI pattern.
+            if "secrets.PRODUCTION_ENV" in content:
+                # We don't actually modify the content here yet,
+                # we prefer to let the universal workflows themselves handle the logic
+                # and just ensure they HAVE the secrets passed.
+                pass
+
+    return content
+
+
 def main():
     check_only = "--check" in sys.argv
     changed = False
@@ -380,6 +425,7 @@ def main():
                 new_content = fix_workflow_permissions(content)
                 new_content = fix_workflow_node_version(new_content)
                 new_content = fix_workflow_inputs(new_content)
+                new_content = fix_monorepo_secrets(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
                 new_content = fix_bot_identity(new_content)
                 new_content = fix_action_versions(new_content)
