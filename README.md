@@ -93,9 +93,21 @@ To maintain a healthy balance between **speed** and **stability**, we use a tier
 
 ---
 
-## 🔐 Secrets Setup
+## 🔐 Secrets & Monorepo Strategy
 
-Ensure these secrets are set in your Repository (or Org) settings. **All workflows use `secrets: inherit`**, so you only need to set them once.
+To simplify fleet management, we prioritize fetching configuration (`.env`, `google-services.json`) from a central **Monorepo** instead of managing dozens of duplicate GitHub Secrets.
+
+### 🏢 Monorepo Fetching (The New Standard)
+All core workflows now follow a **"Priority: Local > Monorepo > Secret"** resolution strategy:
+1.  **Local**: If the file (e.g., `android/app/google-services.json`) is already committed to the repo, it is used.
+2.  **Monorepo**: If not local, the CI attempts to fetch `${CLIENT}_production.env` or `${CLIENT}_google-services.json` from `RokctAI/Monorepo/.env/` using the `MONOREPO_PAT`.
+3.  **Secret**: If the Monorepo fetch fails, it falls back to the legacy `PRODUCTION_ENV` or `GOOGLE_SERVICES_JSON` secrets.
+
+### 🔑 Required Secrets
+Ensure these are set in your Repository (or Org) settings. **All workflows use `secrets: inherit`**.
+
+*   **`MONOREPO_PAT`**: (Recommended) A GitHub Personal Access Token with read access to the `RokctAI/Monorepo` repository.
+*   **`APP_ID` / `APP_PRIVATE_KEY`**: (Recommended) Used by the CI to bypass `GITHUB_TOKEN` rate limits and perform authenticated actions (like PR creation).
 
 ### 1. Android Signing 🤖
 *   **`KEY_JKS`**: Base64 encoded `.jks` file.
@@ -150,6 +162,55 @@ To balance security and flexibility, we follow a strict **"Respect Local, Overwr
 | **`google-services.json`**| **Skip if Present** | Respects locally committed Firebase config. |
 | **`key.properties`** | **Skip if Present** | Respects custom keystore names/configs in the repo. |
 | **`key.jks`** | **Skip if Present** | Preserves local keys if `key.properties` is found. |
+
+---
+
+## 🛠️ Hook Guard (Frappe Ecosystem)
+
+The Golden Build Script (`scripts/build_ecosystem.sh`) implements a **Hook Guard** to prevent `on_update` and `after_insert` hooks from running during site installation and migration. This ensures PostgreSQL transaction stability and speeds up the build.
+
+### 🔓 Opt-out Mechanism
+If you have critical hooks that **must** run during installation (e.g., creating mandatory system DocTypes), you can opt-out using the `# rokct-no-guard` comment:
+
+*   **File Level**: Add `# rokct-no-guard` anywhere in the `.py` file to skip the guard for ALL functions in that file.
+*   **Function Level**: Add `# rokct-no-guard` on the line immediately preceding the `def` statement.
+
+```python
+# rokct-no-guard
+def on_update(self):
+    # This hook will run even during installation
+    pass
+
+# Or per-function:
+
+# rokct-no-guard
+def after_insert(self):
+    # This specific hook is allowed
+    pass
+```
+
+---
+
+## 📊 Verified Data & Exports
+
+To ensure data integrity across the fleet, all automated exports (Excel, CSV, PDF) must strictly follow the **"Verified Data"** policy:
+
+1.  **Production Readiness**: Exports should only be generated in "Stable" or "Promotion" environments.
+2.  **Audit Trail**: Any workflow that generates data artifacts must pass all quality gates (Lint, Security, CI) before the export is triggered.
+3.  **No Dev Leaks**: Developer (`-dev`) and Release Candidate (`-rc`) builds should never contain production-verified data exports unless explicitly labeled for staging.
+
+---
+
+## 🆘 Troubleshooting
+
+### 1. GitHub App Workflow Permissions
+If you see the error: `refusing to allow a GitHub App to create or update workflow... without 'workflows' permission`, it means your GitHub App identity doesn't have the necessary rights to update CI configuration.
+- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**.
+
+### 2. Skipping Standardization
+If you have a custom workflow or file that the auto-standardizer is incorrectly "fixing", you can opt-out:
+- **File level**: Add `# rokct-ignore` anywhere in the file.
+- **Line level (Dependabot)**: Add `# rokct-keep` on the `interval` line to preserve your custom schedule.
 
 ---
 

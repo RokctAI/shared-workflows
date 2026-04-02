@@ -32,6 +32,8 @@ on:
         default: false
         description: "Force auto-fix and commit even on PR/Push (used for daily cleanup and stable releases)"
     secrets:
+      MONOREPO_PAT:
+        required: false
       COUNTER_API_KEY:
         required: false
       APP_ID:
@@ -145,7 +147,8 @@ jobs:
                 echo "✅ Maintenance PR opened. Status set to Success to keep CI green. Please merge manually or rely on auto-merge."
                 exit 0
             else
-                echo "❌ Failed to push branch for PR. Please check App permissions."
+                echo "❌ Failed to push branch for PR."
+                echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
                 exit 1
             fi
           else
