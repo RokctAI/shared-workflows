@@ -108,7 +108,7 @@ jobs:
           echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
-      - name: Decode Production Environment (Priority: Monorepo > Secret)
+      - name: "Decode Production Environment (Priority: Monorepo > Secret)"
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
