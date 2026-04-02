@@ -1137,7 +1137,7 @@ jobs:
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_PREFIX}"
                 ENV_CONTENT="$CLIENT_ENV"
              fi
-
+             
              if [ ! -z "$ENV_CONTENT" ]; then
                 echo "$ENV_CONTENT" | base64 --decode > .env/production.env
                 echo "✅ Successfully decoded from secrets."
@@ -1152,7 +1152,7 @@ jobs:
                 echo "✂️ Truncating .env at ##########END_FLUTTER##########"
                 sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
              fi
-
+             
              # Normalize line endings
              sed -i 's/\r$//' .env/production.env
              echo "✅ .env/production.env ready for Flutter release."
@@ -1186,7 +1186,7 @@ jobs:
                        echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_PREFIX}"
                        JSON_CONTENT="$CLIENT_JSON"
                     fi
-
+                    
                     if [ ! -z "$JSON_CONTENT" ]; then
                        echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
                        echo "✅ Successfully decoded from secrets."
