@@ -87,7 +87,7 @@ jobs:
         options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=2s --health-retries=5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Debug Secret Presence
         run: |
@@ -96,7 +96,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         continue-on-error: true
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -127,12 +127,12 @@ jobs:
 
       - name: Setup Python
         id: setup-python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -150,7 +150,7 @@ jobs:
         if: inputs.bootstrap == true
         # Graceful Skip: Don't fail if Monorepo is inaccessible (e.g. Forks or Token errors)
         continue-on-error: true
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/Monorepo
           path: monorepo_overrides
@@ -455,7 +455,7 @@ jobs:
 
       - name: Archive Apps (Artifact)
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: frappe-apps-bundle
           path: frappe-bench/apps

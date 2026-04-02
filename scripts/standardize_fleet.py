@@ -173,6 +173,30 @@ def fix_merge_workflow(content):
     return content
 
 
+def fix_action_versions(content):
+    if "# rokct-ignore" in content:
+        return content
+
+    # Mapping of actions to their Node 24-compatible major versions as of April 2026
+    updates = {
+        r"actions/checkout@v[0-5]": "actions/checkout@v6",
+        r"actions/create-github-app-token@v[1-2]": "actions/create-github-app-token@v3",
+        r"actions/github-script@v[0-7]": "actions/github-script@v8",
+        r"actions/setup-node@v[0-5]": "actions/setup-node@v6",
+        r"actions/setup-python@v[0-5]": "actions/setup-python@v6",
+        r"actions/upload-artifact@v[0-5]": "actions/upload-artifact@v6",
+        r"actions/download-artifact@v[0-5]": "actions/download-artifact@v6",
+        r"actions/setup-java@v[0-4]": "actions/setup-java@v5",
+        r"actions/stale@v[0-9]+": "actions/stale@v11",
+        r"actions/first-interaction@v1": "actions/first-interaction@v2",
+    }
+
+    for pattern, replacement in updates.items():
+        content = re.sub(pattern, replacement, content)
+
+    return content
+
+
 def fix_workflow_node_version(content):
     if "# rokct-ignore" in content:
         return content
@@ -358,6 +382,7 @@ def main():
                 new_content = fix_workflow_inputs(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
                 new_content = fix_bot_identity(new_content)
+                new_content = fix_action_versions(new_content)
 
                 if file == "merge.yml":
                     new_content = fix_merge_workflow(new_content)

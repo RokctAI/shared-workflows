@@ -70,7 +70,7 @@ jobs:
     permissions: write-all
     steps:
       - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: macos-release-build
           path: macos_build

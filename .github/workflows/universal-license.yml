@@ -27,7 +27,7 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check License Headers
         uses: apache/skywalking-eyes/header@v0.4.0
         env:
