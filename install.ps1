@@ -240,3 +240,8 @@ if ($customize -eq 'y' -or $customize -eq 'Y') {
 }
 
 Write-Host "`n✅ Installation Complete!" -ForegroundColor Green
+
+Write-Host "`n⚠️  IMPORTANT: GITHUB APP PERMISSIONS" -ForegroundColor Yellow
+Write-Host "To allow the Fleet Standardizer to auto-fix and update your workflows, your GitHub App MUST have:"
+Write-Host "  - Workflows: Read & Write" -ForegroundColor White
+Write-Host "Otherwise, maintenance PRs will fail to push. Update this in your App Settings > Permissions & events.`n"

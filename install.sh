@@ -218,3 +218,8 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
 fi
 
 echo -e "\n\033[0;32m✅ Installation Complete!\033[0m\n"
+
+echo -e "\033[1;33m⚠️  IMPORTANT: GITHUB APP PERMISSIONS\033[0m"
+echo -e "To allow the Fleet Standardizer to auto-fix and update your workflows, your GitHub App MUST have:"
+echo -e "  - \033[1mWorkflows: Read & Write\033[0m"
+echo -e "Otherwise, maintenance PRs will fail to push. Update this in your App Settings > Permissions & events.\n"

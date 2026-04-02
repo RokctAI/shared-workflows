@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
+# For license information, please see license.txt
+
 set -e
 
 # ==============================================================================
@@ -300,8 +303,14 @@ for app_dir in apps/*; do
 	# We use a whitespace-aware sed to handle both tabs and spaces.
 	# We also handle docstrings by injecting after the def line, and ensuring we use the same whitespace type.
 	find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self[^\)]*\):" | while read -r hook_file; do
+		# Skip files with explicit opt-out
+		if grep -q "# rokct-no-guard" "$hook_file"; then
+			echo "[$this_app] Opt-out detected in $hook_file, skipping guard."
+			continue
+		fi
+
 		echo "[$this_app] Guarding hooks in $hook_file"
-		# Use python for safer injection that respects indentation
+		# Use python for safer injection that respects indentation and avoids double injection
 		env/bin/python -c "
 import sys, re
 path = '$hook_file'
@@ -309,7 +318,21 @@ with open(path, 'r') as f: content = f.read()
 pattern = r'^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):'
 def repl(m):
     indent = m.group(1)
-    return f'{m.group(0)}\n{indent}{indent}if frappe.flags.in_install or frappe.flags.in_migrate: return'
+    full_match = m.group(0)
+
+    # Per-function opt-out: check the line immediately preceding the function
+    pre_content = content[:m.start()]
+    lines = pre_content.splitlines()
+    if lines and "# rokct-no-guard" in lines[-1]:
+        return full_match
+
+    guard_str = 'if frappe.flags.in_install or frappe.flags.in_migrate: return'
+    # Avoid double injection: check if the next non-empty line already has the guard
+    next_lines = content[m.end():].split('\n', 4)
+    for line in next_lines:
+        if guard_str in line: return full_match
+        if line.strip() and not line.strip().startswith('\"\"\"') and not line.strip().startswith('#'): break
+    return f'{full_match}\n{indent}{indent}{guard_str}'
 new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
 with open(path, 'w') as f: f.write(new_content)
 " || true

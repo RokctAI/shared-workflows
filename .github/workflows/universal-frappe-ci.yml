@@ -55,6 +55,8 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+      MONOREPO_PAT:
+        required: false
 
 
 jobs:
