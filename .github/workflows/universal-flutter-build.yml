@@ -188,6 +188,9 @@ jobs:
               gh pr create --title "🚨 Build Failure: Android Errors Found (Run ${{ github.run_id }})" \
                            --body "Automated report for failed Android build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
+            else
+              echo "❌ Failed to push branch for error reporting."
+              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 
@@ -559,6 +562,9 @@ jobs:
               gh pr create --title "🚨 Build Failure: Windows Errors Found (Run ${{ github.run_id }})" \
                            --body "Automated report for failed Windows build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
+            else
+              echo "❌ Failed to push branch for error reporting."
+              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 
@@ -787,6 +793,9 @@ jobs:
               gh pr create --title "🚨 Build Failure: iOS Errors Found (Run ${{ github.run_id }})" \
                            --body "Automated report for failed iOS build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
+            else
+              echo "❌ Failed to push branch for error reporting."
+              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 

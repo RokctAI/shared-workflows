@@ -39,6 +39,8 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+      MONOREPO_PAT:
+        required: false
 
 jobs:
   telemetry:
@@ -106,22 +108,41 @@ jobs:
           echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
           [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
-      - name: Decode Production Environment
+      - name: "Decode Production Environment (Priority: Monorepo > Secret)"
         env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
           CLIENT_ENV: ${{ steps.client.outputs.client_upper != '' && secrets[format('PRODUCTION_ENV_{0}', steps.client.outputs.client_upper)] || '' }}
           DEFAULT_ENV: ${{ secrets.PRODUCTION_ENV }}
-        if: (env.CLIENT_ENV != '' || env.DEFAULT_ENV != '') && github.ref_name != 'develop'
+        if: github.ref_name != 'develop'
         run: |
-          ENV_CONTENT="$DEFAULT_ENV"
-          if [ ! -z "$CLIENT_ENV" ]; then
-             CLIENT_SUFFIX="${{ steps.client.outputs.client_upper }}"
-             echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_SUFFIX}"
-             ENV_CONTENT="$CLIENT_ENV"
+          FILE_NAME="production.env"
+          if [ ! -z "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
-          
-          if [ -n "$ENV_CONTENT" ]; then
-             echo "$ENV_CONTENT" | base64 --decode > .env.raw
+
+          # 1. Try Monorepo
+          if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+             echo "✅ Successfully synced $FILE_NAME from Monorepo."
+          else
+             # 2. Try Secrets
+             echo "⚠️ Not in Monorepo. Falling back to secrets..."
+             ENV_CONTENT="$DEFAULT_ENV"
+             if [ ! -z "$CLIENT_ENV" ]; then
+                echo "✅ Using client-specific secret: PRODUCTION_ENV_${CLIENT_PREFIX}"
+                ENV_CONTENT="$CLIENT_ENV"
+             fi
              
+             if [ ! -z "$ENV_CONTENT" ]; then
+                echo "$ENV_CONTENT" | base64 --decode > .env.raw
+                echo "✅ Successfully decoded from secrets."
+             else
+                echo "ℹ️ No environment configuration found."
+             fi
+          fi
+
+          if [ -f .env.raw ]; then
              # Truncate at NextJS marker
              if grep -q "##########END_NEXTJS##########" .env.raw; then
                 echo "✂️ Node build: Stopping at ##########END_NEXTJS##########"
