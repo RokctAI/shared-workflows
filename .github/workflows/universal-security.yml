@@ -30,7 +30,7 @@ jobs:
           -H "Authorization: Bearer $API_KEY"
 
   security-python:
-    needs: telemetry
+    needs: [telemetry, secret-scan]
     name: 🐍 Python Security (Bandit & Pip Audit)
     runs-on: ubuntu-latest
     steps:
@@ -125,7 +125,7 @@ jobs:
           fi
 
   security-node:
-    needs: telemetry
+    needs: [telemetry, secret-scan]
     name: 📦 Node Security (NPM Audit)
     runs-on: ubuntu-latest
     steps:
@@ -264,7 +264,7 @@ jobs:
           exit 1
 
   enable-push-protection:
-    needs: telemetry
+    needs: [telemetry, secret-scan]
     name: 🔒 Enable Push Protection
     runs-on: ubuntu-latest
     # Only on public repos and only when MONOREPO_PAT is present (org repos)
