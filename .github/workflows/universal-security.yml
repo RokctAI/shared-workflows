@@ -13,6 +13,8 @@ on:
         required: false
       APP_PRIVATE_KEY:
         required: false
+      MONOREPO_PAT:
+        required: false
 
 jobs:
   telemetry:
@@ -67,7 +69,6 @@ jobs:
       - name: Run Bandit (Code Analysis)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          # Recursive scan, skip hidden dirs, HIGH severity. Non-blocking exit.
           bandit -r . --exclude ./.git,./node_modules,./venv --severity high > bandit_output.txt 2>&1 || true
           
           if [ -s bandit_output.txt ] && grep -q "Severity: High" bandit_output.txt; then
@@ -174,3 +175,146 @@ jobs:
           \`\`\`
           "
           gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
+
+  secret-scan:
+    needs: telemetry
+    name: 🔑 Secret Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    if: github.event.repository.visibility == 'public'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Full history scan
+
+      - name: Run Gitleaks
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # Let us create the issue before failing
+
+      - name: Create Remediation Issue
+        if: steps.gitleaks.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "🚨 Secret Detected in Git History" \
+            --label "Security" \
+            --body "### 🔑 Secret Found in Repository
+
+          Gitleaks detected a secret committed in this repository.
+
+          **Commit:** \`${{ github.sha }}\`
+          **Branch:** \`${{ github.ref_name }}\`
+
+          ---
+
+          ### 🛠️ Remediation Steps
+
+          **Step 1 — Rotate the key immediately**
+          Assume it is already compromised. Revoke and reissue it in the relevant service before doing anything else.
+
+          **Step 2 — Install git-filter-repo**
+          \`\`\`bash
+          pip install git-filter-repo
+          \`\`\`
+
+          **Step 3 — Clone a fresh copy**
+          \`\`\`bash
+          git clone https://github.com/${{ github.repository }}.git repo-clean
+          cd repo-clean
+          \`\`\`
+
+          **Step 4 — Purge sensitive files from all history**
+          \`\`\`bash
+          # Targets by pattern — catches moves and renames too
+          git filter-repo --path-glob '**/*.env' --path-glob '**/.env*' --invert-paths
+          \`\`\`
+
+          **Step 5 — Re-add origin and force push**
+          \`\`\`bash
+          git remote add origin https://github.com/${{ github.repository }}.git
+          git push origin --force --all
+          git push origin --force --tags
+          \`\`\`
+
+          **Step 6 — Reset your local repo**
+          \`\`\`bash
+          git fetch origin
+          git reset --hard origin/main
+          \`\`\`
+
+          **Step 7 — Add to .gitignore**
+          \`\`\`bash
+          echo '.env/' >> .gitignore
+          echo '*.env' >> .gitignore
+          git add .gitignore && git commit -m 'chore: ignore .env files' && git push
+          \`\`\`
+
+          ---
+          > ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history." \
+          || echo "⚠️ Issue may already exist, skipping."
+
+      - name: Fail if Secret Found
+        if: steps.gitleaks.outcome == 'failure'
+        run: |
+          echo "❌ Secret detected. See the issue created for remediation steps."
+          exit 1
+
+  enable-push-protection:
+    needs: telemetry
+    name: 🔒 Enable Push Protection
+    runs-on: ubuntu-latest
+    # Only on public repos and only when MONOREPO_PAT is present (org repos)
+    if: github.event.repository.visibility == 'public' && secrets.MONOREPO_PAT != ''
+    steps:
+      - name: Enable Secret Scanning & Push Protection
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          gh api --method PATCH /repos/${{ github.repository }} \
+            -f security_and_analysis[secret_scanning][status]=enabled \
+            -f security_and_analysis[secret_scanning_push_protection][status]=enabled
+          echo "✅ Secret scanning and push protection enabled."
+
+  notify-bot-required:
+    needs: telemetry
+    name: 🤖 Notify Bot Required
+    runs-on: ubuntu-latest
+    # Public repo but no bot installed (no APP_ID)
+    if: github.event.repository.visibility == 'public' && secrets.APP_ID == ''
+    steps:
+      - name: Create Bot Installation Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
+            --label "Security" \
+            --body "### 🤖 RokctAI Bot Not Detected
+
+          This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
+
+          Some security features are unavailable without it:
+          - ❌ Automatic secret scanning push protection
+          - ❌ GitHub Advanced Security settings management
+          - ❌ Automated issue creation with app tokens
+
+          ---
+
+          ### 📦 How to Install
+
+          Install the RokctAI Bot on this repository:
+          👉 **https://github.com/apps/rokctai-bot**
+
+          Once installed, add the following secrets to this repo:
+          - \`APP_ID\` — provided after installation
+          - \`APP_PRIVATE_KEY\` — provided after installation
+
+          ---
+
+          > This issue was auto-created by the Universal Security workflow.
+          > Once the bot is installed this issue can be closed." \
+          || echo "⚠️ Issue may already exist, skipping."
