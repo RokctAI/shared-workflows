@@ -236,13 +236,12 @@ jobs:
       - name: Install Lint Tools
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          pip install ruff
+          pip install ruff ty
 
       - name: Auto-fix Whitespace (Ruff Format)
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # ruff format replaces autopep8 — faster, same PEP8 rules
-          # Exclude .github, venvs, caches, and minified files
           ruff format . --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__"
 
       - name: Auto-Inject Frappe Copyright
@@ -285,25 +284,37 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           # ruff check replaces flake8 — same rules, 10-100x faster
-          # --fix auto-corrects safe fixable issues
-          # Non-blocking exit so we can create an issue instead of hard failing
           ruff check . \
             --select=E9,F63,F7,F82,E,W,C90,F \
             --ignore=E501,W503,W504,F401,F841 \
             --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
             --output-format=text > flake8_output.txt 2>&1 || true
 
-          # Print for log visibility
           cat flake8_output.txt
 
-          # Set output if findings exist
           if grep -q ":" flake8_output.txt; then
              echo "findings=true" >> $GITHUB_ENV
           else
              echo "findings=false" >> $GITHUB_ENV
           fi
 
-      - name: Create Issue on Findings
+      - name: Run ty (Type Check)
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          # ty catches type errors from AI-generated code before they cause runtime bugs
+          ty check . \
+            --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
+            > ty_output.txt 2>&1 || true
+
+          cat ty_output.txt
+
+          if grep -qi "error" ty_output.txt; then
+             echo "ty_findings=true" >> $GITHUB_ENV
+          else
+             echo "ty_findings=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create Issue on Ruff Findings
         if: env.findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -318,6 +329,24 @@ jobs:
           \`\`\`
           "
           gh issue create --title "🚨 CI: Python Lint Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
+
+      - name: Create Issue on ty Findings
+        if: env.ty_findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          BODY="### 🔍 Python Type Check Failure (ty)
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+
+          > Type errors are common in AI-generated code. Fix these before they cause runtime bugs.
+
+          #### Type Errors:
+          \`\`\`
+          $(head -c 2000 ty_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 CI: Python Type Errors Found" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
 
       - name: Setup Identity (Local)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
@@ -342,7 +371,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
           
           if [[ -n $(git status -s) ]]; then
             git add .
@@ -384,8 +413,7 @@ jobs:
       - name: Verify Python Formatting
         if: steps.check_python.outputs.exists == 'true' && github.event_name == 'pull_request'
         run: |
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
-          # ruff format --check exits non-zero if files would be reformatted
+          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
           if ! ruff format . --check --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__"; then
             echo "❌ Python code is NOT formatted correctly. Please run 'ruff format .' locally."
             exit 1
