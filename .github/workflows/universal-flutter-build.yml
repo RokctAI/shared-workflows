@@ -172,6 +172,14 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
+      - name: Checkout Shared Workflows
+        if: env.build_failed == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
       - name: Setup Bot Identity
         if: env.build_failed == 'true'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
@@ -179,17 +187,21 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit & Surface Build Errors (PR-First)
         if: env.build_failed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          # Fallback identity if setup-identity failed or was skipped
           if [[ -z "$(git config user.name)" ]]; then
             git config user.name "rokct-maintainer[bot]"
             git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           fi
-          
+
           BRANCH_NAME="fix/build-errors-android-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"
           git add error_log.md
@@ -200,7 +212,7 @@ jobs:
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
             else
               echo "❌ Failed to push branch for error reporting."
-              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
+              echo "💡 TIP: Ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 
@@ -555,6 +567,14 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
+      - name: Checkout Shared Workflows
+        if: env.build_failed == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
       - name: Setup Bot Identity
         if: env.build_failed == 'true'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
@@ -562,18 +582,22 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
       - name: Commit & Surface Build Errors (PR-First)
         if: env.build_failed == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          # Fallback identity if setup-identity failed or was skipped
           if [[ -z "$(git config user.name)" ]]; then
             git config user.name "rokct-maintainer[bot]"
             git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           fi
-          
+
           BRANCH_NAME="fix/build-errors-windows-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"
           git add error_log.md
@@ -584,7 +608,7 @@ jobs:
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
             else
               echo "❌ Failed to push branch for error reporting."
-              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
+              echo "💡 TIP: Ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 
@@ -797,6 +821,14 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
+      - name: Checkout Shared Workflows
+        if: env.build_failed == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
       - name: Setup Bot Identity
         if: env.build_failed == 'true'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
@@ -804,17 +836,20 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+
       - name: Commit & Surface Build Errors (PR-First)
         if: env.build_failed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          # Fallback identity if setup-identity failed or was skipped
           if [[ -z "$(git config user.name)" ]]; then
             git config user.name "rokct-maintainer[bot]"
             git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
           fi
-          
+
           BRANCH_NAME="fix/build-errors-ios-${{ github.run_id }}-${{ github.run_attempt }}"
           git checkout -B "$BRANCH_NAME"
           git add error_log.md
@@ -825,7 +860,7 @@ jobs:
                            --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
             else
               echo "❌ Failed to push branch for error reporting."
-              echo "💡 TIP: If the error is 'refusing to allow a GitHub App to create or update workflow', ensure your GitHub App has 'Workflows: Read & Write' permissions."
+              echo "💡 TIP: Ensure your GitHub App has 'Workflows: Read & Write' permissions."
             fi
           fi
 
