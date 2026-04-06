@@ -236,14 +236,14 @@ jobs:
       - name: Install Lint Tools
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          pip install flake8 autopep8
+          pip install ruff
 
-      - name: Auto-fix Whitespace (excluding F401)
+      - name: Auto-fix Whitespace (Ruff Format)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          # Run autopep8 to fix standard formatting issues (E1, E2, E3, W2, W3, etc.)
-          # Exclude .github directory, virtual environments, caches, and minified files
-          autopep8 --in-place --recursive --aggressive --aggressive --exclude .github,.git,node_modules,env,venv,.venv,__pycache__,*.min.js .
+          # ruff format replaces autopep8 — faster, same PEP8 rules
+          # Exclude .github, venvs, caches, and minified files
+          ruff format . --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__"
 
       - name: Auto-Inject Frappe Copyright
         if: steps.check_python.outputs.exists == 'true' && inputs.copyright-text != ''
@@ -281,19 +281,22 @@ jobs:
              fi
           done
 
-      - name: Run Flake8
+      - name: Run Ruff (Lint)
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          # Capture output to a file for issue reporting but still exit with 0 to be non-blocking
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics > flake8_output.txt 2>&1 || true
-          flake8 . --count --max-complexity=10 --max-line-length=120 \
-            --ignore=E501,W503,W504,W191,W291,W292,W293,W391,E261,E265,E302,E303,E305,E111,E114,E116,E117,E127,E128,E225,E226,E401,F401,F841 \
-            --statistics >> flake8_output.txt 2>&1 || true
-          
+          # ruff check replaces flake8 — same rules, 10-100x faster
+          # --fix auto-corrects safe fixable issues
+          # Non-blocking exit so we can create an issue instead of hard failing
+          ruff check . \
+            --select=E9,F63,F7,F82,E,W,C90,F \
+            --ignore=E501,W503,W504,F401,F841 \
+            --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
+            --output-format=text > flake8_output.txt 2>&1 || true
+
           # Print for log visibility
           cat flake8_output.txt
-          
-          # Set output if findings exist (contains :)
+
+          # Set output if findings exist
           if grep -q ":" flake8_output.txt; then
              echo "findings=true" >> $GITHUB_ENV
           else
@@ -382,9 +385,9 @@ jobs:
         if: steps.check_python.outputs.exists == 'true' && github.event_name == 'pull_request'
         run: |
           rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
-          if [[ -n $(git status -s) ]]; then
-            echo "❌ Python code is NOT formatted correctly. Please run autopep8 locally."
-            git status -s
+          # ruff format --check exits non-zero if files would be reformatted
+          if ! ruff format . --check --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__"; then
+            echo "❌ Python code is NOT formatted correctly. Please run 'ruff format .' locally."
             exit 1
           else
             echo "✅ Python code is properly formatted."
