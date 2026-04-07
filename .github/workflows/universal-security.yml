@@ -242,15 +242,18 @@ jobs:
         GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
         if [ -f "pip_audit_output.txt" ]; then
-          BODY="### 🐍 Python Dependency Audit Failure
+          BODY=$(cat <<EOF
+          ### 🐍 Python Dependency Audit Failure
           **Commit:** ${{ github.sha }}
 
           #### Findings:
           \`\`\`
           $(head -c 2000 pip_audit_output.txt)
           \`\`\`
-          "
+          EOF
+          )
           gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
+        fi
 
 # -----------------------------
 # Node Security
