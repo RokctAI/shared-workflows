@@ -280,23 +280,24 @@ jobs:
           # Clean start (matches original RM check)
           mkdir -p .env
           FILE_NAME="production.env"
-          if [ ! -z "$CLIENT_PREFIX" ]; then
+
+          if [ -n "$CLIENT_PREFIX" ]; then
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
-          
-          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
-          gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env/production.env
+  
+          echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
+          gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
           echo "✅ .env/production.env written."
-          
+  
           # Truncate at Flutter marker
-          if grep -q "##########END_FLUTTER##########" .env/production.env; then
+          if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-             sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
+             sed -i '/##########END_FLUTTER##########/,$d' ".env/production.env"
           fi
-          
+  
           # Normalize line endings
-          sed -i 's/\r$//' .env/production.env
+          sed -i 's/\r$//' ".env/production.env"
           echo "✅ .env/production.env ready for Flutter."
         continue-on-error: false
 
@@ -305,175 +306,154 @@ jobs:
         if: github.ref_name != 'develop'
         run: |
           # 1. Load Environment Variables
-          if [ -f .env/production.env ]; then
-             echo "📝 Loading .env/production.env for source transformation..."
-             # Normalize line endings (CRLF -> LF) to prevent Bash errors
-             sed -i 's/\r$//' .env/production.env
-             set -a
-             source .env/production.env
-             set +a
-             echo "✅ Environment variables loaded."
-             # Debug specific critical keys (Names only, values will show in constructing Target Package below)
-             if [ ! -z "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."; else echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."; fi
+          if [ -f ".env/production.env" ]; then
+            echo "📝 Loading .env/production.env for source transformation..."
+            # Normalize line endings (CRLF -> LF) to prevent Bash errors
+            sed -i 's/\r$//' ".env/production.env"
+            set -a
+            source ".env/production.env"
+            set +a
+            echo "✅ Environment variables loaded."
+
+            # Debug critical keys
+            if [ -n "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then
+              echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."
+            else
+              echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."
+            fi
           else
-             echo "⚠️ No .env/production.env found. Skipping rename."
-             exit 0
+            echo "⚠️ No .env/production.env found. Skipping rename."
+            exit 0
           fi
 
           # 2. Construct Target Package Variable Name
           APP_TYPE="${{ inputs.app-type }}"
           if [ -z "$APP_TYPE" ]; then
-             echo "⚠️ No 'app-type' input provided. Skipping rename."
-             exit 0
+            echo "⚠️ No 'app-type' input provided. Skipping rename."
+            exit 0
           fi
 
-          # Construct environment variable name (e.g. SHOPPER -> SHOPPER_ANDROID_PACKAGE_NAME)
           APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
           ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
-          
-          # Indirect reference to get value
           TARGET_PACKAGE="${!ENV_VAR_NAME}"
-          
+
           echo "🔧 App Type: $APP_TYPE"
           echo "🔑 Looking for: $ENV_VAR_NAME"
           echo "🎯 Target Package: $TARGET_PACKAGE"
           echo "📊 Current .env package settings:"
-          grep "_ANDROID_PACKAGE_NAME" .env/production.env || echo "No package settings found in .env"
+          grep "_ANDROID_PACKAGE_NAME" ".env/production.env" || echo "No package settings found in .env"
 
           # 2b. Validate against google-services.json
           GS_JSON="android/app/google-services.json"
           if [ -f "$GS_JSON" ]; then
-             echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
-             if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
-                echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
-                echo "📄 Clients found in JSON:"
-                grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
-                exit 1
-             else
-                echo "✅ Package match confirmed in google-services.json."
-             fi
+            echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
+            if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+              echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
+              echo "📄 Clients found in JSON:"
+              grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+              exit 1
+            else
+              echo "✅ Package match confirmed in google-services.json."
+            fi
           fi
 
           if [ -z "$TARGET_PACKAGE" ]; then
-             echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
-             exit 1
+            echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
+            exit 1
           fi
 
           BASE_DIR="android/app/src/main/kotlin"
-          TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
-          
+          TARGET_PATH=$(echo "$TARGET_PACKAGE" | tr '.' '/')
+
           # 3. Check if Target Exists (Idempotent)
           if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
-             echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
-             # We assume if dir exists, files are likely updated, but we could double check files if paranoid.
-             # For now, we trust the directory presence.
+            echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
           else
-             echo "🔄 Target not found. Detecting current vendor source..."
-             
-             # Extract namespace="..." value from build.gradle
-             GRADLE_FILE="android/app/build.gradle"
-             if [ ! -f "$GRADLE_FILE" ]; then
-                 echo "❌ Error: No build.gradle found to detect namespace!"
-                 exit 1
-             fi
+            echo "🔄 Target not found. Detecting current vendor source..."
+            
+            GRADLE_FILE="android/app/build.gradle"
+            if [ ! -f "$GRADLE_FILE" ]; then
+              echo "❌ Error: No build.gradle found to detect namespace!"
+              exit 1
+            fi
 
-             VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\\([^'\"]*\\)['\"].*/\\1/")
-             
-             if [ -z "$VENDOR_PACKAGE" ]; then
-                 echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
-                 exit 1
-             fi
+            VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\([^'\"]*\)['\"].*/\1/")
 
-             # Convert package to path
-             VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
+            if [ -z "$VENDOR_PACKAGE" ]; then
+              echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
+              exit 1
+            fi
 
-             echo "📦 Initializing source transformation..."
+            VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
 
-             if [ "$VENDOR_PACKAGE" == "$TARGET_PACKAGE" ]; then
-                 echo "✅ Source matches target. Nothing to do."
-                 exit 0
-             fi
+            echo "📦 Initializing source transformation..."
+            if [ "$VENDOR_PACKAGE" = "$TARGET_PACKAGE" ]; then
+              echo "✅ Source matches target. Nothing to do."
+              exit 0
+            fi
 
-             # 5. Move Directories
-             echo "🚀 Applying directory structure..."
-             mkdir -p "$BASE_DIR/$TARGET_PATH"
-             
-             if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
-                 mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
-                 
-                 # Optional: Remove empty vendor dirs if they are empty
-                 # rmdir -p "$BASE_DIR/$VENDOR_PATH" 2>/dev/null || true
-             else
-                 echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
-                 exit 1
-             fi
+            echo "🚀 Applying directory structure..."
+            mkdir -p "$BASE_DIR/$TARGET_PATH"
+
+            if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
+              mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
+            else
+              echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
+              exit 1
+            fi
           fi
 
-          # 6. Update File Content (MainActivity & Manifests)
-          # We check the file at the TARGET location now
+          # 4. Update MainActivity.kt package
           MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
-          
           if [ -f "$MAIN_ACTIVITY" ]; then
-             # Check if we need to update package declaration
-             if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
-                 echo "✏️ Updating MainActivity.kt package declaration..."
-                 # We simply replace the line starting with 'package '
-                 sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
-             else
-                 echo "✅ MainActivity.kt is correct."
-             fi
+            if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
+              echo "✏️ Updating MainActivity.kt package declaration..."
+              sed -i "s|^package .*|package $TARGET_PACKAGE|" "$MAIN_ACTIVITY"
+            else
+              echo "✅ MainActivity.kt is correct."
+            fi
           fi
 
-          # Update build.gradle namespace
-          BUILD_GRADLE="android/app/build.gradle"
-          if [ -f "$BUILD_GRADLE" ]; then
-             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
-                echo "✏️ Updating $BUILD_GRADLE..."
-                # Replace applicationId and namespace
-                sed -i "s/applicationId [\"'][^\"']*[\"']/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-                sed -i "s/namespace [\"'][^\"']*[\"']/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-             else
-                echo "✅ $BUILD_GRADLE is correct."
-             fi
-          fi
-          # Update build.gradle
-          BUILD_GRADLE="android/app/build.gradle"
-          if [ -f "$BUILD_GRADLE" ]; then
-             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
-                echo "✏️ Updating $BUILD_GRADLE..."
-                # Replace applicationId and namespace
-                sed -i "s/applicationId \"[^\"]*\"/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-                sed -i "s/namespace \"[^\"]*\"/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-             else
-                echo "✅ $BUILD_GRADLE is correct."
-             fi
+          # 5. Update build.gradle namespace & applicationId
+          if [ -f "$GRADLE_FILE" ]; then
+            if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$GRADLE_FILE"; then
+              echo "✏️ Updating $GRADLE_FILE..."
+              sed -i "s|applicationId [\"'][^\"']*[\"']|applicationId \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
+              sed -i "s|namespace [\"'][^\"']*[\"']|namespace \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
+            else
+              echo "✅ $GRADLE_FILE is correct."
+            fi
           fi
 
       # Decode Keystore if secret provided (Optional robust signing)
       - name: Decode Keystore
         if: env.KEY_JKS != ''
         run: |
-          if [ -f android/key.properties ]; then
-             echo "✅ android/key.properties already exists. Skipping keystore setup."
+          if [ -f "android/key.properties" ]; then
+            echo "✅ android/key.properties already exists. Skipping keystore setup."
           else
-             echo "🔑 Decoding Keystore..."
-             echo "$KEY_JKS" | base64 --decode > android/app/key.jks
-             
-             echo "📝 Creating key.properties..."
-             echo "storePassword=$KEY_PASSWORD" > android/key.properties
-             echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
-             echo "keyAlias=upload" >> android/key.properties
-             echo "storeFile=key.jks" >> android/key.properties
+            echo "🔑 Decoding Keystore..."
+            # Ensure target directory exists
+            mkdir -p android/app
+            echo "$KEY_JKS" | base64 --decode > "android/app/key.jks"
+
+            echo "📝 Creating key.properties..."
+            {
+              echo "storePassword=$KEY_PASSWORD"
+              echo "keyPassword=$ALIAS_PASSWORD"
+              echo "keyAlias=upload"
+              echo "storeFile=key.jks"
+            } > "android/key.properties"
           fi
 
       - name: Build APK
         if: inputs.build-type == 'apk'
         run: |
-          BUILD_ARGS="--release"
+          BUILD_ARGS=(--release)
           if [ -f .env/production.env ]; then
-            BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
           fi
-          flutter build apk $BUILD_ARGS
+          flutter build apk "${BUILD_ARGS[@]}"
 
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle'
