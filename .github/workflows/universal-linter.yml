@@ -177,28 +177,28 @@ jobs:
           -H "Authorization: Bearer $API_KEY"
 
   lint-yaml:
-  needs: telemetry
-  name: 📝 YAML Lint
-  runs-on: ubuntu-latest
-  steps:
-    - name: Checkout Code
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
+    needs: telemetry
+    name: 📝 YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-    - name: Install actionlint
-      run: |
-        curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.6.24/actionlint_1.6.24_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+      - name: Install actionlint
+        run: |
+          curl -sSL https://github.com/rhysd/actionlint/releases/download/v1.6.24/actionlint_1.6.24_linux_amd64.tar.gz | tar xz -C /usr/local/bin
 
-    - name: Lint GitHub Workflows
-      run: |
-        echo "Linting workflow YAMLs..."
-        actionlint .github/workflows/*.yml
+      - name: Lint GitHub Workflows
+        run: |
+          echo "Linting workflow YAMLs..."
+          actionlint .github/workflows/*.yml
 
-    - name: Lint Example YAMLs
-      run: |
-        echo "Linting example YAMLs..."
-        find examples -name "*.yml" -exec actionlint {} +
+      - name: Lint Example YAMLs
+        run: |
+          echo "Linting example YAMLs..."
+          find examples -name "*.yml" -exec actionlint {} +
 
   lint-python:
     needs: telemetry
