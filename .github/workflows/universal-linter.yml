@@ -178,7 +178,7 @@ jobs:
 
   lint-python:
     needs: telemetry
-    name: 🐍 Python Lint (Flake8 & AutoPEP8)
+    name: 🐍 Python Lint (Ruff & ty)
     permissions: write-all
     runs-on: ubuntu-latest
     env:
@@ -288,11 +288,11 @@ jobs:
             --select=E9,F63,F7,F82,E,W,C90,F \
             --ignore=E501,W503,W504,F401,F841 \
             --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
-            --output-format=text > flake8_output.txt 2>&1 || true
+            --output-format=text > ruff_output.txt 2>&1 || true
 
-          cat flake8_output.txt
+          cat ruff_output.txt
 
-          if grep -q ":" flake8_output.txt; then
+          if grep -q ":" ruff_output.txt; then
              echo "findings=true" >> $GITHUB_ENV
           else
              echo "findings=false" >> $GITHUB_ENV
@@ -319,16 +319,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          BODY="### 🐍 Python Lint Failure
+          BODY="### 🐍 Python Lint Failure (Ruff)
           **Commit:** ${{ github.sha }}
           **Branch:** ${{ github.ref_name }}
           
           #### Error Summary:
           \`\`\`
-          $(head -c 2000 flake8_output.txt)
+          $(head -c 2000 ruff_output.txt)
           \`\`\`
           "
-          gh issue create --title "🚨 CI: Python Lint Failure" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
+          gh issue create --title "🚨 CI: Python Lint Failure (Ruff)" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
 
       - name: Create Issue on ty Findings
         if: env.ty_findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -371,7 +371,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files so they are not included in status check or commit
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
+          rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
           
           if [[ -n $(git status -s) ]]; then
             git add .
@@ -413,7 +413,7 @@ jobs:
       - name: Verify Python Formatting
         if: steps.check_python.outputs.exists == 'true' && github.event_name == 'pull_request'
         run: |
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
+          rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
           if ! ruff format . --check --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__"; then
             echo "❌ Python code is NOT formatted correctly. Please run 'ruff format .' locally."
             exit 1
@@ -816,7 +816,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+          rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
 
           if [[ -n $(git status -s) ]]; then
             git restore pubspec.lock || true
@@ -1009,7 +1009,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           # Clean up temporary findings files
-          rm -f flake8_output.txt flutter_output.txt npm_audit_output.txt
+          rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
 
           if [[ -n $(git status -s) ]]; then
             git add .
