@@ -256,10 +256,10 @@ jobs:
 # Node Security
 # -----------------------------
   security-node:
-  needs: [telemetry, secret-scan]
-  name: 📦 Node Security (NPM Audit)
-  runs-on: ubuntu-latest
-  steps:
+    needs: [telemetry, secret-scan]
+    name: 📦 Node Security (NPM Audit)
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout Code
         uses: actions/checkout@v6
 
@@ -295,52 +295,52 @@ jobs:
         if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-      run: |
-        BODY="### 📦 Node Security Audit Failure
-        **High/Critical vulnerabilities found.**
+        run: |
+          BODY="### 📦 Node Security Audit Failure
+          **High/Critical vulnerabilities found.**
 
-        #### Audit Summary:
-        \`\`\`
-        $(head -c 2000 npm_audit_output.txt)
-        \`\`\`
-        "
-        gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
+          #### Audit Summary:
+          \`\`\`
+          $(head -c 2000 npm_audit_output.txt)
+          \`\`\`
+          "
+          gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
 
 # -----------------------------
 # Enable Push Protection
 # -----------------------------
-enable-push-protection:
-  needs: [telemetry, secret-scan, pre-check]
-  name: 🔒 Enable Push Protection
-  runs-on: ubuntu-latest
-  if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
-  steps:
-    - name: Enable Secret Scanning & Push Protection
-      env:
-        GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
-      run: |
-        gh api --method PATCH /repos/${{ github.repository }} \
-          -f security_and_analysis[secret_scanning][status]=enabled \
-          -f security_and_analysis[secret_scanning_push_protection][status]=enabled
-        echo "✅ Secret scanning and push protection enabled."
+  enable-push-protection:
+    needs: [telemetry, secret-scan, pre-check]
+    name: 🔒 Enable Push Protection
+    runs-on: ubuntu-latest
+    if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
+    steps:
+      - name: Enable Secret Scanning & Push Protection
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          gh api --method PATCH /repos/${{ github.repository }} \
+            -f security_and_analysis[secret_scanning][status]=enabled \
+            -f security_and_analysis[secret_scanning_push_protection][status]=enabled
+          echo "✅ Secret scanning and push protection enabled."
 
 # -----------------------------
 # Notify Bot Required
 # -----------------------------
-notify-bot-required:
-  needs: [telemetry, pre-check]
-  name: 🤖 Notify Bot Required
-  runs-on: ubuntu-latest
-  if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
-  steps:
-    - name: Create Bot Installation Issue
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh issue create \
-          --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
-          --label "Security" \
-          --body "### 🤖 RokctAI Bot Not Detected
+  notify-bot-required:
+    needs: [telemetry, pre-check]
+    name: 🤖 Notify Bot Required
+    runs-on: ubuntu-latest
+    if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
+    steps:
+      - name: Create Bot Installation Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
+            --label "Security" \
+            --body "### 🤖 RokctAI Bot Not Detected
 
           This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
 
