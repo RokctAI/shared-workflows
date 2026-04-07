@@ -253,51 +253,51 @@ $(head -c 2000 pip_audit_output.txt)
 "
             gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
 
-  # -----------------------------
-  # Node Security
-  # -----------------------------
-  security-node:
-    needs: [telemetry, secret-scan]
-    name: 📦 Node Security (NPM Audit)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+# -----------------------------
+# Node Security
+# -----------------------------
+security-node:
+  needs: [telemetry, secret-scan]
+  name: 📦 Node Security (NPM Audit)
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout Code
+      uses: actions/checkout@v6
 
-      - name: Generate App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-        continue-on-error: true
+    - name: Generate App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        app-id: ${{ secrets.APP_ID }}
+        private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      continue-on-error: true
 
-      - name: Check for Node
-        id: check_node
-        run: |
-          if [ -f "package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-        shell: bash
+    - name: Check for Node
+      id: check_node
+      run: |
+        if [ -f "package.json" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
 
-      - name: Run NPM Audit
-        if: steps.check_node.outputs.exists == 'true'
-        run: |
-          npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
-          if grep -qEi "high|critical" npm_audit_output.txt; then
-             echo "npm_findings=true" >> $GITHUB_ENV
-          else
-             echo "npm_findings=false" >> $GITHUB_ENV
-          fi
+    - name: Run NPM Audit
+      if: steps.check_node.outputs.exists == 'true'
+      run: |
+        npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
+        if grep -qEi "high|critical" npm_audit_output.txt; then
+           echo "npm_findings=true" >> $GITHUB_ENV
+        else
+           echo "npm_findings=false" >> $GITHUB_ENV
+        fi
 
-      - name: Create Issue on NPM Audit Findings
-        if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-        run: |
-          BODY="### 📦 Node Security Audit Failure
+    - name: Create Issue on NPM Audit Findings
+      if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+      run: |
+        BODY="### 📦 Node Security Audit Failure
 **High/Critical vulnerabilities found.**
 
 #### Audit Summary:
@@ -305,43 +305,43 @@ $(head -c 2000 pip_audit_output.txt)
 $(head -c 2000 npm_audit_output.txt)
 \`\`\`
 "
-          gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
+        gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
 
-  # -----------------------------
-  # Enable Push Protection
-  # -----------------------------
-  enable-push-protection:
-    needs: [telemetry, secret-scan, pre-check]
-    name: 🔒 Enable Push Protection
-    runs-on: ubuntu-latest
-    if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
-    steps:
-      - name: Enable Secret Scanning & Push Protection
-        env:
-          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
-        run: |
-          gh api --method PATCH /repos/${{ github.repository }} \
-            -f security_and_analysis[secret_scanning][status]=enabled \
-            -f security_and_analysis[secret_scanning_push_protection][status]=enabled
-          echo "✅ Secret scanning and push protection enabled."
+# -----------------------------
+# Enable Push Protection
+# -----------------------------
+enable-push-protection:
+  needs: [telemetry, secret-scan, pre-check]
+  name: 🔒 Enable Push Protection
+  runs-on: ubuntu-latest
+  if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
+  steps:
+    - name: Enable Secret Scanning & Push Protection
+      env:
+        GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+      run: |
+        gh api --method PATCH /repos/${{ github.repository }} \
+          -f security_and_analysis[secret_scanning][status]=enabled \
+          -f security_and_analysis[secret_scanning_push_protection][status]=enabled
+        echo "✅ Secret scanning and push protection enabled."
 
-  # -----------------------------
-  # Notify Bot Required
-  # -----------------------------
-  notify-bot-required:
-    needs: [telemetry, pre-check]
-    name: 🤖 Notify Bot Required
-    runs-on: ubuntu-latest
-    if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
-    steps:
-      - name: Create Bot Installation Issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue create \
-            --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
-            --label "Security" \
-            --body "### 🤖 RokctAI Bot Not Detected
+# -----------------------------
+# Notify Bot Required
+# -----------------------------
+notify-bot-required:
+  needs: [telemetry, pre-check]
+  name: 🤖 Notify Bot Required
+  runs-on: ubuntu-latest
+  if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
+  steps:
+    - name: Create Bot Installation Issue
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue create \
+          --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
+          --label "Security" \
+          --body "### 🤖 RokctAI Bot Not Detected
 
 This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
 
@@ -365,4 +365,4 @@ Once installed, add the following secrets to this repo:
 
 > This issue was auto-created by the Universal Security workflow.
 > Once the bot is installed this issue can be closed." \
-          || echo "⚠️ Issue may already exist, skipping."
+        || echo "⚠️ Issue may already exist, skipping."
