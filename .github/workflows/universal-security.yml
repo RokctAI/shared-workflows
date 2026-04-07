@@ -59,7 +59,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Full history scan
+          fetch-depth: 0
 
       - name: Run Gitleaks
         id: gitleaks
@@ -67,6 +67,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+
+      # NEW: This step parses the results and prints the TYPE of secret found
+      - name: Display Found Secret Types
+        if: steps.gitleaks.outcome == 'failure'
+        run: |
+          echo "🔍 Analyzing findings..."
+          # Gitleaks usually generates a report or prints to stdout. 
+          # We can force a summary to the log:
+          echo "-------------------------------------------------------"
+          echo "❌ SECURITY ALERT: The following secret types were found:"
+          echo "-------------------------------------------------------"
+          # This command extracts the 'Description' or 'RuleID' from the findings
+          # without printing the 'Secret' value itself.
+          jq -r '.[] | "- Found: " + .Description + " in file: " + .File' gitleaks-report.json || echo "Could not parse report, check raw logs above."
+          echo "-------------------------------------------------------"
 
       - name: Create Remediation Issue
         if: steps.gitleaks.outcome == 'failure'
