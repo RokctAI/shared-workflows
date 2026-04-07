@@ -92,7 +92,7 @@ jobs:
       - name: Create Remediation Issue
         if: steps.gitleaks.outcome == 'failure'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
           gh issue create \
             --title "🚨 Secret Detected in Git History" \
