@@ -4,7 +4,6 @@ permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-
 on:
   workflow_call:
     inputs:
@@ -26,7 +25,6 @@ on:
         type: boolean
         default: true
 
-      # --- CI Environment Inputs ---
       # Node.js
       node-version:
         type: string
@@ -48,12 +46,10 @@ on:
       db-type:
         type: string
         default: 'mariadb'
-        description: "Database type: 'mariadb' or 'postgres'"
       db-password:
         required: false
         type: string
         default: 'travis'
-        description: "Password for the database service"
       redis-version:
         type: string
         default: '6.0'
@@ -78,7 +74,7 @@ on:
         type: string
         default: '17'
 
-      # --- Release Inputs (Proxied to universal-release.yml) ---
+      # Release
       release_strategy:
         type: string
         default: 'immediate'
@@ -88,7 +84,6 @@ on:
       version_format:
         type: string
         default: '##.##.##'
-        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
       brain_endpoint:
         type: string
       build_android:
@@ -106,7 +101,6 @@ on:
       backfill_ai_notes_cutoff_version:
         type: string
         default: ""
-        description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
 
     secrets:
       APP_ID:
@@ -124,15 +118,18 @@ jobs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
       trivial: ${{ steps.diff.outputs.trivial }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history required for diff
 
       - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }}
+        run: git fetch origin ${{ github.base_ref }} || echo "Base branch not found, skipping diff"
 
       - name: Check if only whitespace changes
         id: diff
         run: |
-          DIFF=$(git diff -w origin/${{ github.base_ref }}...HEAD)
+          DIFF=$(git diff -w origin/${{ github.base_ref }}...HEAD || true)
 
           if [ -z "$DIFF" ]; then
             echo "Only whitespace changes detected"
@@ -146,11 +143,16 @@ jobs:
 
       - name: Label PR as trivial
         if: steps.diff.outputs.trivial == 'true'
-        run: gh pr edit ${{ github.event.pull_request.number }} --add-label "trivial"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels \
+            -d '{"labels":["trivial"]}'
 
-  # 0. PR RESURRECTOR (Catch-all for revived branches)
+  # 0. PR RESURRECTOR
   pr-resurrector:
     needs: detect-changes
     if: needs.detect-changes.outputs.trivial != 'true'
@@ -176,7 +178,7 @@ jobs:
       force-fix: ${{ github.ref_name == 'main' || github.ref_name == 'develop' }}
     secrets: inherit
 
-  # 3. CI / BUILD (Project Specific Jobs)
+  # 3. CI / BUILD
   ci-frappe:
     needs: [detect-changes, lint]
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
@@ -201,7 +203,6 @@ jobs:
     with:
       node-version: ${{ inputs.node-version || '24' }}
       package-manager: ${{ inputs.package-manager || 'pnpm' }}
-      # Dynamic command generation based on package manager
       build-command: ${{ format('{0} run build', inputs.package-manager || 'pnpm') }}
       test-command: ${{ format('{0} run test', inputs.package-manager || 'pnpm') }}
     secrets: inherit
@@ -211,18 +212,16 @@ jobs:
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'flutter' && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
-      # Note: build-type here for CI is usually 'apk' or similar to verify compilation
-      build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
+      build-type: ${{ inputs.build_android && 'apk' || 'apk' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
       app-type: ${{ inputs.app-type }}
     secrets: inherit
 
-  # 4. RELEASE (The Gate)
+  # 4. RELEASE
   release:
     needs: [detect-changes, ci-frappe, ci-node, ci-flutter]
-    # Gate logic: SUCCESS or SKIPPED for all needs, OR Bypass if develop
     if: |
       always() && 
       needs.detect-changes.outputs.trivial != 'true' &&
@@ -243,7 +242,6 @@ jobs:
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
-      # Environment 
       node-version: ${{ inputs.node-version || '24' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
