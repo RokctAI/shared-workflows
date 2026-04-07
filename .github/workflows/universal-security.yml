@@ -155,15 +155,15 @@ jobs:
         run: |
           echo "❌ Secret detected. See the issue created for remediation steps."
           exit 1
-          
- # -----------------------------
- # Python Security
- # -----------------------------
- security-python:
-  needs: [telemetry, secret-scan]
-  name: 🐍 Python Security (Bandit & Pip Audit)
-  runs-on: ubuntu-latest
-  steps:
+
+  # -----------------------------
+  # Python Security
+  # -----------------------------
+  security-python:
+    needs: [telemetry, secret-scan]
+    name: 🐍 Python Security (Bandit & Pip Audit)
+    runs-on: ubuntu-latest
+    steps:
     - name: Checkout Code
       uses: actions/checkout@v6
 
@@ -260,41 +260,41 @@ jobs:
   name: 📦 Node Security (NPM Audit)
   runs-on: ubuntu-latest
   steps:
-    - name: Checkout Code
-      uses: actions/checkout@v6
+      - name: Checkout Code
+        uses: actions/checkout@v6
 
-    - name: Generate App Token
-      id: app-token
-      uses: actions/create-github-app-token@v3
-      with:
-        app-id: ${{ secrets.APP_ID }}
-        private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      continue-on-error: true
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
 
-    - name: Check for Node
-      id: check_node
-      run: |
-        if [ -f "package.json" ]; then
-          echo "exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "exists=false" >> $GITHUB_OUTPUT
-        fi
-      shell: bash
+      - name: Check for Node
+        id: check_node
+        run: |
+          if [ -f "package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
 
-    - name: Run NPM Audit
-      if: steps.check_node.outputs.exists == 'true'
-      run: |
-        npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
-        if grep -qEi "high|critical" npm_audit_output.txt; then
-           echo "npm_findings=true" >> $GITHUB_ENV
-        else
+      - name: Run NPM Audit
+        if: steps.check_node.outputs.exists == 'true'
+        run: |
+          npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
+          if grep -qEi "high|critical" npm_audit_output.txt; then
+             echo "npm_findings=true" >> $GITHUB_ENV
+          else
            echo "npm_findings=false" >> $GITHUB_ENV
-        fi
+          fi
 
-    - name: Create Issue on NPM Audit Findings
-      if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+      - name: Create Issue on NPM Audit Findings
+        if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
         BODY="### 📦 Node Security Audit Failure
         **High/Critical vulnerabilities found.**
