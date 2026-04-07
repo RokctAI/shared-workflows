@@ -155,11 +155,11 @@ jobs:
         run: |
           echo "❌ Secret detected. See the issue created for remediation steps."
           exit 1
-
-# -----------------------------
-# Python Security
-# -----------------------------
-security-python:
+          
+ # -----------------------------
+ # Python Security
+ # -----------------------------
+ security-python:
   needs: [telemetry, secret-scan]
   name: 🐍 Python Security (Bandit & Pip Audit)
   runs-on: ubuntu-latest
@@ -255,7 +255,7 @@ security-python:
 # -----------------------------
 # Node Security
 # -----------------------------
-security-node:
+  security-node:
   needs: [telemetry, secret-scan]
   name: 📦 Node Security (NPM Audit)
   runs-on: ubuntu-latest
