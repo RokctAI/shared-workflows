@@ -66,6 +66,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} 
         continue-on-error: true
 
       # NEW: This step parses the results and prints the TYPE of secret found
