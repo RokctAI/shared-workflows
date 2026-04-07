@@ -4,6 +4,7 @@ permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+
 on:
   workflow_call:
     inputs:
@@ -26,6 +27,7 @@ on:
         default: true
 
       # --- CI Environment Inputs ---
+      # Node.js
       node-version:
         type: string
         default: '24'
@@ -51,6 +53,7 @@ on:
         required: false
         type: string
         default: 'travis'
+        description: "Password for the database service"
       redis-version:
         type: string
         default: '6.0'
@@ -75,7 +78,7 @@ on:
         type: string
         default: '17'
 
-      # --- Release Inputs ---
+      # --- Release Inputs (Proxied to universal-release.yml) ---
       release_strategy:
         type: string
         default: 'immediate'
@@ -85,6 +88,7 @@ on:
       version_format:
         type: string
         default: '##.##.##'
+        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
       brain_endpoint:
         type: string
       build_android:
@@ -102,6 +106,7 @@ on:
       backfill_ai_notes_cutoff_version:
         type: string
         default: ""
+        description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
 
     secrets:
       APP_ID:
@@ -112,11 +117,12 @@ on:
         required: false
 
 jobs:
-  # 🔥 NEW: CHANGE DETECTION (whitespace gate)
+  # 🔥 NEW: Detect trivial (whitespace-only) changes
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
+      trivial: ${{ steps.diff.outputs.trivial }}
     steps:
       - uses: actions/checkout@v4
 
@@ -131,32 +137,37 @@ jobs:
           if [ -z "$DIFF" ]; then
             echo "Only whitespace changes detected"
             echo "only_whitespace=true" >> $GITHUB_OUTPUT
+            echo "trivial=true" >> $GITHUB_OUTPUT
           else
             echo "Real changes detected"
             echo "only_whitespace=false" >> $GITHUB_OUTPUT
+            echo "trivial=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Label PR as trivial
+        if: steps.diff.outputs.trivial == 'true'
+        run: gh pr edit ${{ github.event.pull_request.number }} --add-label "trivial"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # 0. PR RESURRECTOR (Catch-all for revived branches)
   pr-resurrector:
     needs: detect-changes
+    if: needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-pr-resurrector.yml@main
     secrets: inherit
 
   # 1. SECURITY
   security:
     needs: detect-changes
-    if: inputs.run_security && needs.detect-changes.outputs.only_whitespace != 'true'
+    if: inputs.run_security && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
     secrets: inherit
 
   # 2. LINT
   lint:
     needs: [detect-changes, security]
-    if: |
-      always() &&
-      needs.detect-changes.outputs.only_whitespace != 'true' &&
-      (needs.security.result == 'success' || needs.security.result == 'skipped') &&
-      inputs.run_lint
+    if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     with:
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
@@ -166,15 +177,9 @@ jobs:
     secrets: inherit
 
   # 3. CI / BUILD (Project Specific Jobs)
-
   ci-frappe:
     needs: [detect-changes, lint]
-    if: |
-      always() &&
-      needs.detect-changes.outputs.only_whitespace != 'true' &&
-      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
-      inputs.run_ci &&
-      inputs.project_type == 'frappe'
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
     with:
       python-version: ${{ inputs.python-version || '3.14' }}
@@ -191,30 +196,22 @@ jobs:
 
   ci-node:
     needs: [detect-changes, lint]
-    if: |
-      always() &&
-      needs.detect-changes.outputs.only_whitespace != 'true' &&
-      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
-      inputs.run_ci &&
-      inputs.project_type == 'node'
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'node' && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
     with:
       node-version: ${{ inputs.node-version || '24' }}
       package-manager: ${{ inputs.package-manager || 'pnpm' }}
+      # Dynamic command generation based on package manager
       build-command: ${{ format('{0} run build', inputs.package-manager || 'pnpm') }}
       test-command: ${{ format('{0} run test', inputs.package-manager || 'pnpm') }}
     secrets: inherit
 
   ci-flutter:
     needs: [detect-changes, lint]
-    if: |
-      always() &&
-      needs.detect-changes.outputs.only_whitespace != 'true' &&
-      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
-      inputs.run_ci &&
-      inputs.project_type == 'flutter'
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'flutter' && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
+      # Note: build-type here for CI is usually 'apk' or similar to verify compilation
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }} 
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
@@ -225,9 +222,10 @@ jobs:
   # 4. RELEASE (The Gate)
   release:
     needs: [detect-changes, ci-frappe, ci-node, ci-flutter]
+    # Gate logic: SUCCESS or SKIPPED for all needs, OR Bypass if develop
     if: |
-      always() &&
-      needs.detect-changes.outputs.only_whitespace != 'true' &&
+      always() && 
+      needs.detect-changes.outputs.trivial != 'true' &&
       (github.ref_name == 'develop' || (
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
@@ -245,6 +243,7 @@ jobs:
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
+      # Environment 
       node-version: ${{ inputs.node-version || '24' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
