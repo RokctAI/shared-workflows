@@ -15,9 +15,13 @@ on:
         required: false
       MONOREPO_PAT:
         required: false
+      GITLEAKS_LICENSE:
+        required: false
 
 jobs:
-  # FIX: Pre-check job to evaluate secret presence for downstream conditionals
+  # -----------------------------
+  # Pre-check job to evaluate secret presence for downstream conditionals
+  # -----------------------------
   pre-check:
     runs-on: ubuntu-latest
     outputs:
@@ -31,13 +35,16 @@ jobs:
           else
             echo "has_monorepo_pat=false" >> $GITHUB_OUTPUT
           fi
-          
+
           if [ -n "${{ secrets.APP_ID }}" ]; then
             echo "has_app_id=true" >> $GITHUB_OUTPUT
           else
             echo "has_app_id=false" >> $GITHUB_OUTPUT
           fi
 
+  # -----------------------------
+  # Telemetry
+  # -----------------------------
   telemetry:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -50,6 +57,9 @@ jobs:
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
           -H "Authorization: Bearer $API_KEY"
 
+  # -----------------------------
+  # Secret Scanning (Gitleaks)
+  # -----------------------------
   secret-scan:
     needs: telemetry
     name: 🔑 Secret Scanning (Gitleaks)
@@ -66,21 +76,16 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} 
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         continue-on-error: true
 
-      # NEW: This step parses the results and prints the TYPE of secret found
       - name: Display Found Secret Types
         if: steps.gitleaks.outcome == 'failure'
         run: |
           echo "🔍 Analyzing findings..."
-          # Gitleaks usually generates a report or prints to stdout. 
-          # We can force a summary to the log:
           echo "-------------------------------------------------------"
           echo "❌ SECURITY ALERT: The following secret types were found:"
           echo "-------------------------------------------------------"
-          # This command extracts the 'Description' or 'RuleID' from the findings
-          # without printing the 'Secret' value itself.
           jq -r '.[] | "- Found: " + .Description + " in file: " + .File' gitleaks-report.json || echo "Could not parse report, check raw logs above."
           echo "-------------------------------------------------------"
 
@@ -94,58 +99,57 @@ jobs:
             --label "Security" \
             --body "### 🔑 Secret Found in Repository
 
-          Gitleaks detected a secret committed in this repository.
+Gitleaks detected a secret committed in this repository.
 
-          **Commit:** \`${{ github.sha }}\`
-          **Branch:** \`${{ github.ref_name }}\`
+**Commit:** \`${{ github.sha }}\`
+**Branch:** \`${{ github.ref_name }}\`
 
-          ---
+---
 
-          ### 🛠️ Remediation Steps
+### 🛠️ Remediation Steps
 
-          **Step 1 — Rotate the key immediately**
-          Assume it is already compromised. Revoke and reissue it in the relevant service before doing anything else.
+**Step 1 — Rotate the key immediately**  
+Assume it is already compromised. Revoke and reissue it in the relevant service before doing anything else.
 
-          **Step 2 — Install git-filter-repo**
-          \`\`\`bash
-          pip install git-filter-repo
-          \`\`\`
+**Step 2 — Install git-filter-repo**  
+\`\`\`bash
+pip install git-filter-repo
+\`\`\`
 
-          **Step 3 — Clone a fresh copy**
-          \`\`\`bash
-          git clone https://github.com/${{ github.repository }}.git repo-clean
-          cd repo-clean
-          \`\`\`
+**Step 3 — Clone a fresh copy**  
+\`\`\`bash
+git clone https://github.com/${{ github.repository }}.git repo-clean
+cd repo-clean
+\`\`\`
 
-          **Step 4 — Purge sensitive files from all history**
-          \`\`\`bash
-          # Targets by pattern — catches moves and renames too
-          git filter-repo --path-glob '**/*.env' --path-glob '**/.env*' --invert-paths
-          \`\`\`
+**Step 4 — Purge sensitive files from all history**  
+\`\`\`bash
+git filter-repo --path-glob '**/*.env' --path-glob '**/.env*' --invert-paths
+\`\`\`
 
-          **Step 5 — Re-add origin and force push**
-          \`\`\`bash
-          git remote add origin https://github.com/${{ github.repository }}.git
-          git push origin --force --all
-          git push origin --force --tags
-          \`\`\`
+**Step 5 — Re-add origin and force push**  
+\`\`\`bash
+git remote add origin https://github.com/${{ github.repository }}.git
+git push origin --force --all
+git push origin --force --tags
+\`\`\`
 
-          **Step 6 — Reset your local repo**
-          \`\`\`bash
-          git fetch origin
-          git reset --hard origin/main
-          \`\`\`
+**Step 6 — Reset your local repo**  
+\`\`\`bash
+git fetch origin
+git reset --hard origin/main
+\`\`\`
 
-          **Step 7 — Add to .gitignore**
-          \`\`\`bash
-          echo '.env/' >> .gitignore
-          echo '*.env' >> .gitignore
-          git add .gitignore && git commit -m 'chore: ignore .env files' && git push
-          \`\`\`
+**Step 7 — Add to .gitignore**  
+\`\`\`bash
+echo '.env/' >> .gitignore
+echo '*.env' >> .gitignore
+git add .gitignore && git commit -m 'chore: ignore .env files' && git push
+\`\`\`
 
-          ---
-          > ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history." \
-          || echo "⚠️ Issue may already exist, skipping."
+---
+> ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history." \
+            || echo "⚠️ Issue may already exist, skipping."
 
       - name: Fail if Secret Found
         if: steps.gitleaks.outcome == 'failure'
@@ -153,6 +157,9 @@ jobs:
           echo "❌ Secret detected. See the issue created for remediation steps."
           exit 1
 
+  # -----------------------------
+  # Python Security
+  # -----------------------------
   security-python:
     needs: [telemetry, secret-scan]
     name: 🐍 Python Security (Bandit & Pip Audit)
@@ -194,7 +201,6 @@ jobs:
         if: steps.check_python.outputs.exists == 'true'
         run: |
           bandit -r . --exclude ./.git,./node_modules,./venv --severity high > bandit_output.txt 2>&1 || true
-          
           if [ -s bandit_output.txt ] && grep -q "Severity: High" bandit_output.txt; then
              echo "bandit_findings=true" >> $GITHUB_ENV
           else
@@ -207,13 +213,13 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           BODY="### 🐍 Python Security Scan Failure (Bandit)
-          **Commit:** ${{ github.sha }}
-          
-          #### Findings (High Severity):
-          \`\`\`
-          $(head -c 2000 bandit_output.txt)
-          \`\`\`
-          "
+**Commit:** ${{ github.sha }}
+
+#### Findings (High Severity):
+\`\`\`
+$(head -c 2000 bandit_output.txt)
+\`\`\`
+"
           gh issue create --title "🚨 Security: Bandit High Severity Findings" --body "$BODY" --label "Security" || echo "Issue already exists."
 
       - name: Run Pip Audit (Dependency Vulnerabilities)
@@ -238,16 +244,18 @@ jobs:
         run: |
           if [ -f "pip_audit_output.txt" ]; then
             BODY="### 🐍 Python Dependency Audit Failure
-            **Commit:** ${{ github.sha }}
-            
-            #### Findings:
-            \`\`\`
-            $(head -c 2000 pip_audit_output.txt)
-            \`\`\`
-            "
-            gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
-          fi
+**Commit:** ${{ github.sha }}
 
+#### Findings:
+\`\`\`
+$(head -c 2000 pip_audit_output.txt)
+\`\`\`
+"
+            gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
+
+  # -----------------------------
+  # Node Security
+  # -----------------------------
   security-node:
     needs: [telemetry, secret-scan]
     name: 📦 Node Security (NPM Audit)
@@ -278,7 +286,6 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
-          
           if grep -qEi "high|critical" npm_audit_output.txt; then
              echo "npm_findings=true" >> $GITHUB_ENV
           else
@@ -291,20 +298,22 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           BODY="### 📦 Node Security Audit Failure
-          **High/Critical vulnerabilities found.**
-          
-          #### Audit Summary:
-          \`\`\`
-          $(head -c 2000 npm_audit_output.txt)
-          \`\`\`
-          "
+**High/Critical vulnerabilities found.**
+
+#### Audit Summary:
+\`\`\`
+$(head -c 2000 npm_audit_output.txt)
+\`\`\`
+"
           gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
 
+  # -----------------------------
+  # Enable Push Protection
+  # -----------------------------
   enable-push-protection:
     needs: [telemetry, secret-scan, pre-check]
     name: 🔒 Enable Push Protection
     runs-on: ubuntu-latest
-    # FIX: Uses pre-check output to avoid 'secrets' context error
     if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
     steps:
       - name: Enable Secret Scanning & Push Protection
@@ -316,11 +325,13 @@ jobs:
             -f security_and_analysis[secret_scanning_push_protection][status]=enabled
           echo "✅ Secret scanning and push protection enabled."
 
+  # -----------------------------
+  # Notify Bot Required
+  # -----------------------------
   notify-bot-required:
     needs: [telemetry, pre-check]
     name: 🤖 Notify Bot Required
     runs-on: ubuntu-latest
-    # FIX: Uses pre-check output to avoid 'secrets' context error
     if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
     steps:
       - name: Create Bot Installation Issue
@@ -332,26 +343,26 @@ jobs:
             --label "Security" \
             --body "### 🤖 RokctAI Bot Not Detected
 
-          This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
+This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
 
-          Some security features are unavailable without it:
-          - ❌ Automatic secret scanning push protection
-          - ❌ GitHub Advanced Security settings management
-          - ❌ Automated issue creation with app tokens
+Some security features are unavailable without it:
+- ❌ Automatic secret scanning push protection
+- ❌ GitHub Advanced Security settings management
+- ❌ Automated issue creation with app tokens
 
-          ---
+---
 
-          ### 📦 How to Install
+### 📦 How to Install
 
-          Install the RokctAI Bot on this repository:
-          👉 **https://github.com/apps/rokctai-bot**
+Install the RokctAI Bot on this repository:
+👉 **https://github.com/apps/rokctai-bot**
 
-          Once installed, add the following secrets to this repo:
-          - \`APP_ID\` — provided after installation
-          - \`APP_PRIVATE_KEY\` — provided after installation
+Once installed, add the following secrets to this repo:
+- \`APP_ID\` — provided after installation
+- \`APP_PRIVATE_KEY\` — provided after installation
 
-          ---
+---
 
-          > This issue was auto-created by the Universal Security workflow.
-          > Once the bot is installed this issue can be closed." \
+> This issue was auto-created by the Universal Security workflow.
+> Once the bot is installed this issue can be closed." \
           || echo "⚠️ Issue may already exist, skipping."
