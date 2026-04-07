@@ -278,9 +278,9 @@ jobs:
         id: check_node
         run: |
           if [ -f "package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
 
@@ -288,10 +288,10 @@ jobs:
         if: steps.check_node.outputs.exists == 'true'
         run: |
           npm audit --audit-level=high > npm_audit_output.txt 2>&1 || true
-          if grep -qEi "high|critical" npm_audit_output.txt; then
-             echo "npm_findings=true" >> $GITHUB_ENV
+          if grep -qEi "high|critical" "npm_audit_output.txt"; then
+            echo "npm_findings=true" >> "$GITHUB_ENV"
           else
-           echo "npm_findings=false" >> $GITHUB_ENV
+            echo "npm_findings=false" >> "$GITHUB_ENV"
           fi
 
       - name: Create Issue on NPM Audit Findings
@@ -322,10 +322,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
-          gh api --method PATCH /repos/${{ github.repository }} \
-            -f security_and_analysis[secret_scanning][status]=enabled \
-            -f security_and_analysis[secret_scanning_push_protection][status]=enabled
-          echo "✅ Secret scanning and push protection enabled."
+            gh api --method PATCH "/repos/${{ github.repository }}" \
+            -f "security_and_analysis[secret_scanning][status]=enabled" \
+            -f "security_and_analysis[secret_scanning_push_protection][status]=enabled"
+              echo "✅ Secret scanning and push protection enabled."
 
 # -----------------------------
 # Notify Bot Required
