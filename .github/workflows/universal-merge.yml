@@ -38,40 +38,41 @@ jobs:
         run: |
           AUTHOR="${{ github.event.pull_request.user.login }}"
           ALLOWED="${{ inputs.allowed_users }}"
-          # Strip spaces around commas for reliable matching
           ALLOWED=$(echo "$ALLOWED" | sed 's/ *, */,/g')
           if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
-            echo "User $AUTHOR is authorized."
             echo "authorized=true" >> $GITHUB_OUTPUT
           else
-            echo "User $AUTHOR is NOT authorized."
             echo "authorized=false" >> $GITHUB_OUTPUT
           fi
 
       - uses: actions/checkout@v6
 
-      - name: Check Critical Files
+      - name: Check Files + Trivial Diff
         id: check_files
         run: |
-          # Fetch list of changed files
           FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '.files[].path')
-          
-          # Check for dangerous changes
+
           if echo "$FILES" | grep -q ".github/workflows/"; then
-            echo "Critical files changed (.github/workflows). Auto-merge DISABLED."
             echo "safe=false" >> $GITHUB_OUTPUT
           else
-            echo "No critical configuration files changed."
             echo "safe=true" >> $GITHUB_OUTPUT
+          fi
+
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --ignore-all-space)
+
+          if [ -z "$DIFF" ]; then
+            echo "trivial=true" >> $GITHUB_OUTPUT
+          else
+            echo "trivial=false" >> $GITHUB_OUTPUT
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable Auto Merge
-        # Only merge if:
-        # 1. User is authorized
-        # 2. No critical files (.github/workflows) are changed
-        if: steps.check_author.outputs.authorized == 'true' && steps.check_files.outputs.safe == 'true'
+        if: |
+          steps.check_author.outputs.authorized == 'true' &&
+          steps.check_files.outputs.safe == 'true' &&
+          steps.check_files.outputs.trivial == 'true'
         run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
