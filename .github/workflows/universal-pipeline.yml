@@ -114,7 +114,7 @@ on:
 
 jobs:
   # 🔥 NEW: Detect trivial (whitespace-only) changes
-  detect-changes:
+    detect-changes:
     runs-on: ubuntu-latest
     outputs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
@@ -123,20 +123,46 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history required for diff
+          fetch-depth: 0
 
-      - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} || echo "Base branch not found, skipping diff"
+      - name: Determine base commit
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base_ref=origin/${{ github.base_ref }}" >> $GITHUB_OUTPUT
+            git fetch origin ${{ github.base_ref }} || true
+          else
+            echo "base_ref=HEAD~1" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check if only whitespace changes
         id: diff
         run: |
-          DIFF=$(git diff -w origin/${{ github.base_ref }}...HEAD || true)
+          BASE="${{ steps.base.outputs.base_ref }}"
 
-          if [ -z "$DIFF" ]; then
-            echo "Only whitespace changes detected: $DIFF"
+          echo "Comparing against: $BASE"
+
+          # Try diff safely
+          if git rev-parse "$BASE" >/dev/null 2>&1; then
+            DIFF=$(git diff -w "$BASE"...HEAD || true)
+            RAW_DIFF=$(git diff "$BASE"...HEAD || true)
+          else
+            echo "Base not found, treating as non-trivial change"
+            echo "only_whitespace=false" >> "$GITHUB_OUTPUT"
+            echo "trivial=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$RAW_DIFF" ]; then
+            echo "No changes at all"
             echo "only_whitespace=true" >> "$GITHUB_OUTPUT"
             echo "trivial=true" >> "$GITHUB_OUTPUT"
+
+          elif [ -z "$DIFF" ]; then
+            echo "Only whitespace changes"
+            echo "only_whitespace=true" >> "$GITHUB_OUTPUT"
+            echo "trivial=true" >> "$GITHUB_OUTPUT"
+
           else
             echo "Real changes detected"
             echo "only_whitespace=false" >> "$GITHUB_OUTPUT"
@@ -144,15 +170,15 @@ jobs:
           fi
 
       - name: Label PR as trivial
-        if: steps.diff.outputs.trivial == 'true'
+        if: github.event_name == 'pull_request' && steps.diff.outputs.trivial == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -s -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" \
-            -d '{"labels":["trivial"]}'
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels \
+            -d '{"labels":["trivial"]}' || echo "⚠️ Issue may already exist, skipping."
 
   # 0. PR RESURRECTOR
   pr-resurrector:
