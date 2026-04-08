@@ -54,7 +54,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   # -----------------------------
   # Secret Scanning (Gitleaks)
@@ -211,14 +211,16 @@ jobs:
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
-        BODY="### 🐍 Python Security Scan Failure (Bandit)
+        BODY=$(cat <<EOF
+        ### 🐍 Python Security Scan Failure (Bandit)
         **Commit:** ${{ github.sha }}
 
         #### Findings (High Severity):
         \`\`\`
         $(head -c 2000 bandit_output.txt)
         \`\`\`
-        "
+        EOF
+        )
         gh issue create --title "🚨 Security: Bandit High Severity Findings" --body "$BODY" --label "Security" || echo "Issue already exists."
 
     - name: Run Pip Audit (Dependency Vulnerabilities)
@@ -250,7 +252,7 @@ jobs:
           \`\`\`
           $(head -c 2000 pip_audit_output.txt)
            \`\`\`
-EOF
+          EOF
           )
           gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
         fi

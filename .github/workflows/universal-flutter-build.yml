@@ -75,7 +75,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
            curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-           -H "Authorization: Bearer "$API_KEY""
+           -H "Authorization: Bearer $API_KEY"
 
   build-android:
     needs: telemetry
@@ -102,9 +102,9 @@ jobs:
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper="$CLIENT"" >> "$GITHUB_OUTPUT"
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
           if [ -n "$CLIENT" ]; then
-            echo "🔍 Detected Client: "$CLIENT""
+            echo "🔍 Detected Client: $CLIENT"
           else
             echo "ℹ️ Standard build (no client detected)"
           fi
@@ -246,18 +246,18 @@ jobs:
              echo "✅ android/app/google-services.json already exists. Skipping."
           else
              FILE_NAME="google-services.json"
-             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME=$(echo $CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
              
              # 1. Try Monorepo
              if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
-                echo "✅ Successfully synced "$FILE_NAME" from Monorepo."
+                echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
-                JSON_CONTENT="$DEFAULT_JSON"
+                JSON_CONTENT=$DEFAULT_JSON
                 if [ -n "$CLIENT_JSON" ]; then
-                   echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_"${CLIENT_PREFIX}""
-                   JSON_CONTENT="$CLIENT_JSON"
+                   echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"
+                   JSON_CONTENT=$CLIENT_JSON
                 fi
                 
                 if [ -n "$JSON_CONTENT" ]; then
@@ -283,7 +283,7 @@ jobs:
 
           if [ -n "$CLIENT_PREFIX" ]; then
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-             FILE_NAME="${LOWER_PREFIX}_production.env"
+             FILE_NAME=${LOWER_PREFIX}_production.env
           fi
   
           echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
@@ -327,26 +327,26 @@ jobs:
           fi
 
           # 2. Construct Target Package Variable Name
-          APP_TYPE="${{ inputs.app-type }}"
+          APP_TYPE=${{ inputs.app-type }}
           if [ -z "$APP_TYPE" ]; then
             echo "⚠️ No 'app-type' input provided. Skipping rename."
             exit 0
           fi
 
           APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
-          ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
-          TARGET_PACKAGE="${!ENV_VAR_NAME}"
+          ENV_VAR_NAME=${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME
+          TARGET_PACKAGE=${!ENV_VAR_NAME}
 
-          echo "🔧 App Type: "$APP_TYPE""
-          echo "🔑 Looking for: "$ENV_VAR_NAME""
-          echo "🎯 Target Package: "$TARGET_PACKAGE""
+          echo "🔧 App Type: $APP_TYPE"
+          echo "🔑 Looking for: $ENV_VAR_NAME"
+          echo "🎯 Target Package: $TARGET_PACKAGE"
           echo "📊 Current .env package settings:"
           grep "_ANDROID_PACKAGE_NAME" ".env/production.env" || echo "No package settings found in .env"
 
           # 2b. Validate against google-services.json
           GS_JSON="android/app/google-services.json"
           if [ -f "$GS_JSON" ]; then
-            echo "🔍 Validating "$TARGET_PACKAGE" against "$GS_JSON"..."
+            echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
             if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
               echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
               echo "📄 Clients found in JSON:"
@@ -380,7 +380,7 @@ jobs:
             VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\([^'\"]*\)['\"].*/\1/")
 
             if [ -z "$VENDOR_PACKAGE" ]; then
-              echo "❌ Error: Could not extract namespace from "$GRADLE_FILE""
+              echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
               exit 1
             fi
 
@@ -393,22 +393,22 @@ jobs:
             fi
 
             echo "🚀 Applying directory structure..."
-            mkdir -p "$BASE_DIR/"$TARGET_PATH""
+            mkdir -p "$BASE_DIR/$TARGET_PATH"
 
-            if [ -d "$BASE_DIR/"$VENDOR_PATH"" ]; then
-              mv "$BASE_DIR/"$VENDOR_PATH""/* "$BASE_DIR/"$TARGET_PATH""/
+            if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
+              mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH/"
             else
-              echo "❌ Error: Source directory "$BASE_DIR"/"$VENDOR_PATH" does not exist!"
+              echo "❌ Error: Source directory $BASE_DIR/$VENDOR_PATH does not exist!"
               exit 1
             fi
           fi
 
           # 4. Update MainActivity.kt package
-          MAIN_ACTIVITY="$BASE_DIR/"$TARGET_PATH"/MainActivity.kt"
+          MAIN_ACTIVITY=$BASE_DIR/$TARGET_PATH/MainActivity.kt
           if [ -f "$MAIN_ACTIVITY" ]; then
-            if ! grep -q "package "$TARGET_PACKAGE"" "$MAIN_ACTIVITY"; then
+            if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
               echo "✏️ Updating MainActivity.kt package declaration..."
-              sed -i "s|^package .*|package "$TARGET_PACKAGE"|" "$MAIN_ACTIVITY"
+              sed -i "s|^package .*|package $TARGET_PACKAGE|" "$MAIN_ACTIVITY"
             else
               echo "✅ MainActivity.kt is correct."
             fi
@@ -417,11 +417,11 @@ jobs:
           # 5. Update build.gradle namespace & applicationId
           if [ -f "$GRADLE_FILE" ]; then
             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$GRADLE_FILE"; then
-              echo "✏️ Updating "$GRADLE_FILE"..."
+              echo "✏️ Updating $GRADLE_FILE..."
               sed -i "s|applicationId [\"'][^\"']*[\"']|applicationId \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
               sed -i "s|namespace [\"'][^\"']*[\"']|namespace \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
             else
-              echo "✅ "$GRADLE_FILE" is correct."
+              echo "✅ $GRADLE_FILE is correct."
             fi
           fi
 
@@ -439,8 +439,8 @@ jobs:
 
             echo "📝 Creating key.properties..."
             {
-              echo "storePassword="$KEY_PASSWORD""
-              echo "keyPassword="$ALIAS_PASSWORD""
+              echo "storePassword=$KEY_PASSWORD"
+              echo "keyPassword=$ALIAS_PASSWORD"
               echo "keyAlias=upload"
               echo "storeFile=key.jks"
             } > "android/key.properties"
@@ -460,7 +460,7 @@ jobs:
         run: |
           BUILD_ARGS="--release"
           if [ -f .env/production.env ]; then
-            BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
+            BUILD_ARGS=$BUILD_ARGS --dart-define-from-file=.env/production.env
           fi
           flutter build appbundle "$BUILD_ARGS"
 
@@ -646,8 +646,8 @@ jobs:
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper="$CLIENT"" >> "$GITHUB_OUTPUT"
-          [ -n "$CLIENT" ] && echo "🔍 Detected Client: "$CLIENT"" || echo "ℹ️ Standard build (no client detected)"
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
+          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
       - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Monorepo > Secret)"
@@ -662,18 +662,18 @@ jobs:
              echo "✅ ios/Runner/GoogleService-Info.plist already exists. Skipping."
           else
              FILE_NAME="GoogleService-Info.plist"
-             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME=$(echo $CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
              
              # 1. Try Monorepo
              if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
-                echo "✅ Successfully synced "$FILE_NAME" from Monorepo."
+                echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
-                PLIST_CONTENT="$DEFAULT_PLIST"
+                PLIST_CONTENT=$DEFAULT_PLIST
                 if [ -n "$CLIENT_PLIST" ]; then
-                   echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_"${CLIENT_PREFIX}""
-                   PLIST_CONTENT="$CLIENT_PLIST"
+                   echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_$CLIENT_PREFIX"
+                   PLIST_CONTENT=$CLIENT_PLIST
                 fi
                 
                 if [ -n "$PLIST_CONTENT" ]; then
@@ -697,9 +697,9 @@ jobs:
           FILE_NAME="production.env"
           if [ -n "$CLIENT_PREFIX" ]; then
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-             FILE_NAME="${LOWER_PREFIX}_production.env"
+             FILE_NAME=${LOWER_PREFIX}_production.env
           fi
-          echo "🔍 Fetching "$FILE_NAME" from RokctAI/Monorepo..."
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
           gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
           
           # Truncate at Flutter marker
@@ -722,9 +722,9 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ env.IOS_CERTIFICATE_PASSWORD }}
         run: |
           # Create variables
-          CERTIFICATE_PATH="$RUNNER_TEMP"/build_certificate.p12
-          PP_PATH="$RUNNER_TEMP"/build_pp.mobileprovision
-          KEYCHAIN_PATH="$RUNNER_TEMP"/app-signing.keychain-db
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
           # Import certificate and provision profile from secrets
           echo -n "$P12_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"

@@ -26,7 +26,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   auto-merge:
     needs: telemetry
@@ -36,10 +36,10 @@ jobs:
       - name: Check Author
         id: check_author
         run: |
-          AUTHOR="${{ github.event.pull_request.user.login }}"
-          ALLOWED="${{ inputs.allowed_users }}"
-          ALLOWED="${ALLOWED// /}"
-          if [[ ","$ALLOWED"," == *","$AUTHOR","* ]]; then
+          AUTHOR=${{ github.event.pull_request.user.login }}
+          ALLOWED=${{ inputs.allowed_users }}
+          ALLOWED=${ALLOWED// /}
+          if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
             echo "authorized=false" >> "$GITHUB_OUTPUT"
@@ -58,13 +58,14 @@ jobs:
             echo "safe=true" >> "$GITHUB_OUTPUT"
           fi
 
-          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --ignore-all-space)
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} )
 
           if [ -z "$DIFF" ]; then
             echo "trivial=true" >> "$GITHUB_OUTPUT"
           else
             echo "trivial=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "Checked files: $FILES"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
