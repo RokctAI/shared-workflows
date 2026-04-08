@@ -52,7 +52,7 @@ jobs:
       - name: Check Files + Trivial Diff
         id: check_files
         run: |
-          FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '.files[].path')
+          FILES=$(gh pr view "${{ github.event.pull_request.number }}" --json files --jq '.files[].path')
 
           if echo "$FILES" | grep -q ".github/workflows/"; then
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -60,7 +60,7 @@ jobs:
             echo "safe=true" >> "$GITHUB_OUTPUT"
           fi
 
-          DIFF=$(gh pr diff ${{ github.event.pull_request.number }})
+          DIFF=$(gh pr diff "${{ github.event.pull_request.number }}")
 
           if [ -z "$DIFF" ]; then
             echo "trivial=true" >> "$GITHUB_OUTPUT"

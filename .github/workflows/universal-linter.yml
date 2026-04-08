@@ -290,7 +290,7 @@ jobs:
           HEADER="# Copyright (c) $CURRENT_YEAR, $COPYRIGHT_INPUT\n# For license information, please see license.txt\n"
           
           echo "Using copyright template:"
-          echo -e $HEADER
+          echo -e "$HEADER"
           
           # Find all python files, explicitly ignoring __init__.py and common excluded folders
           find . -name "*.py" -not -name "__init__.py" \
@@ -301,12 +301,12 @@ jobs:
                -not -path "*/tests/*" | while read -r file; do
              
              # Check if file already has a copyright header (case-insensitive check for 'Copyright' in first 5 lines)
-             if ! head -n 5 $file | grep -qi "Copyright"; then
+             if ! head -n 5 "$file" | grep -qi "Copyright"; then
                   echo "Adding copyright to $file"
                   # Escape the header for sed
-                  ESCAPED_HEADER=$(echo $HEADER | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/$/\\n/g' )
+                  ESCAPED_HEADER=$(echo "$HEADER" | sed 's/\\/\\\\/g' | sed 's/\//\\\//g' | sed 's/$/\\n/g' )
                   # Use awk to prepend the header block cleanly
-                  awk -v header=$HEADER 'BEGIN{print header; print ""} {print}' $file > tmpfile && mv tmpfile $file
+                  awk -v header="$HEADER" 'BEGIN{print header; print ""} {print}' "$file" > tmpfile && mv tmpfile "$file"
              fi
           done
 
@@ -501,15 +501,15 @@ jobs:
           # We format the find output directly into a string that docker can use as arguments relative to /mnt
           FILES_TO_FORMAT=$(find . -name "*.sh" -not -path "*/\.git/*" -not -path "*/\.github/*" -not -path "*/node_modules/*" -not -path "*/ios/*" -not -path "*/macos/*" -not -path "*/android/*" -not -path "*/windows/*" -not -path "*/linux/*" | sed "s|^\./|/mnt/|")
           
-          if [ -n $FILES_TO_FORMAT ]; then
+          if [ -n "$FILES_TO_FORMAT" ]; then
              echo "Found shell scripts to format:"
-             echo $FILES_TO_FORMAT
+             echo "$FILES_TO_FORMAT"
              
              # -w: write
              # -i 2: indent 2 spaces
              # -ln bash: force bash parser (prevents posix 'function' keyword errors like in Flutter's extract_dart_defines.sh)
              # xargs is used here to pass the list of files to the docker container
-             echo $FILES_TO_FORMAT | xargs docker run --rm -v "$(pwd)":/mnt mvdan/shfmt:latest -w -i 2 -ln bash
+             echo "$FILES_TO_FORMAT" | xargs docker run --rm -v "$(pwd)":/mnt mvdan/shfmt:latest -w -i 2 -ln bash
           else
              echo "No target shell scripts found. Skipping."
           fi
@@ -718,7 +718,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
-          if ($(git status -s).Length -gt 0) {
+          if (@(git status -s).Count -gt 0) {
               Write-Error "❌ PowerShell scripts are NOT formatted correctly. Please run Invoke-Formatter locally."
               git status -s
               exit 1
@@ -902,15 +902,15 @@ jobs:
           # Policy: Excel/CSV files should not be committed to the repo, 
           # especially on non-stable branches.
           LEAKS=$(find . -type f -name "*.xlsx" -o -name "*.xls" -o -name "*.csv" | grep -v "node_modules" || true)
-          if [ -n $LEAKS ]; then
+          if [ -n "$LEAKS" ]; then
              {
                echo "### ⚠️ Potential Data Leak Detected"
                echo "The following unverified data files were found in the repository:"
                echo "\`\`\`"
-               echo $LEAKS
+               echo "$LEAKS"
                echo "\`\`\`"
                echo "💡 **Policy**: Fleet standards prohibit committing Excel/CSV exports to the source tree. Use stable release artifacts for data distribution."
-             } >> $GITHUB_STEP_SUMMARY
+             } >> "$GITHUB_STEP_SUMMARY"
              
              if [[ "${{ github.ref_name }}" != "main" ]]; then
                 echo "❌ Unverified data found on non-stable branch."

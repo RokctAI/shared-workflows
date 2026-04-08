@@ -317,12 +317,12 @@ jobs:
           cd apps
           
           # Priority 1: Check if directory matches Repo Name (e.g. rCore)
-          REPO_NAME=${{ github.event.repository.name }}
-          if [ -n $REPO_NAME ] && [ -d $REPO_NAME ]; then
-              APP_DIR=$REPO_NAME
+          REPO_NAME="${{ github.event.repository.name }}"
+          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
+              APP_DIR="$REPO_NAME"
           # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
-          elif [ -n $REPO_NAME ] && [ -d "$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]')" ]; then
-              APP_DIR=$(echo $REPO_NAME" | tr '[:upper:]' '[:lower:]')"
+          elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
+              APP_DIR="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
           else
               # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
               # Using find to be more robust than ls
@@ -331,18 +331,21 @@ jobs:
           
           echo "Detected App Directory: $APP_DIR"
           
-          if [ -n $APP_DIR ]; then
-              cd $APP_DIR
-              if [ -f "pyproject.toml" ]; then
-                 APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
-              elif [ -f "setup.py" ]; then
-                 APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
-              else
-                 APP_NAME=${{ github.event.repository.name }}
-              fi
-              cd ..
+          if [ -n "$APP_DIR" ]; then
+              (
+                cd "$APP_DIR" || exit 1
+                if [ -f "pyproject.toml" ]; then
+                   APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
+                elif [ -f "setup.py" ]; then
+                   APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
+                else
+                   APP_NAME="${{ github.event.repository.name }}"
+                fi
+                echo "APP_NAME=$APP_NAME" > ../.app_name
+              )
+              APP_NAME=$(cat ../.app_name)
           else
-              APP_NAME=${{ github.event.repository.name }}
+              APP_NAME="${{ github.event.repository.name }}"
           fi
           
           # Return to bench root
@@ -352,7 +355,7 @@ jobs:
           echo "Actual App Name: $APP_NAME"
           
           # If names differ (package name != current folder name), rename the app directory
-          if [[ -n $APP_DIR && $APP_NAME != $APP_DIR && -n $APP_NAME ]]; then
+          if [[ -n "$APP_DIR" && "$APP_NAME" != "$APP_DIR" && -n "$APP_NAME" ]]; then
              echo "Renaming apps/$APP_DIR to apps/$APP_NAME"
              mv "apps/$APP_DIR" "apps/$APP_NAME"
              
@@ -476,11 +479,11 @@ jobs:
              echo "Processing deprecation warnings for annotations..."
              # Parse for DeprecationWarning (Inspired by Frappe)
              grep -E "DeprecationWarning" frappe-bench/test_output.log | sort -u | while read -r warning; do
-               file_info=$(echo $warning | grep -oP '^.*?:\d+:')
-               if [ -n $file_info ]; then
-                  file_path=$(echo $file_info | cut -d':' -f1)
-                  line_number=$(echo $file_info | cut -d':' -f2)
-                  msg=$(echo $warning | sed -E "s/^.*DeprecationWarning: //")
+               file_info=$(echo "$warning" | grep -oP '^.*?:\d+:')
+               if [ -n "$file_info" ]; then
+                  file_path=$(echo "$file_info" | cut -d':' -f1)
+                  line_number=$(echo "$file_info" | cut -d':' -f2)
+                  msg=$(echo "$warning" | sed -E "s/^.*DeprecationWarning: //")
                   echo "::warning file=${file_path},line=${line_number}::DeprecationWarning: ${msg}"
                fi
              done

@@ -133,7 +133,7 @@ jobs:
         run: |
           DIFF=$(git diff -w origin/${{ github.base_ref }}...HEAD || true)
 
-          if [ -z $DIFF ]; then
+          if [ -z "$DIFF" ]; then
             echo "Only whitespace changes detected: $DIFF"
             echo "only_whitespace=true" >> $GITHUB_OUTPUT
             echo "trivial=true" >> $GITHUB_OUTPUT

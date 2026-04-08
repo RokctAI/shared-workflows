@@ -95,60 +95,60 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
-          cat <<EOF > remediation_issue_body.txt
-          ### 🔑 Secret Found in Repository
-
-          Gitleaks detected a secret committed in this repository.
-
-          **Commit:** \`${{ github.sha }}\`
-          **Branch:** \`${{ github.ref_name }}\`
-
-          ---
-
-          ### 🛠️ Remediation Steps
-
-          **Step 1 — Rotate the key immediately**
-          Assume it is already compromised. Revoke and reissue it in the relevant service before doing anything else.
-
-          **Step 2 — Install git-filter-repo**
-          \`\`\`bash
-          pip install git-filter-repo
-          \`\`\`
-
-          **Step 3 — Clone a fresh copy**
-          \`\`\`bash
-          git clone https://github.com/${{ github.repository }}.git repo-clean
-          cd repo-clean
-          \`\`\`
-
-          **Step 4 — Purge sensitive files from all history**
-          \`\`\`bash
-          git filter-repo --path-glob '**/*.env' --path-glob '**/.env*' --invert-paths
-          \`\`\`
-
-          **Step 5 — Re-add origin and force push**
-          \`\`\`bash
-          git remote add origin https://github.com/${{ github.repository }}.git
-          git push origin --force --all
-          git push origin --force --tags
-          \`\`\`
-
-          **Step 6 — Reset your local repo**
-          \`\`\`bash
-          git fetch origin
-          git reset --hard origin/main
-          \`\`\`
-
-          **Step 7 — Add to .gitignore**
-          \`\`\`bash
-          echo '.env/' >> .gitignore
-          echo '*.env' >> .gitignore
-          git add .gitignore && git commit -m 'chore: ignore .env files' && git push
-          \`\`\`
-
-          ---
-          > ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history.
-          EOF
+          {
+            echo "### 🔑 Secret Found in Repository"
+            echo ""
+            echo "Gitleaks detected a secret committed in this repository."
+            echo ""
+            echo "**Commit:** \`${{ github.sha }}\`"
+            echo "**Branch:** \`${{ github.ref_name }}\`"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 🛠️ Remediation Steps"
+            echo ""
+            echo "**Step 1 — Rotate the key immediately**  "
+            echo "Assume it is already compromised. Revoke and reissue it in the relevant service before doing anything else."
+            echo ""
+            echo "**Step 2 — Install git-filter-repo**  "
+            echo "\`\`\`bash"
+            echo "pip install git-filter-repo"
+            echo "\`\`\`"
+            echo ""
+            echo "**Step 3 — Clone a fresh copy**  "
+            echo "\`\`\`bash"
+            echo "git clone https://github.com/${{ github.repository }}.git repo-clean"
+            echo "cd repo-clean"
+            echo "\`\`\`"
+            echo ""
+            echo "**Step 4 — Purge sensitive files from all history**  "
+            echo "\`\`\`bash"
+            echo "git filter-repo --path-glob '**/*.env' --path-glob '**/.env*' --invert-paths"
+            echo "\`\`\`"
+            echo ""
+            echo "**Step 5 — Re-add origin and force push**  "
+            echo "\`\`\`bash"
+            echo "git remote add origin https://github.com/${{ github.repository }}.git"
+            echo "git push origin --force --all"
+            echo "git push origin --force --tags"
+            echo "\`\`\`"
+            echo ""
+            echo "**Step 6 — Reset your local repo**  "
+            echo "\`\`\`bash"
+            echo "git fetch origin"
+            echo "git reset --hard origin/main"
+            echo "\`\`\`"
+            echo ""
+            echo "**Step 7 — Add to .gitignore**  "
+            echo "\`\`\`bash"
+            echo "echo '.env/' >> .gitignore"
+            echo "echo '*.env' >> .gitignore"
+            echo "git add .gitignore && git commit -m 'chore: ignore .env files' && git push"
+            echo "\`\`\`"
+            echo ""
+            echo "---"
+            echo "> ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history."
+          } > remediation_issue_body.txt
           gh issue create \
             --title "🚨 Secret Detected in Git History" \
             --label "Security" \
@@ -216,15 +216,15 @@ jobs:
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
-        cat <<EOF > bandit_issue_body.txt
-        ### 🐍 Python Security Scan Failure (Bandit)
-        **Commit:** ${{ github.sha }}
-
-        #### Findings (High Severity):
-        \`\`\`
-        $(head -c 2000 bandit_output.txt)
-        \`\`\`
-        EOF
+        {
+          echo "### 🐍 Python Security Scan Failure (Bandit)"
+          echo "**Commit:** ${{ github.sha }}"
+          echo ""
+          echo "#### Findings (High Severity):"
+          echo "\`\`\`"
+          head -c 2000 bandit_output.txt
+          echo "\`\`\`"
+        } > bandit_issue_body.txt
         gh issue create --title "🚨 Security: Bandit High Severity Findings" --body-file bandit_issue_body.txt --label "Security" || echo "Issue already exists."
 
     - name: Run Pip Audit (Dependency Vulnerabilities)
@@ -248,15 +248,15 @@ jobs:
         GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
         if [ -f "pip_audit_output.txt" ]; then
-          cat <<EOF > pip_audit_issue_body.txt
-          ### 🐍 Python Dependency Audit Failure
-          **Commit:** ${{ github.sha }}
-
-          #### Findings:
-          \`\`\`
-          $(head -c 2000 pip_audit_output.txt)
-          \`\`\`
-        EOF
+          {
+            echo "### 🐍 Python Dependency Audit Failure"
+            echo "**Commit:** ${{ github.sha }}"
+            echo ""
+            echo "#### Findings:"
+            echo "\`\`\`"
+            head -c 2000 pip_audit_output.txt
+            echo "\`\`\`"
+          } > pip_audit_issue_body.txt
           gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body-file pip_audit_issue_body.txt --label "Security" || echo "Issue already exists."
         fi
 
@@ -304,15 +304,15 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          cat <<EOF > npm_audit_issue_body.txt
-          ### 📦 Node Security Audit Failure
-          **High/Critical vulnerabilities found.**
-
-          #### Audit Summary:
-          \`\`\`
-          $(head -c 2000 npm_audit_output.txt)
-          \`\`\`
-          EOF
+          {
+            echo "### 📦 Node Security Audit Failure"
+            echo "**High/Critical vulnerabilities found.**"
+            echo ""
+            echo "#### Audit Summary:"
+            echo "\`\`\`"
+            head -c 2000 npm_audit_output.txt
+            echo "\`\`\`"
+          } > npm_audit_issue_body.txt
           gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body-file npm_audit_issue_body.txt --label "Security" || echo "Issue already exists."
 
 # -----------------------------
@@ -346,32 +346,32 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cat <<EOF > bot_required_issue_body.txt
-          ### 🤖 RokctAI Bot Not Detected
-
-          This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed.
-
-          Some security features are unavailable without it:
-          - ❌ Automatic secret scanning push protection
-          - ❌ GitHub Advanced Security settings management
-          - ❌ Automated issue creation with app tokens
-
-          ---
-
-          ### 📦 How to Install
-
-          Install the RokctAI Bot on this repository:
-          👉 **https://github.com/apps/rokctai-bot**
-
-          Once installed, add the following secrets to this repo:
-          - \`APP_ID\` — provided after installation
-          - \`APP_PRIVATE_KEY\` — provided after installation
-
-          ---
-
-          > This issue was auto-created by the Universal Security workflow.
-          > Once the bot is installed this issue can be closed.
-          EOF
+          {
+            echo "### 🤖 RokctAI Bot Not Detected"
+            echo ""
+            echo "This repository is using RokctAI shared workflows but the **RokctAI Bot** is not installed."
+            echo ""
+            echo "Some security features are unavailable without it:"
+            echo "- ❌ Automatic secret scanning push protection"
+            echo "- ❌ GitHub Advanced Security settings management"
+            echo "- ❌ Automated issue creation with app tokens"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 📦 How to Install"
+            echo ""
+            echo "Install the RokctAI Bot on this repository:"
+            echo "👉 **https://github.com/apps/rokctai-bot**"
+            echo ""
+            echo "Once installed, add the following secrets to this repo:"
+            echo "- \`APP_ID\` — provided after installation"
+            echo "- \`APP_PRIVATE_KEY\` — provided after installation"
+            echo ""
+            echo "---"
+            echo ""
+            echo "> This issue was auto-created by the Universal Security workflow."
+            echo "> Once the bot is installed this issue can be closed."
+          } > bot_required_issue_body.txt
           gh issue create \
             --title "⚠️ Action Required: Install RokctAI Bot to Enable Push Protection" \
             --label "Security" \
