@@ -407,7 +407,7 @@ jobs:
              
              if [[ -n "$RC_TAGS" ]]; then
                 echo "  Found $(echo "$RC_TAGS" | wc -l) RC tags created before $NEXT_STABLE ($STABLE_DATE):"
-                echo "$RC_TAGS" | sed 's/^/    /'
+                echo "$RC_TAGS" | awk '{ print "    " $0 }'
                 
                 # Delete GitHub releases
                 while read -r RC_TAG; do
@@ -795,7 +795,7 @@ jobs:
                 elif [[ "$REF_NAME" == "main" ]]; then
                     # Check if version in file is a stable release (no -rc)
                     FILE="${{ inputs.version_file || 'version.json' }}"
-                    CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || cat "$FILE" | grep -oP '"version":\s*"\K[^"]+')
+                    CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
                     if [[ "$CUR_VER" != *"-rc"* ]]; then
                         MODE="stable"
                         SUFFIX=""
@@ -902,7 +902,7 @@ jobs:
               exit 1
            fi
 
-           CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || cat "$FILE" | grep -oP '"version":\s*"\K[^"]+')
+           CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
            echo "✅ Current: $CUR_VER"
            
            # Automated Bump Logic
@@ -1634,10 +1634,12 @@ jobs:
             if [ "$AI_SUCCESS" = false ]; then
                echo "📝 Using Denoised Git Log fallback..."
                # Re-verify changelog.txt start (it might have been cleared by failed AI attempts)
-               echo "## 🚀 Release $TAG" > changelog.txt
-               echo "" >> changelog.txt
-               echo "### 📦 Changes" >> changelog.txt
-               echo "$LOG" >> changelog.txt
+               {
+                 echo "## 🚀 Release $TAG"
+                 echo ""
+                 echo "### 📦 Changes"
+                 echo "$LOG"
+               } > changelog.txt
             fi
             
              # Extract Contributors (Using step outputs)
