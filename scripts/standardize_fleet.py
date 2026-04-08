@@ -134,22 +134,24 @@ def fix_bot_identity(content):
     if "# rokct-ignore" in content:
         return content
 
-    # Get bot name from env or default to rokct-maintainer
-    main_bot = os.environ.get("BOT_NAME", "rokct-maintainer")
+    # Get bot name from env or default to ROK
+    main_bot = os.environ.get("BOT_NAME", "ROK")
 
-    if main_bot != "rokct-maintainer":
+    if main_bot != "ROK":
         return content
 
     # 1. Update specific bot emails if found (do this before global rename)
     content = content.replace(
-        "2956274+rokctbot[bot]@users.noreply.github.com",
-        "rokct-maintainer[bot]@users.noreply.github.com",
+        "2956274+rok[bot]@users.noreply.github.com",
+        "rok[bot]@users.noreply.github.com",
     )
 
     # 2. Global rename of legacy bot to new bot identity
     # We target both 'rokctbot' and 'rokctbot[bot]'
-    content = content.replace("rokctbot[bot]", "rokct-maintainer[bot]")
-    content = content.replace("rokctbot", "rokct-maintainer")
+    content = content.replace("rokctbot[bot]", "ROK[bot]")
+    content = content.replace("rokctbot", "ROK")
+    content = content.replace("rokct-maintainer[bot]", "ROK[bot]")
+    content = content.replace("rokct-maintainer", "ROK")
 
     return content
 
@@ -158,21 +160,21 @@ def fix_merge_workflow(content):
     if "# rokct-ignore" in content:
         return content
 
-    # Get bot name from env or default to rokct-maintainer
+    # Get bot name from env or default to ROK
     # This allows external devs to use their own app name
-    main_bot = os.environ.get("BOT_NAME", "rokct-maintainer")
+    main_bot = os.environ.get("BOT_NAME", "ROK")
     bot_variants = [main_bot, f"{main_bot}[bot]"]
 
     # Ensure bots are in the allowed_users list
     match = re.search(r'allowed_users:\s*[\'"](.*?)[\'"]', content)
     if match:
         raw_allowed = match.group(1)
-        # Split, strip, and filter out 'rokctbot' variants if we are migrating to 'rokct-maintainer'
+        # Split, strip, and filter out 'ROK' variants if we are migrating to 'rokct-maintainer'
         allowed = [u.strip() for u in raw_allowed.split(",")]
 
-        if main_bot == "rokct-maintainer":
+        if main_bot == "ROK":
             # Remove legacy bot entries to keep it clean
-            allowed = [u for u in allowed if u not in ["rokctbot", "rokctbot[bot]"]]
+            allowed = [u for u in allowed if u not in ["ROK", "ROK[bot]"]]
 
         needs_update = False
         for bot in bot_variants:
@@ -183,7 +185,7 @@ def fix_merge_workflow(content):
         # Unique entries only
         allowed = sorted(list(set(allowed)))
 
-        if needs_update or main_bot == "rokct-maintainer":
+        if needs_update or main_bot == "ROK":
             new_allowed = ", ".join(allowed)
             content = content.replace(match.group(0), f'allowed_users: "{new_allowed}"')
     return content

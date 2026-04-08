@@ -9,11 +9,11 @@ inputs:
   bot-name:
     description: "Name for git commits"
     required: false
-    default: "rokct-maintainer[bot]"
+    default: "ROK[bot]"
   bot-email:
     description: "Email for git commits"
     required: false
-    default: "2956274+rokct-maintainer[bot]@users.noreply.github.com"
+    default: "2956274+rok[bot]@users.noreply.github.com"
 
 runs:
   using: "composite"
