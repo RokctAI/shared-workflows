@@ -223,7 +223,7 @@ jobs:
           wget "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh"
           chmod +x install.sh
           # Run as root in CI mode
-          sudo CI=true DB_TYPE="$DB_TYPE" ./install.sh
+          sudo CI=true DB_TYPE=$DB_TYPE ./install.sh
           
           # move frappe-bench to standard location if needed by later steps
           # install.sh uses /home/frappe/frappe-bench
@@ -242,14 +242,14 @@ jobs:
         working-directory: frappe-bench
         run: |
           # Detect actual app name again or use repo name
-          APP_NAME="${{ github.event.repository.name }}"
+          APP_NAME=${{ github.event.repository.name }}
           APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
           
           # We need to find which directory to replace. install.sh usually uses lowercase
           if [ -d "apps/$APP_NAME_LOWER" ]; then
-             TARGET_DIR="$APP_NAME_LOWER"
+             TARGET_DIR=$APP_NAME_LOWER
           else
-             TARGET_DIR="$APP_NAME"
+             TARGET_DIR=$APP_NAME
           fi
           
           echo "Syncing workspace code into apps/$TARGET_DIR..."
@@ -315,12 +315,12 @@ jobs:
           cd apps
           
           # Priority 1: Check if directory matches Repo Name (e.g. rCore)
-          REPO_NAME="${{ github.event.repository.name }}"
+          REPO_NAME=${{ github.event.repository.name }}
           if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
-              APP_DIR="$REPO_NAME"
+              APP_DIR=$REPO_NAME
           # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
           elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
-              APP_DIR="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
+              APP_DIR=$(echo $REPO_NAME" | tr '[:upper:]' '[:lower:]')"
           else
               # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
               # Using find to be more robust than ls
@@ -336,11 +336,11 @@ jobs:
               elif [ -f "setup.py" ]; then
                  APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
               else
-                 APP_NAME="${{ github.event.repository.name }}"
+                 APP_NAME=${{ github.event.repository.name }}
               fi
               cd ..
           else
-              APP_NAME="${{ github.event.repository.name }}"
+              APP_NAME=${{ github.event.repository.name }}
           fi
           
           # Return to bench root
@@ -446,16 +446,16 @@ jobs:
           chmod +x build_ecosystem.sh
           
           # Pass required inputs as environment variables
-          export BOOTSTRAP="${{ inputs.bootstrap }}"
-          export DB_TYPE="${{ inputs.db-type }}"
-          export DB_PW="${{ env.DB_PW }}"
+          export BOOTSTRAP=${{ inputs.bootstrap }}
+          export DB_TYPE=${{ inputs.db-type }}
+          export DB_PW=${{ env.DB_PW }}
           export RUN_TESTS="true"
-          export GITHUB_TOKEN="${{ steps.app-token.outputs.token || github.token }}"
-          export GITHUB_REPOSITORY="${{ github.repository }}"
-          export GITHUB_REF_NAME="${{ github.ref_name }}"
-          export GITHUB_WORKSPACE="${{ github.workspace }}"
-          export INSTALL_PAYMENTS="${{ inputs.install-payments }}"
-          export INSTALL_ERPNEXT="${{ inputs.install-erpnext }}"
+          export GITHUB_TOKEN=${{ steps.app-token.outputs.token || github.token }}
+          export GITHUB_REPOSITORY=${{ github.repository }}
+          export GITHUB_REF_NAME=${{ github.ref_name }}
+          export GITHUB_WORKSPACE=${{ github.workspace }}
+          export INSTALL_PAYMENTS=${{ inputs.install-payments }}
+          export INSTALL_ERPNEXT=${{ inputs.install-erpnext }}
           
           ./build_ecosystem.sh
 

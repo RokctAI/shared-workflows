@@ -123,7 +123,7 @@ jobs:
           FILE_NAME="production.env"
           if [ -n "$CLIENT_PREFIX" ]; then
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-             FILE_NAME="${LOWER_PREFIX}_production.env"
+             FILE_NAME=${LOWER_PREFIX}_production.env
           fi
 
           # 1. Try Monorepo
@@ -132,10 +132,10 @@ jobs:
           else
              # 2. Try Secrets
              echo "⚠️ Not in Monorepo. Falling back to secrets..."
-             ENV_CONTENT="$DEFAULT_ENV"
+             ENV_CONTENT=$DEFAULT_ENV
              if [ -n "$CLIENT_ENV" ]; then
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"
-                ENV_CONTENT="$CLIENT_ENV"
+                ENV_CONTENT=$CLIENT_ENV
              fi
              
              if [ -n "$ENV_CONTENT" ]; then
