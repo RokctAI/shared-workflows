@@ -53,13 +53,13 @@ jobs:
         id: check
         run: |
           if [ -f "pubspec.yaml" ]; then
-             echo "type=flutter" >> $GITHUB_OUTPUT
+             echo "type=flutter" >> "$GITHUB_OUTPUT"
           elif [ -f "package.json" ]; then
-             echo "type=node" >> $GITHUB_OUTPUT
+             echo "type=node" >> "$GITHUB_OUTPUT"
           elif [ -f "requirements.txt" ] || [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
-             echo "type=frappe" >> $GITHUB_OUTPUT
+             echo "type=frappe" >> "$GITHUB_OUTPUT"
           else
-             echo "type=none" >> $GITHUB_OUTPUT
+             echo "type=none" >> "$GITHUB_OUTPUT"
           fi
 
   # --- 2. UNIFIED PIPELINE ---

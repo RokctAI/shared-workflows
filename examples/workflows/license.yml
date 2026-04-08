@@ -1,7 +1,8 @@
 
+name: License Eye
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-﻿name: License Eye
 on:
   pull_request:
 
