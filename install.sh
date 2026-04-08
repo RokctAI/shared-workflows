@@ -1,3 +1,6 @@
+# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
+# For license information, please see license.txt
+
 #!/bin/bash
 
 # Configuration

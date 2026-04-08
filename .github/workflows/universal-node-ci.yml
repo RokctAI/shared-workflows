@@ -1,3 +1,5 @@
+# Copyright 2024 RokctAI
+
 name: Universal Node.js CI
 
 env:
@@ -105,12 +107,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           CLIENT=""
-          if [[ "$REF_NAME" == build_* ]]; then
+          if [[ $REF_NAME == build_* ]]; then
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
-            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
+            CLIENT=$(printf '%s\n' $REF_NAME | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
-          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
+          [ -n $CLIENT ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       - name: "Decode Production Environment (Priority: Monorepo > Secret)"
         env:
@@ -121,25 +123,25 @@ jobs:
         if: github.ref_name != 'develop'
         run: |
           FILE_NAME="production.env"
-          if [ -n "$CLIENT_PREFIX" ]; then
-             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+          if [ -n $CLIENT_PREFIX ]; then
+             LOWER_PREFIX=$(echo $CLIENT_PREFIX | tr '[:upper:]' '[:lower:]')
              FILE_NAME=${LOWER_PREFIX}_production.env
           fi
 
           # 1. Try Monorepo
-          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+          if [ -n $GH_TOKEN ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
              echo "✅ Successfully synced $FILE_NAME from Monorepo."
           else
              # 2. Try Secrets
              echo "⚠️ Not in Monorepo. Falling back to secrets..."
              ENV_CONTENT=$DEFAULT_ENV
-             if [ -n "$CLIENT_ENV" ]; then
+             if [ -n $CLIENT_ENV ]; then
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"
                 ENV_CONTENT=$CLIENT_ENV
              fi
              
-             if [ -n "$ENV_CONTENT" ]; then
-                echo "$ENV_CONTENT" | base64 --decode > .env.raw
+             if [ -n $ENV_CONTENT ]; then
+                echo $ENV_CONTENT | base64 --decode > .env.raw
                 echo "✅ Successfully decoded from secrets."
              else
                 echo "ℹ️ No environment configuration found."

@@ -1,3 +1,5 @@
+# Copyright 2024 RokctAI
+
 name: Frappe App Test
 
 permissions: write-all
@@ -234,7 +236,7 @@ jobs:
                 rm -rf frappe-bench
              fi
              sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-             sudo chown -R "$USER":"$USER" /home/frappe/frappe-bench
+             sudo chown -R $USER:$USER /home/frappe/frappe-bench
           fi
 
       - name: Sync Workspace Code to Bootstrap Bench 🔄
@@ -243,7 +245,7 @@ jobs:
         run: |
           # Detect actual app name again or use repo name
           APP_NAME=${{ github.event.repository.name }}
-          APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+          APP_NAME_LOWER=$(echo $APP_NAME | tr '[:upper:]' '[:lower:]')
           
           # We need to find which directory to replace. install.sh usually uses lowercase
           if [ -d "apps/$APP_NAME_LOWER" ]; then
@@ -316,10 +318,10 @@ jobs:
           
           # Priority 1: Check if directory matches Repo Name (e.g. rCore)
           REPO_NAME=${{ github.event.repository.name }}
-          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
+          if [ -n $REPO_NAME ] && [ -d $REPO_NAME ]; then
               APP_DIR=$REPO_NAME
           # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
-          elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
+          elif [ -n $REPO_NAME ] && [ -d "$(echo $REPO_NAME | tr '[:upper:]' '[:lower:]')" ]; then
               APP_DIR=$(echo $REPO_NAME" | tr '[:upper:]' '[:lower:]')"
           else
               # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
@@ -329,8 +331,8 @@ jobs:
           
           echo "Detected App Directory: $APP_DIR"
           
-          if [ -n "$APP_DIR" ]; then
-              cd "$APP_DIR"
+          if [ -n $APP_DIR ]; then
+              cd $APP_DIR
               if [ -f "pyproject.toml" ]; then
                  APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
               elif [ -f "setup.py" ]; then
@@ -350,7 +352,7 @@ jobs:
           echo "Actual App Name: $APP_NAME"
           
           # If names differ (package name != current folder name), rename the app directory
-          if [[ -n "$APP_DIR" && "$APP_NAME" != "$APP_DIR" && -n "$APP_NAME" ]]; then
+          if [[ -n $APP_DIR && $APP_NAME != $APP_DIR && -n $APP_NAME ]]; then
              echo "Renaming apps/$APP_DIR to apps/$APP_NAME"
              mv "apps/$APP_DIR" "apps/$APP_NAME"
              
@@ -362,7 +364,7 @@ jobs:
           # If 'brain' directory exists but code imports 'frappebrain', create a symlink alias
           if [ -d "apps/$APP_NAME/$APP_NAME" ] && [ ! -d "apps/$APP_NAME/frappebrain" ]; then
              echo "Creating alias: apps/$APP_NAME/frappebrain -> apps/$APP_NAME/$APP_NAME"
-             ln -s "$APP_NAME" "apps/$APP_NAME/frappebrain"
+             ln -s $APP_NAME "apps/$APP_NAME/frappebrain"
           fi
           
           # HACK: Fix namespace packages (missing __init__.py) which cause Frappe install to fail
@@ -381,7 +383,7 @@ jobs:
              grep -r "frappe.utils.update_site_config" "apps/$APP_NAME" | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
           fi
 
-          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           
           # Create Test Site
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
@@ -409,7 +411,7 @@ jobs:
              echo "Adding $APP_NAME to apps.txt"
              # Append newline if missing, then the app name
              sed -i -e '$a\' sites/apps.txt
-             echo "$APP_NAME" >> sites/apps.txt
+             echo $APP_NAME >> sites/apps.txt
           fi
           
           echo "Updated apps.txt:"
@@ -420,15 +422,15 @@ jobs:
           
           # Sync DocTypes before testing (Prevents DoesNotExistError)
           echo "Syncing DocTypes via Migration..."
-          bench --site "$SITE_NAME" migrate
+          bench --site $SITE_NAME migrate
           
           # Install App & Run Tests
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench --site "$SITE_NAME" install-app "$APP_NAME"
+             bench --site $SITE_NAME install-app $APP_NAME
           fi
-          bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log
+          bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
 
 
 
@@ -474,11 +476,11 @@ jobs:
              echo "Processing deprecation warnings for annotations..."
              # Parse for DeprecationWarning (Inspired by Frappe)
              grep -E "DeprecationWarning" frappe-bench/test_output.log | sort -u | while read -r warning; do
-               file_info=$(echo "$warning" | grep -oP '^.*?:\d+:')
-               if [ -n "$file_info" ]; then
-                  file_path=$(echo "$file_info" | cut -d':' -f1)
-                  line_number=$(echo "$file_info" | cut -d':' -f2)
-                  msg=$(echo "$warning" | sed -E "s/^.*DeprecationWarning: //")
+               file_info=$(echo $warning | grep -oP '^.*?:\d+:')
+               if [ -n $file_info ]; then
+                  file_path=$(echo $file_info | cut -d':' -f1)
+                  line_number=$(echo $file_info | cut -d':' -f2)
+                  msg=$(echo $warning | sed -E "s/^.*DeprecationWarning: //")
                   echo "::warning file=${file_path},line=${line_number}::DeprecationWarning: ${msg}"
                fi
              done
