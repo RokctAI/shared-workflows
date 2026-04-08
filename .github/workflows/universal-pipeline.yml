@@ -142,10 +142,10 @@ jobs:
 
           echo "Comparing against: $BASE"
 
-          # Try diff safely
+          # Validate base exists
           if git rev-parse "$BASE" >/dev/null 2>&1; then
-            DIFF=$(git diff -w "$BASE"...HEAD || true)
-            RAW_DIFF=$(git diff "$BASE"...HEAD || true)
+            DIFF="$(git diff -w "$BASE"...HEAD || true)"
+            RAW_DIFF="$(git diff "$BASE"...HEAD || true)"
           else
             echo "Base not found, treating as non-trivial change"
             echo "only_whitespace=false" >> "$GITHUB_OUTPUT"
