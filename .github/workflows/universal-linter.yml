@@ -198,7 +198,11 @@ jobs:
       - name: Lint Example YAMLs
         run: |
           echo "Linting example YAMLs..."
-          find examples -name "*.yml" -exec actionlint {} +
+          if [ -d "examples" ]; then
+            find examples -name "*.yml" -exec actionlint {} +
+          else
+            echo "No examples directory found, skipping."
+          fi
 
   lint-python:
     needs: telemetry
