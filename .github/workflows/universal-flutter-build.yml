@@ -127,7 +127,7 @@ jobs:
           {
             flutter pub get &&
             dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
         continue-on-error: true
 
       - name: Parse build logs and create error_log.md
@@ -246,21 +246,21 @@ jobs:
              echo "✅ android/app/google-services.json already exists. Skipping."
           else
              FILE_NAME="google-services.json"
-             [ ! -z "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
              
              # 1. Try Monorepo
-             if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
                 JSON_CONTENT="$DEFAULT_JSON"
-                if [ ! -z "$CLIENT_JSON" ]; then
+                if [ -n "$CLIENT_JSON" ]; then
                    echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_${CLIENT_PREFIX}"
                    JSON_CONTENT="$CLIENT_JSON"
                 fi
                 
-                if [ ! -z "$JSON_CONTENT" ]; then
+                if [ -n "$JSON_CONTENT" ]; then
                    echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
                    echo "✅ Successfully decoded from secrets."
                 else
@@ -462,7 +462,7 @@ jobs:
           if [ -f .env/production.env ]; then
             BUILD_ARGS="$BUILD_ARGS --dart-define-from-file=.env/production.env"
           fi
-          flutter build appbundle $BUILD_ARGS
+          flutter build appbundle "$BUILD_ARGS"
 
       - name: Upload Artifact (APK)
         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
@@ -501,7 +501,7 @@ jobs:
           {
             flutter pub get &&
             dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
         continue-on-error: true
 
       - name: Parse build logs and create error_log.md
@@ -646,8 +646,8 @@ jobs:
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
-          [ ! -z "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
+          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
       - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Monorepo > Secret)"
@@ -662,16 +662,16 @@ jobs:
              echo "✅ ios/Runner/GoogleService-Info.plist already exists. Skipping."
           else
              FILE_NAME="GoogleService-Info.plist"
-             [ ! -z "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
              
              # 1. Try Monorepo
-             if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
                 PLIST_CONTENT="$DEFAULT_PLIST"
-                if [ ! -z "$CLIENT_PLIST" ]; then
+                if [ -n "$CLIENT_PLIST" ]; then
                    echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_${CLIENT_PREFIX}"
                    PLIST_CONTENT="$CLIENT_PLIST"
                 fi
@@ -756,7 +756,7 @@ jobs:
           {
             flutter pub get &&
             dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
         continue-on-error: true
 
       - name: Parse build logs and create error_log.md
