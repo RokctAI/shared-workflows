@@ -28,28 +28,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LIMIT="${{ env.MAX_MONTHLY_BUILDS }}"
+          LIMIT=${{ env.MAX_MONTHLY_BUILDS }}
+          EVENT_NAME="${{ github.event_name }}"
           # Explicitly disable quota if triggered manually
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
              echo "🚀 Manual Trigger. Skipping Quota Check."
              echo "should_run=true" >> "$GITHUB_OUTPUT"
              exit 0
           fi
           
           CURRENT_MONTH=$(date +%Y-%m)
-          echo "Checking macOS Release Quota for "$CURRENT_MONTH" (Limit: "$LIMIT")..."
+          echo "Checking macOS Release Quota for $CURRENT_MONTH (Limit: $LIMIT)..."
           
           # List releases, filter for '-macos' suffix and current month creation date
           # Format: "tag_name published_at"
           COUNT=$(gh release list --limit 100 --json tagName,publishedAt --jq ".[] | select(.tagName | endswith(\"-macos\")) | select(.publishedAt | startswith(\"$CURRENT_MONTH\")) | .tagName" | wc -l)
           
-          echo "Found "$COUNT" macOS releases this month."
+          echo "Found $COUNT macOS releases this month."
           
           if [ "$COUNT" -ge "$LIMIT" ]; then
-             echo "❌ Quota Exceeded ("$COUNT" >= "$LIMIT"). Skipping Build."
+             echo "❌ Quota Exceeded ($COUNT >= $LIMIT). Skipping Build."
              echo "should_run=false" >> "$GITHUB_OUTPUT"
           else
-             echo "✅ Quota OK ("$COUNT" < "$LIMIT"). Proceeding."
+             echo "✅ Quota OK ($COUNT < $LIMIT). Proceeding."
              echo "should_run=true" >> "$GITHUB_OUTPUT"
           fi
 
