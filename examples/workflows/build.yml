@@ -1,8 +1,7 @@
 
-name: Build (Smart)
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+name: Build (Smart)
 
 on:
   push:
@@ -37,6 +36,10 @@ on:
       flutter-channel:
         type: string
         default: 'stable'
+      flutter-version:
+        type: string
+        default: '3.24.0'
+        description: "Pin Flutter version (e.g. 3.24.0)"
       java-version:
         type: string
         default: '17'
@@ -62,13 +65,13 @@ jobs:
         id: check
         run: |
           if [ -f "pubspec.yaml" ]; then
-             echo "type=flutter" >> "$GITHUB_OUTPUT"
+             echo "type=flutter" >> $GITHUB_OUTPUT
           elif [ -f "package.json" ]; then
-             echo "type=node" >> "$GITHUB_OUTPUT"
+             echo "type=node" >> $GITHUB_OUTPUT
           elif [ -f "requirements.txt" ] || [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
-             echo "type=frappe" >> "$GITHUB_OUTPUT"
+             echo "type=frappe" >> $GITHUB_OUTPUT
           else
-             echo "type=none" >> "$GITHUB_OUTPUT"
+             echo "type=none" >> $GITHUB_OUTPUT
           fi
 
   # --- 2. UNIFIED PIPELINE (Smart) ---
