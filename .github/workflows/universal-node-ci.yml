@@ -112,7 +112,11 @@ jobs:
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
           echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
-          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+          if [ -n "$CLIENT" ]; then
+             echo "🔍 Detected Client: $CLIENT"
+          else
+             echo "ℹ️ Standard build (no client detected)"
+          fi
 
       - name: "Decode Production Environment (Priority: Monorepo > Secret)"
         env:

@@ -135,12 +135,12 @@ jobs:
 
           if [ -z "$DIFF" ]; then
             echo "Only whitespace changes detected: $DIFF"
-            echo "only_whitespace=true" >> $GITHUB_OUTPUT
-            echo "trivial=true" >> $GITHUB_OUTPUT
+            echo "only_whitespace=true" >> "$GITHUB_OUTPUT"
+            echo "trivial=true" >> "$GITHUB_OUTPUT"
           else
             echo "Real changes detected"
-            echo "only_whitespace=false" >> $GITHUB_OUTPUT
-            echo "trivial=false" >> $GITHUB_OUTPUT
+            echo "only_whitespace=false" >> "$GITHUB_OUTPUT"
+            echo "trivial=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Label PR as trivial
