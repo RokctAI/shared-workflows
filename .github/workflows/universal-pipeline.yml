@@ -114,7 +114,7 @@ on:
 
 jobs:
   # 🔥 NEW: Detect trivial (whitespace-only) changes
-    detect-changes:
+  detect-changes:
     runs-on: ubuntu-latest
     outputs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
