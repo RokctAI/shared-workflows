@@ -306,7 +306,6 @@ jobs:
              if ! head -n 5 "$file" | grep -qi "Copyright"; then
                   echo "Adding copyright to $file"
                   # Escape the header for sed
-                  # (ESCAPED_HEADER removed — awk uses $HEADER directly)
                   # Use awk to prepend the header block cleanly
                   awk -v header="$HEADER" 'BEGIN{print header; print ""} {print}' "$file" > tmpfile && mv tmpfile "$file"
              fi
@@ -418,7 +417,7 @@ jobs:
             if [ -n "$EXISTING_PR" ]; then
                  echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
-                git push -f origin HEAD:$BRANCH_NAME
+                git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
 
@@ -434,7 +433,8 @@ jobs:
                      echo "The Fleet Standardizer attempted to update your workflow files but failed due to missing permissions."
                      echo "- **Error**: $(grep -i "permission" push_error.log | head -n 1)"
                      echo "- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**."
-                   } >> "$GITHUB_STEP_SUMMARY"                   exit 0 # Non-blocking for permission issues
+                   } >> "$GITHUB_STEP_SUMMARY"
+                   exit 0 # Non-blocking for permission issues
                 fi
                 echo "❌ Failed to push branch for PR."
                 exit 1
@@ -552,7 +552,7 @@ jobs:
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
-                git push -f origin HEAD:$BRANCH_NAME
+                git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
 
@@ -568,7 +568,8 @@ jobs:
                      echo "The Fleet Standardizer attempted to update your workflow files but failed due to missing permissions."
                      echo "- **Error**: $(grep -i "permission" push_error.log | head -n 1)"
                      echo "- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**."
-                   } >> "$GITHUB_STEP_SUMMARY"                   exit 0 # Non-blocking for permission issues
+                   } >> "$GITHUB_STEP_SUMMARY"
+                   exit 0 # Non-blocking for permission issues
                 fi
                 echo "❌ Failed to push branch for PR."
                 exit 1
@@ -696,7 +697,7 @@ jobs:
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
-                git push -f origin HEAD:$BRANCH_NAME
+                git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
 
@@ -712,7 +713,8 @@ jobs:
                      echo "The Fleet Standardizer attempted to update your workflow files but failed due to missing permissions."
                      echo "- **Error**: $(grep -i "permission" push_error.log | head -n 1)"
                      echo "- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**."
-                   } >> "$GITHUB_STEP_SUMMARY"                   exit 0 # Non-blocking for permission issues
+                   } >> "$GITHUB_STEP_SUMMARY"
+                   exit 0 # Non-blocking for permission issues
                 fi
                 echo "❌ Failed to push branch for PR."
                 exit 1
@@ -868,7 +870,7 @@ jobs:
               if [ -n "$EXISTING_PR" ]; then
                   echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                   git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
-                  git push -f origin HEAD:$BRANCH_NAME
+                  git push -f origin HEAD:"$BRANCH_NAME"
                   exit 0
               fi
 
