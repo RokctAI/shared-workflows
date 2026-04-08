@@ -26,7 +26,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   auto-merge:
     needs: telemetry
@@ -39,7 +39,7 @@ jobs:
           AUTHOR="${{ github.event.pull_request.user.login }}"
           ALLOWED="${{ inputs.allowed_users }}"
           ALLOWED="${ALLOWED// /}"
-          if [[ ","$ALLOWED"," == *","$AUTHOR","* ]]; then
+          if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
             echo "authorized=false" >> "$GITHUB_OUTPUT"
@@ -65,6 +65,7 @@ jobs:
           else
             echo "trivial=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "Checked files: $FILES"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

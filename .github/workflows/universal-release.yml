@@ -72,6 +72,10 @@ on:
     secrets:
       MONOREPO_PAT:
         required: false
+      PRODUCTION_ENV:
+        required: false
+      DEFAULT_ENV:
+        required: false
       BRAIN_TOKEN:
         required: false
       KEY_JKS:
@@ -123,7 +127,7 @@ jobs:
         if: ${{ env.API_KEY != '' }}
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   # --- 1. CHECKS (Lint, Test, Build) ---
   checks:
@@ -159,7 +163,7 @@ jobs:
           # Get current version details using shared action or jq
           # Assuming versions.json. Simplification for inline logic:
           FILE="${{ inputs.version_file || 'versions.json' }}"
-          if [ ! -f "$FILE" ]; then echo "No version file found: "$FILE""; exit 0; fi
+          if [ ! -f "$FILE" ]; then echo "No version file found: $FILE"; exit 0; fi
           
           # Function to extract version based on extension
           get_version() {
@@ -325,14 +329,14 @@ jobs:
         run: |
           CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
           
-          echo " Date-based cleanup mode (cutoff: "$CUTOFF_DATE")"
+          echo " Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
           
           # Get current date in YYYY-MM-DD format
           CURRENT_DATE=$(date +%Y-%m-%d)
           
           # Compare dates
           if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
-             echo "✅ Current date ("$CURRENT_DATE") is past cutoff ("$CUTOFF_DATE")"
+             echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
              
              # Check if cleanup marker file exists
              MARKER_FILE=".github/.rc-cleanup-done"
@@ -343,7 +347,7 @@ jobs:
              
              echo "🆕 First time running cleanup past cutoff date"
           else
-             echo "⏸️ Current date ("$CURRENT_DATE") is before cutoff ("$CUTOFF_DATE"). Skipping cleanup."
+             echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
              exit 0
           fi
           
@@ -387,7 +391,7 @@ jobs:
              
              # Filter RCs: only keep those created BEFORE the stable tag
              RC_TAGS=""
-             for RC_TAG in "$ALL_RC_TAGS"; do
+             for RC_TAG in $ALL_RC_TAGS; do
                 RC_DATE=$(git log -1 --format=%ai "$RC_TAG" | cut -d' ' -f1)
                 if [[ "$RC_DATE" < "$STABLE_DATE" ]] || [[ "$RC_DATE" == "$STABLE_DATE" ]]; then
                    RC_TAGS="$RC_TAGS"$RC_TAG""$'\n'
@@ -400,14 +404,14 @@ jobs:
                 echo "$RC_TAGS" | sed 's/^/    /'
                 
                 # Delete GitHub releases
-                for RC_TAG in "$RC_TAGS"; do
-                   echo "  Deleting release for "$RC_TAG"..."
-                   gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "    No release found for "$RC_TAG""
+                for RC_TAG in $RC_TAGS; do
+                   echo "  Deleting release for $RC_TAG..."
+                   gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "    No release found for $RC_TAG"
                 done
                 
                 # Delete remote tags
-                for RC_TAG in "$RC_TAGS"; do
-                   git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag "$RC_TAG" already deleted"
+                for RC_TAG in $RC_TAGS; do
+                   git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag $RC_TAG already deleted"
                 done
                 
                 # Delete local tags (suppress errors if already deleted)
@@ -499,7 +503,7 @@ jobs:
            GITHUB_TOKEN: ${{ github.token }}
         run: |
            CUTOFF="${{ inputs.backfill_ai_notes_cutoff_version }}"
-           echo "🚀 Starting AI Release Notes Backfill (Cutoff: "$CUTOFF")"
+           echo "🚀 Starting AI Release Notes Backfill (Cutoff: $CUTOFF)"
            
            # Get all stable tags sorted by version descending
            ALL_STABLE_TAGS=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)')
@@ -507,7 +511,7 @@ jobs:
            # We want to process tags from oldest to newest to follow history, 
            # but let's just iterate and use the descending list to find predecessors.
            
-           for TAG in "$ALL_STABLE_TAGS"; do
+           for TAG in $ALL_STABLE_TAGS; do
               VER="${TAG#v}"
               
               # Check if this tag is >= Cutoff
@@ -834,7 +838,7 @@ jobs:
              # Get all SHAs
              SHAS=$(git log "$RANGE" --pretty=format:%H)
              
-             for sha in "$SHAS"; do
+             for sha in $SHAS; do
                 PR_DATA=$(gh api "repos/${{ github.repository }}/commits/"${sha}"/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null || echo "null")
                 PR_NUM=$(echo "$PR_DATA" | jq -r '.number' 2>/dev/null || echo "null")
                 PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author' 2>/dev/null || echo "null")
@@ -1080,7 +1084,6 @@ jobs:
                 
                 # Clean up runner
                 rm -f .env
-             fi
           else
              echo "Not a Next.js project. Skipping .env injection."
           fi
@@ -1715,8 +1718,8 @@ jobs:
            
            if [[ -n "$TAGS_TO_PRUNE" ]]; then
               echo "Pruning older RCs for this version..."
-              for TAG in "$TAGS_TO_PRUNE"; do
-                 echo "   Deleting "$TAG"..."
+              for TAG in $TAGS_TO_PRUNE; do
+                 echo "   Deleting $TAG..."
                  # Release deletion with --cleanup-tag removes both object and tag
                  gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
                  # Force remote deletion to be absolutely sure
@@ -1743,8 +1746,8 @@ jobs:
               echo "Found RC tags to purge:"
               echo "$ALL_RC_TAGS"
               
-              for RC_TAG in "$ALL_RC_TAGS"; do
-                 echo "Deleting "$RC_TAG"..."
+              for RC_TAG in $ALL_RC_TAGS; do
+                 echo "Deleting $RC_TAG..."
                  gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || true
                  git push origin --delete "$RC_TAG" 2>/dev/null || true
               done

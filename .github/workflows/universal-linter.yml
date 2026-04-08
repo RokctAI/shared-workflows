@@ -135,7 +135,7 @@ jobs:
             # Check if PR already exists for this branch
             EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
-                echo "ℹ️ Peer PR already exists: "$EXISTING_PR". Updating existing branch."
+                echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git checkout -b "$BRANCH_NAME" || git checkout "$BRANCH_NAME"
                 git push -f origin "$BRANCH_NAME"
                 exit 0
@@ -174,7 +174,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   lint-yaml:
     needs: telemetry
@@ -285,7 +285,7 @@ jobs:
           # Assuming the input looks something like: "Copyright (c) {YEAR}, Rokct Intelligence (pty) Ltd."
           # If they just provided the name, we build the standard Frappe string.
           # We will default to standard Frappe format:
-          HEADER="# Copyright (c) "${CURRENT_YEAR}", "${COPYRIGHT_INPUT}"\n# For license information, please see license.txt\n"
+          HEADER="# Copyright (c) $CURRENT_YEAR, $COPYRIGHT_INPUT\n# For license information, please see license.txt\n"
           
           echo "Using copyright template:"
           echo -e "$HEADER"
@@ -412,7 +412,7 @@ jobs:
             # Check if PR already exists for this branch
             EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
-                echo "ℹ️ Peer PR already exists: "$EXISTING_PR". Updating existing branch."
+                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git pull origin "$BRANCH_NAME" --rebase || echo "Pull failed, forcing push..."
                 git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
@@ -507,7 +507,7 @@ jobs:
              # -i 2: indent 2 spaces
              # -ln bash: force bash parser (prevents posix 'function' keyword errors like in Flutter's extract_dart_defines.sh)
              # xargs is used here to pass the list of files to the docker container
-             echo "$FILES_TO_FORMAT" | xargs docker run --rm -v $(pwd):/mnt mvdan/shfmt:latest -w -i 2 -ln bash
+             echo "$FILES_TO_FORMAT" | xargs docker run --rm -v "$(pwd)":/mnt mvdan/shfmt:latest -w -i 2 -ln bash
           else
              echo "No target shell scripts found. Skipping."
           fi
@@ -901,12 +901,14 @@ jobs:
           # especially on non-stable branches.
           LEAKS=$(find . -type f -name "*.xlsx" -o -name "*.xls" -o -name "*.csv" | grep -v "node_modules" || true)
           if [ -n "$LEAKS" ]; then
-             echo "### ⚠️ Potential Data Leak Detected" >> "$GITHUB_STEP_SUMMARY"
-             echo "The following unverified data files were found in the repository:" >> "$GITHUB_STEP_SUMMARY"
-             echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-             echo "$LEAKS" >> "$GITHUB_STEP_SUMMARY"
-             echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-             echo "💡 **Policy**: Fleet standards prohibit committing Excel/CSV exports to the source tree. Use stable release artifacts for data distribution." >> "$GITHUB_STEP_SUMMARY"
+             {
+               echo "### ⚠️ Potential Data Leak Detected"
+               echo "The following unverified data files were found in the repository:"
+               echo "\`\`\`"
+               echo "$LEAKS"
+               echo "\`\`\`"
+               echo "💡 **Policy**: Fleet standards prohibit committing Excel/CSV exports to the source tree. Use stable release artifacts for data distribution."
+             } >> "$GITHUB_STEP_SUMMARY"
              
              if [[ "${{ github.ref_name }}" != "main" ]]; then
                 echo "❌ Unverified data found on non-stable branch."

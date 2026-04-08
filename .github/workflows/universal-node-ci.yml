@@ -41,6 +41,10 @@ on:
         required: false
       MONOREPO_PAT:
         required: false
+      PRODUCTION_ENV:
+        required: false
+      DEFAULT_ENV:
+        required: false
 
 jobs:
   telemetry:
@@ -53,7 +57,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   node-ci:
     needs: telemetry
@@ -105,8 +109,8 @@ jobs:
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper="$CLIENT"" >> "$GITHUB_OUTPUT"
-          [ -n "$CLIENT" ] && echo "🔍 Detected Client: "$CLIENT"" || echo "ℹ️ Standard build (no client detected)"
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
+          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       - name: "Decode Production Environment (Priority: Monorepo > Secret)"
         env:
@@ -124,13 +128,13 @@ jobs:
 
           # 1. Try Monorepo
           if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
-             echo "✅ Successfully synced "$FILE_NAME" from Monorepo."
+             echo "✅ Successfully synced $FILE_NAME from Monorepo."
           else
              # 2. Try Secrets
              echo "⚠️ Not in Monorepo. Falling back to secrets..."
              ENV_CONTENT="$DEFAULT_ENV"
              if [ -n "$CLIENT_ENV" ]; then
-                echo "✅ Using client-specific secret: PRODUCTION_ENV_"${CLIENT_PREFIX}""
+                echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"
                 ENV_CONTENT="$CLIENT_ENV"
              fi
              

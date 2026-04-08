@@ -54,7 +54,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer "$API_KEY""
+          -H "Authorization: Bearer $API_KEY"
 
   # -----------------------------
   # Secret Scanning (Gitleaks)
@@ -250,7 +250,7 @@ jobs:
           \`\`\`
           $(head -c 2000 pip_audit_output.txt)
            \`\`\`
-EOF
+          EOF
           )
           gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
         fi
