@@ -31,14 +31,14 @@ jobs:
       - id: vars
         run: |
           if [ -n "${{ secrets.MONOREPO_PAT }}" ]; then
-            echo "has_monorepo_pat=true" >> $GITHUB_OUTPUT
+            echo "has_monorepo_pat=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_monorepo_pat=false" >> $GITHUB_OUTPUT
+            echo "has_monorepo_pat=false" >> "$GITHUB_OUTPUT"
           fi
           if [ -n "${{ secrets.APP_ID }}" ]; then
-            echo "has_app_id=true" >> $GITHUB_OUTPUT
+            echo "has_app_id=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_app_id=false" >> $GITHUB_OUTPUT
+            echo "has_app_id=false" >> "$GITHUB_OUTPUT"
           fi
 
   # -----------------------------
@@ -54,7 +54,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer $API_KEY"
+          -H "Authorization: Bearer "$API_KEY""
 
   # -----------------------------
   # Secret Scanning (Gitleaks)
@@ -242,7 +242,7 @@ jobs:
         GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
       run: |
         if [ -f "pip_audit_output.txt" ]; then
-          BODY=$(cat <<EOF
+          BODY=$(cat <<'EOF'
           ### 🐍 Python Dependency Audit Failure
           **Commit:** ${{ github.sha }}
 
@@ -250,7 +250,7 @@ jobs:
           \`\`\`
           $(head -c 2000 pip_audit_output.txt)
            \`\`\`
-          EOF
+EOF
           )
           gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body "$BODY" --label "Security" || echo "Issue already exists."
         fi

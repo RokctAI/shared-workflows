@@ -26,7 +26,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-          -H "Authorization: Bearer $API_KEY"
+          -H "Authorization: Bearer "$API_KEY""
 
   auto-merge:
     needs: telemetry
@@ -38,11 +38,11 @@ jobs:
         run: |
           AUTHOR="${{ github.event.pull_request.user.login }}"
           ALLOWED="${{ inputs.allowed_users }}"
-          ALLOWED=$(echo "$ALLOWED" | sed 's/ *, */,/g')
-          if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
-            echo "authorized=true" >> $GITHUB_OUTPUT
+          ALLOWED="${ALLOWED// /}"
+          if [[ ","$ALLOWED"," == *","$AUTHOR","* ]]; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
-            echo "authorized=false" >> $GITHUB_OUTPUT
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v6
@@ -53,17 +53,17 @@ jobs:
           FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '.files[].path')
 
           if echo "$FILES" | grep -q ".github/workflows/"; then
-            echo "safe=false" >> $GITHUB_OUTPUT
+            echo "safe=false" >> "$GITHUB_OUTPUT"
           else
-            echo "safe=true" >> $GITHUB_OUTPUT
+            echo "safe=true" >> "$GITHUB_OUTPUT"
           fi
 
           DIFF=$(gh pr diff ${{ github.event.pull_request.number }} --ignore-all-space)
 
           if [ -z "$DIFF" ]; then
-            echo "trivial=true" >> $GITHUB_OUTPUT
+            echo "trivial=true" >> "$GITHUB_OUTPUT"
           else
-            echo "trivial=false" >> $GITHUB_OUTPUT
+            echo "trivial=false" >> "$GITHUB_OUTPUT"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
