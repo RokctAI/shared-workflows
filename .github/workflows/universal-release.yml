@@ -169,10 +169,10 @@ jobs:
           
           # Function to extract version based on extension
           get_version() {
-            local f=$1
-            if [[ $f == *.json ]]; then
+            local f="$1"
+            if [[ "$f" == *.json ]]; then
                jq -r .version "$f"
-            elif [[ $f == *.yaml ]] || [[ $f == *.yml ]]; then
+            elif [[ "$f" == *.yaml ]] || [[ "$f" == *.yml ]]; then
                grep -m1 "^version:" "$f" | awk '{print $2}' | tr -d '"' | tr -d "'"
             else
                cat "$f" # Fallback
@@ -195,9 +195,11 @@ jobs:
           
           if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
              echo "Major Bump Detected ($OLD_MAJOR -> $NEW_MAJOR)"
-             echo "bumped=true" >> "$GITHUB_OUTPUT"
-             echo "old_ver=$OLD_VER" >> "$GITHUB_OUTPUT"
-             echo "old_major=$OLD_MAJOR" >> "$GITHUB_OUTPUT"
+             {
+               echo "bumped=true"
+               echo "old_ver=$OLD_VER"
+               echo "old_major=$OLD_MAJOR"
+             } >> "$GITHUB_OUTPUT"
           else
              echo "bumped=false" >> "$GITHUB_OUTPUT"
           fi
@@ -222,11 +224,13 @@ jobs:
       - name: Configure LTS Environment
         if: steps.check_major.outputs.bumped == 'true'
         run: |
-          echo "OLD_VER=${{ steps.check_major.outputs.old_ver }}" >> "$GITHUB_ENV"
-          echo "MAJOR=${{ steps.check_major.outputs.old_major }}" >> "$GITHUB_ENV"
-          echo "BRANCH_NAME=version-${{ steps.check_major.outputs.old_major }}" >> "$GITHUB_ENV"
-          echo "TAG_NAME=v${{ steps.check_major.outputs.old_ver }}-LTS" >> "$GITHUB_ENV"
-          echo "PREV_MAJOR=$((${{ steps.check_major.outputs.old_major }} - 1))" >> "$GITHUB_ENV"
+          {
+            echo "OLD_VER=${{ steps.check_major.outputs.old_ver }}"
+            echo "MAJOR=${{ steps.check_major.outputs.old_major }}"
+            echo "BRANCH_NAME=version-${{ steps.check_major.outputs.old_major }}"
+            echo "TAG_NAME=v${{ steps.check_major.outputs.old_ver }}-LTS"
+            echo "PREV_MAJOR=$((${{ steps.check_major.outputs.old_major }} - 1))"
+          } >> "$GITHUB_ENV"
 
       - name: Generate App Token
         id: app-token
@@ -618,6 +622,7 @@ jobs:
           cache: true
 
       - name: Build Windows
+        shell: pwsh
         # We need to filter Release Mode logic here too to avoid building for RC if user requested
         # Logic: 
         # 1. Promote (Schedule) = Yes
@@ -850,7 +855,7 @@ jobs:
                 if [ "$PR_AUTHOR" != "null" ] && [ -n "$PR_AUTHOR" ]; then AUTHORS="$AUTHORS $PR_AUTHOR"; fi
                 
                 if [ "$PR_NUM" != "null" ] && [ -n "$PR_NUM" ]; then
-                   if [[ ! " $SEEN_PRS " =~ " $PR_NUM " ]]; then
+                   if [[ ! " $SEEN_PRS " == *"$PR_NUM"* ]]; then
                       SEEN_PRS="$SEEN_PRS $PR_NUM"
                       PR_REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/reviews" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
                       PR_COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/comments" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
@@ -902,23 +907,23 @@ jobs:
            
            # Automated Bump Logic
            NEW_VER=$(python3 -c "
-import sys
-cur_ver = '$CUR_VER'
-fmt_str = '$FORMAT'
-try:
-    v_parts = [int(x) for x in cur_ver.split('.')]
-    f_parts = fmt_str.split('.')
-    v_parts[-1] += 1
-    for i in range(len(v_parts)-1, 0, -1):
-        width = f_parts[i].count('#')
-        limit = 10**width
-        if v_parts[i] >= limit:
-            v_parts[i] = 0
-            v_parts[i-1] += 1
-    print('.'.join(map(str, v_parts)))
-except Exception as e:
-    print(cur_ver)
-")
+           import sys
+           cur_ver = '$CUR_VER'
+           fmt_str = '$FORMAT'
+           try:
+               v_parts = [int(x) for x in cur_ver.split('.')]
+               f_parts = fmt_str.split('.')
+               v_parts[-1] += 1
+               for i in range(len(v_parts)-1, 0, -1):
+                   width = f_parts[i].count('#')
+                   limit = 10**width
+                   if v_parts[i] >= limit:
+                       v_parts[i] = 0
+                       v_parts[i-1] += 1
+               print('.'.join(map(str, v_parts)))
+           except Exception as e:
+               print(cur_ver)
+           ")
            
            if [ "$CUR_VER" == "$NEW_VER" ]; then
               echo "⏭️ No version change calculated. Skipping PR."
@@ -1208,10 +1213,12 @@ except Exception as e:
              mkdir -p android/app
              if [ ! -f "android/key.properties" ]; then
                echo "$KEY_JKS" | base64 --decode > android/app/key.jks
-               echo "storePassword=$KEY_PASSWORD" > android/key.properties
-               echo "keyPassword=$ALIAS_PASSWORD" >> android/key.properties
-               echo "keyAlias=upload" >> android/key.properties
-               echo "storeFile=key.jks" >> android/key.properties
+               {
+                 echo "storePassword=$KEY_PASSWORD"
+                 echo "keyPassword=$ALIAS_PASSWORD"
+                 echo "keyAlias=upload"
+                 echo "storeFile=key.jks"
+               } > android/key.properties
                echo "✅ Generated Android signing config from secrets."
              else
                echo "✅ Using existing android/key.properties from repository."
@@ -1411,16 +1418,16 @@ except Exception as e:
            if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
            
            # Zip Logic (Condition Check)
-           cd dev_pack
-           if [ -d ".github" ]; then
-              echo "Found assets to bundle."
-              zip -r ../developer_setup.zip .github
-              cd ..
-              echo "dev_pack_path=developer_setup.zip" >> "$GITHUB_OUTPUT"
-           else
-              echo "No assets found to bundle. Skipping."
-              cd ..
-           fi
+           (
+             cd dev_pack || exit 1
+             if [ -d ".github" ]; then
+                echo "Found assets to bundle."
+                zip -r ../developer_setup.zip .github
+                echo "dev_pack_path=developer_setup.zip" >> "$GITHUB_OUTPUT"
+             else
+                echo "No assets found to bundle. Skipping."
+             fi
+           )
 
       # --- CHANGELOG & RELEASE ---
       - name: Generate Changelog
@@ -1643,12 +1650,11 @@ except Exception as e:
                if [ -n "$REVIEWERS" ]; then
                   echo -e "**Reviewers:** $REVIEWERS"
                fi
+               # --- AI CONTENT DISCLOSURE ---
+               if [ "$AI_SUCCESS" = true ]; then
+                  echo -e "\n---\n\n<details>\n<summary><b>🤖 AI content</b></summary>\n\nFor these release notes, we used an LLM to review and summarise the code changes, along with the associated issue and PR descriptions. It may contain typical errors and inaccuracies.\n\n**Excluded changes:**\n- style, refactor, docs (markdown), test, chore, ci, build\n- Automated whitespace/formatting fixes\n- skip-release-notes labeled changes\n</details>"
+               fi
              } >> changelog.txt
-              
-              # --- AI CONTENT DISCLOSURE ---
-              if [ "$AI_SUCCESS" = true ]; then
-                 echo -e "\n---\n\n<details>\n<summary><b>🤖 AI content</b></summary>\n\nFor these release notes, we used an LLM to review and summarise the code changes, along with the associated issue and PR descriptions. It may contain typical errors and inaccuracies.\n\n**Excluded changes:**\n- style, refactor, docs (markdown), test, chore, ci, build\n- Automated whitespace/formatting fixes\n- skip-release-notes labeled changes\n</details>" >> changelog.txt
-              fi
              
 
             echo "changelog_path=changelog.txt" >> "$GITHUB_OUTPUT"

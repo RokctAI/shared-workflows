@@ -116,13 +116,13 @@ jobs:
         run: |
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD=${{ env.DB_PW }} mariadb:${{ inputs.mariadb-version }}
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
              # Wait for health
              timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
              echo "Starting PostgreSQL (pgvector/pgvector)..."
              # Standardized fleet database: pgvector/pgvector (Official)
-             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=${{ env.DB_PW }} -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg15
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
@@ -207,7 +207,7 @@ jobs:
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
              echo "🔥 Applying Bench Overrides from Monorepo..."
-             BENCH_PATH=$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")
+             BENCH_PATH="$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")"
              echo "Target Bench Path: $BENCH_PATH"
              cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
              echo "✅ Bench patches applied."
@@ -225,7 +225,7 @@ jobs:
           wget "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh"
           chmod +x install.sh
           # Run as root in CI mode
-          sudo CI=true DB_TYPE=$DB_TYPE ./install.sh
+          sudo CI=true DB_TYPE="$DB_TYPE" ./install.sh
           
           # move frappe-bench to standard location if needed by later steps
           # install.sh uses /home/frappe/frappe-bench
@@ -236,7 +236,7 @@ jobs:
                 rm -rf frappe-bench
              fi
              sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-             sudo chown -R $USER:$USER /home/frappe/frappe-bench
+             sudo chown -R "$USER":"$USER" /home/frappe/frappe-bench
           fi
 
       - name: Sync Workspace Code to Bootstrap Bench 🔄
@@ -367,7 +367,7 @@ jobs:
           # If 'brain' directory exists but code imports 'frappebrain', create a symlink alias
           if [ -d "apps/$APP_NAME/$APP_NAME" ] && [ ! -d "apps/$APP_NAME/frappebrain" ]; then
              echo "Creating alias: apps/$APP_NAME/frappebrain -> apps/$APP_NAME/$APP_NAME"
-             ln -s $APP_NAME "apps/$APP_NAME/frappebrain"
+             ln -s "$APP_NAME" "apps/$APP_NAME/frappebrain"
           fi
           
           # HACK: Fix namespace packages (missing __init__.py) which cause Frappe install to fail
@@ -386,14 +386,14 @@ jobs:
              grep -r "frappe.utils.update_site_config" "apps/$APP_NAME" | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'
           fi
 
-          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
           
           # Create Test Site
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
              if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-                bench new-site test_site --db-root-password ${{ env.DB_PW }} --admin-password admin --no-mariadb-socket
+                bench new-site test_site --db-root-password "${{ env.DB_PW }}" --admin-password admin --no-mariadb-socket
              else
-                bench new-site test_site --db-type postgres --db-root-password ${{ env.DB_PW }} --admin-password admin
+                bench new-site test_site --db-type postgres --db-root-password "${{ env.DB_PW }}" --admin-password admin
              fi
              SITE_NAME="test_site"
           else
@@ -412,9 +412,9 @@ jobs:
           
           if ! grep -q "^$APP_NAME$" sites/apps.txt; then
              echo "Adding $APP_NAME to apps.txt"
-             # Append newline if missing, then the app name
-             sed -i -e '$a\' sites/apps.txt
-             echo $APP_NAME >> sites/apps.txt
+             # Ensure newline at EOF before appending
+             [ -n "$(tail -c1 sites/apps.txt 2>/dev/null)" ] && echo "" >> sites/apps.txt
+             echo "$APP_NAME" >> sites/apps.txt
           fi
           
           echo "Updated apps.txt:"
@@ -425,15 +425,15 @@ jobs:
           
           # Sync DocTypes before testing (Prevents DoesNotExistError)
           echo "Syncing DocTypes via Migration..."
-          bench --site $SITE_NAME migrate
+          bench --site "$SITE_NAME" migrate
           
           # Install App & Run Tests
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench --site $SITE_NAME install-app $APP_NAME
+             bench --site "$SITE_NAME" install-app "$APP_NAME"
           fi
-          bench --site $SITE_NAME run-tests --app $APP_NAME 2>&1 | tee test_output.log
+          bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log
 
 
 
