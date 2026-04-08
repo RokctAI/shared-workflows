@@ -193,7 +193,7 @@ jobs:
           OLD_MAJOR=$(echo "$OLD_VER" | cut -d. -f1)
           NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
           
-          if [[ $NEW_MAJOR -gt $OLD_MAJOR ]]; then
+          if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
              echo "Major Bump Detected ($OLD_MAJOR -> $NEW_MAJOR)"
              echo "bumped=true" >> "$GITHUB_OUTPUT"
              echo "old_ver=$OLD_VER" >> "$GITHUB_OUTPUT"
@@ -406,15 +406,17 @@ jobs:
                 echo "$RC_TAGS" | sed 's/^/    /'
                 
                 # Delete GitHub releases
-                for RC_TAG in $RC_TAGS; do
+                while read -r RC_TAG; do
+                   [ -z "$RC_TAG" ] && continue
                    echo "  Deleting release for $RC_TAG..."
                    gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "    No release found for $RC_TAG"
-                done
+                done <<< "$RC_TAGS"
                 
                 # Delete remote tags
-                for RC_TAG in $RC_TAGS; do
+                while read -r RC_TAG; do
+                   [ -z "$RC_TAG" ] && continue
                    git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag $RC_TAG already deleted"
-                done
+                done <<< "$RC_TAGS"
                 
                 # Delete local tags (suppress errors if already deleted)
                 echo "$RC_TAGS" | xargs -r git tag -d 2>/dev/null || true
@@ -514,7 +516,7 @@ jobs:
            # but let's just iterate and use the descending list to find predecessors.
            
            for TAG in $ALL_STABLE_TAGS; do
-              VER=${TAG#v}
+              VER="${TAG#v}"
               
               # Check if this tag is >= Cutoff
               # Simple string comparison isn't perfect for versions, but usually works for our tags.
@@ -900,23 +902,23 @@ jobs:
            
            # Automated Bump Logic
            NEW_VER=$(python3 -c "
-           import sys
-           cur_ver = '$CUR_VER'
-           fmt_str = '$FORMAT'
-           try:
-               v_parts = [int(x) for x in cur_ver.split('.')]
-               f_parts = fmt_str.split('.')
-               v_parts[-1] += 1
-               for i in range(len(v_parts)-1, 0, -1):
-                   width = f_parts[i].count('#')
-                   limit = 10**width
-                   if v_parts[i] >= limit:
-                       v_parts[i] = 0
-                       v_parts[i-1] += 1
-               print('.'.join(map(str, v_parts)))
-           except Exception as e:
-               print(cur_ver)
-           ")
+import sys
+cur_ver = '$CUR_VER'
+fmt_str = '$FORMAT'
+try:
+    v_parts = [int(x) for x in cur_ver.split('.')]
+    f_parts = fmt_str.split('.')
+    v_parts[-1] += 1
+    for i in range(len(v_parts)-1, 0, -1):
+        width = f_parts[i].count('#')
+        limit = 10**width
+        if v_parts[i] >= limit:
+            v_parts[i] = 0
+            v_parts[i-1] += 1
+    print('.'.join(map(str, v_parts)))
+except Exception as e:
+    print(cur_ver)
+")
            
            if [ "$CUR_VER" == "$NEW_VER" ]; then
               echo "⏭️ No version change calculated. Skipping PR."
@@ -1634,12 +1636,14 @@ jobs:
              # Extract Contributors (Using step outputs)
              AUTHORS="${{ steps.contrib.outputs.authors }}"
              REVIEWERS="${{ steps.contrib.outputs.reviewers }}"
-             if [ -n "$AUTHORS" ]; then
-                echo -e "\n**Authors:** $AUTHORS" >> changelog.txt
-             fi
-              if [ -n "$REVIEWERS" ]; then
-                 echo -e "**Reviewers:** $REVIEWERS" >> changelog.txt
-              fi
+             {
+               if [ -n "$AUTHORS" ]; then
+                  echo -e "\n**Authors:** $AUTHORS"
+               fi
+               if [ -n "$REVIEWERS" ]; then
+                  echo -e "**Reviewers:** $REVIEWERS"
+               fi
+             } >> changelog.txt
               
               # --- AI CONTENT DISCLOSURE ---
               if [ "$AI_SUCCESS" = true ]; then

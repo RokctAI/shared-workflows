@@ -77,7 +77,7 @@ jobs:
         if: env.API_KEY != ''
         run: |
            curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
-           -H "Authorization: Bearer $API_KEY"
+           -H "Authorization: Bearer \"$API_KEY\""
 
   build-android:
     needs: telemetry
@@ -100,12 +100,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           CLIENT=""
-          if [[ $REF_NAME == build_* ]]; then
+          if [[ "$REF_NAME" == build_* ]]; then
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
-            CLIENT=$(printf '%s\n' $REF_NAME | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
+            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
-          if [ -n $CLIENT ]; then
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
+          if [ -n "$CLIENT" ]; then
             echo "🔍 Detected Client: $CLIENT"
           else
             echo "ℹ️ Standard build (no client detected)"
@@ -129,7 +129,7 @@ jobs:
           {
             flutter pub get &&
             dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> $GITHUB_ENV
+          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
         continue-on-error: true
 
       - name: Parse build logs and create error_log.md
@@ -209,13 +209,13 @@ jobs:
           fi
 
           BRANCH_NAME="fix/build-errors-android-${{ github.run_id }}-${{ github.run_attempt }}"
-          git checkout -B $BRANCH_NAME
+          git checkout -B "$BRANCH_NAME"
           git add error_log.md
           if git commit -m "fix: report android build errors [skip ci]"; then
-            if git push -u origin $BRANCH_NAME --force 2>&1 | tee push_error.log; then
+            if git push -u origin "$BRANCH_NAME" --force 2>&1 | tee push_error.log; then
               gh pr create --title "🚨 Build Failure: Android Errors Found (Run ${{ github.run_id }})" \
                            --body "Automated report for failed Android build in run ${{ github.run_id }}.\n\nReview the attached \`error_log.md\` for specific syntax or build_runner issues." \
-                           --head $BRANCH_NAME --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
+                           --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists or update failed."
             else
               echo "❌ Failed to push branch for error reporting."
               echo "💡 TIP: Ensure your GitHub App has 'Workflows: Read & Write' permissions."
@@ -248,22 +248,22 @@ jobs:
              echo "✅ android/app/google-services.json already exists. Skipping."
           else
              FILE_NAME="google-services.json"
-             [ -n $CLIENT_PREFIX ] && FILE_NAME=$(echo $CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
              
              # 1. Try Monorepo
-             if [ -n $GH_TOKEN ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
-                JSON_CONTENT=$DEFAULT_JSON
-                if [ -n $CLIENT_JSON ]; then
+                JSON_CONTENT="$DEFAULT_JSON"
+                if [ -n "$CLIENT_JSON" ]; then
                    echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"
-                   JSON_CONTENT=$CLIENT_JSON
+                   JSON_CONTENT="$CLIENT_JSON"
                 fi
                 
-                if [ -n $JSON_CONTENT ]; then
-                   echo $JSON_CONTENT | base64 --decode > android/app/google-services.json
+                if [ -n "$JSON_CONTENT" ]; then
+                   echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
                    echo "✅ Successfully decoded from secrets."
                 else
                    echo "ℹ️ No Google Services configuration found."
@@ -283,9 +283,9 @@ jobs:
           mkdir -p .env
           FILE_NAME="production.env"
 
-          if [ -n $CLIENT_PREFIX ]; then
-             LOWER_PREFIX=$(echo $CLIENT_PREFIX | tr '[:upper:]' '[:lower:]')
-             FILE_NAME=${LOWER_PREFIX}_production.env
+          if [ -n "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
   
           echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
@@ -318,7 +318,7 @@ jobs:
             echo "✅ Environment variables loaded."
 
             # Debug critical keys
-            if [ -n $CUSTOMER_ANDROID_PACKAGE_NAME ]; then
+            if [ -n "$CUSTOMER_ANDROID_PACKAGE_NAME" ]; then
               echo "✔️ CUSTOMER_ANDROID_PACKAGE_NAME is defined."
             else
               echo "❌ CUSTOMER_ANDROID_PACKAGE_NAME is MISSING."
@@ -329,15 +329,15 @@ jobs:
           fi
 
           # 2. Construct Target Package Variable Name
-          APP_TYPE=${{ inputs.app-type }}
-          if [ -z $APP_TYPE ]; then
+          APP_TYPE="${{ inputs.app-type }}"
+          if [ -z "$APP_TYPE" ]; then
             echo "⚠️ No 'app-type' input provided. Skipping rename."
             exit 0
           fi
 
-          APP_TYPE_UPPER=$(echo $APP_TYPE | tr '[:lower:]' '[:upper:]')
-          ENV_VAR_NAME=${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME
-          TARGET_PACKAGE=${!ENV_VAR_NAME}
+          APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
+          ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
+          TARGET_PACKAGE="${!ENV_VAR_NAME}"
 
           echo "🔧 App Type: $APP_TYPE"
           echo "🔑 Looking for: $ENV_VAR_NAME"
@@ -347,19 +347,19 @@ jobs:
 
           # 2b. Validate against google-services.json
           GS_JSON="android/app/google-services.json"
-          if [ -f $GS_JSON ]; then
+          if [ -f "$GS_JSON" ]; then
             echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
-            if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" $GS_JSON; then
+            if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
               echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
               echo "📄 Clients found in JSON:"
-              grep "\"package_name\":" $GS_JSON | sed 's/.*: "\(.*\)".*/  - \1/'
+              grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
               exit 1
             else
               echo "✅ Package match confirmed in google-services.json."
             fi
           fi
 
-          if [ -z $TARGET_PACKAGE ]; then
+          if [ -z "$TARGET_PACKAGE" ]; then
             echo "❌ Error: $ENV_VAR_NAME is not set in production.env!"
             exit 1
           fi
@@ -374,22 +374,22 @@ jobs:
             echo "🔄 Target not found. Detecting current vendor source..."
             
             GRADLE_FILE="android/app/build.gradle"
-            if [ ! -f $GRADLE_FILE ]; then
+            if [ ! -f "$GRADLE_FILE" ]; then
               echo "❌ Error: No build.gradle found to detect namespace!"
               exit 1
             fi
 
-            VENDOR_PACKAGE=$(grep 'namespace' $GRADLE_FILE | head -n 1 | sed "s/.*namespace *['\"]\([^'\"]*\)['\"].*/\1/")
+            VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\([^'\"]*\)['\"].*/\1/")
 
-            if [ -z $VENDOR_PACKAGE ]; then
+            if [ -z "$VENDOR_PACKAGE" ]; then
               echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
               exit 1
             fi
 
-            VENDOR_PATH=$(echo $VENDOR_PACKAGE | tr '.' '/')
+            VENDOR_PATH=$(echo "$VENDOR_PACKAGE" | tr '.' '/')
 
             echo "📦 Initializing source transformation..."
-            if [ $VENDOR_PACKAGE = $TARGET_PACKAGE ]; then
+            if [ "$VENDOR_PACKAGE" = "$TARGET_PACKAGE" ]; then
               echo "✅ Source matches target. Nothing to do."
               exit 0
             fi
@@ -406,22 +406,22 @@ jobs:
           fi
 
           # 4. Update MainActivity.kt package
-          MAIN_ACTIVITY=$BASE_DIR/$TARGET_PATH/MainActivity.kt
-          if [ -f $MAIN_ACTIVITY ]; then
-            if ! grep -q "package $TARGET_PACKAGE" $MAIN_ACTIVITY; then
+          MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
+          if [ -f "$MAIN_ACTIVITY" ]; then
+            if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
               echo "✏️ Updating MainActivity.kt package declaration..."
-              sed -i "s|^package .*|package $TARGET_PACKAGE|" $MAIN_ACTIVITY
+              sed -i "s|^package .*|package $TARGET_PACKAGE|" "$MAIN_ACTIVITY"
             else
               echo "✅ MainActivity.kt is correct."
             fi
           fi
 
           # 5. Update build.gradle namespace & applicationId
-          if [ -f $GRADLE_FILE ]; then
-            if ! grep -q "applicationId \"$TARGET_PACKAGE\"" $GRADLE_FILE; then
+          if [ -f "$GRADLE_FILE" ]; then
+            if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$GRADLE_FILE"; then
               echo "✏️ Updating $GRADLE_FILE..."
-              sed -i "s|applicationId [\"'][^\"']*[\"']|applicationId \"$TARGET_PACKAGE\"|" $GRADLE_FILE
-              sed -i "s|namespace [\"'][^\"']*[\"']|namespace \"$TARGET_PACKAGE\"|" $GRADLE_FILE
+              sed -i "s|applicationId [\"'][^\"']*[\"']|applicationId \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
+              sed -i "s|namespace [\"'][^\"']*[\"']|namespace \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
             else
               echo "✅ $GRADLE_FILE is correct."
             fi
@@ -437,7 +437,7 @@ jobs:
             echo "🔑 Decoding Keystore..."
             # Ensure target directory exists
             mkdir -p android/app
-            echo $KEY_JKS | base64 --decode > "android/app/key.jks"
+            echo "$KEY_JKS" | base64 --decode > "android/app/key.jks"
 
             echo "📝 Creating key.properties..."
             {
@@ -460,11 +460,11 @@ jobs:
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle'
         run: |
-          BUILD_ARGS="--release"
+          BUILD_ARGS=(--release)
           if [ -f .env/production.env ]; then
-            BUILD_ARGS=$BUILD_ARGS --dart-define-from-file=.env/production.env
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
           fi
-          flutter build appbundle $BUILD_ARGS
+          flutter build appbundle "${BUILD_ARGS[@]}"
 
       - name: Upload Artifact (APK)
         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
@@ -644,12 +644,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           CLIENT=""
-          if [[ $REF_NAME == build_* ]]; then
+          if [[ "$REF_NAME" == build_* ]]; then
             # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
-            CLIENT=$(printf '%s\n' $REF_NAME | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
+            CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
-          echo "client_upper=$CLIENT" >> $GITHUB_OUTPUT
-          [ -n $CLIENT ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
+          echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
+          [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
       # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
       - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Monorepo > Secret)"
@@ -664,22 +664,22 @@ jobs:
              echo "✅ ios/Runner/GoogleService-Info.plist already exists. Skipping."
           else
              FILE_NAME="GoogleService-Info.plist"
-             [ -n $CLIENT_PREFIX ] && FILE_NAME=$(echo $CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
              
              # 1. Try Monorepo
-             if [ -n $GH_TOKEN ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
              else
                 # 2. Try Secrets
                 echo "⚠️ Not in Monorepo. Falling back to secrets..."
-                PLIST_CONTENT=$DEFAULT_PLIST
-                if [ -n $CLIENT_PLIST ]; then
+                PLIST_CONTENT="$DEFAULT_PLIST"
+                if [ -n "$CLIENT_PLIST" ]; then
                    echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_$CLIENT_PREFIX"
-                   PLIST_CONTENT=$CLIENT_PLIST
+                   PLIST_CONTENT="$CLIENT_PLIST"
                 fi
                 
-                if [ -n $PLIST_CONTENT ]; then
-                   echo $PLIST_CONTENT | base64 --decode > ios/Runner/GoogleService-Info.plist
+                if [ -n "$PLIST_CONTENT" ]; then
+                   echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
                    echo "✅ Successfully decoded from secrets."
                 else
                    echo "ℹ️ No Google configuration found."
@@ -697,9 +697,9 @@ jobs:
         run: |
           mkdir -p .env
           FILE_NAME="production.env"
-          if [ -n $CLIENT_PREFIX ]; then
-             LOWER_PREFIX=$(echo $CLIENT_PREFIX | tr '[:upper:]' '[:lower:]')
-             FILE_NAME=${LOWER_PREFIX}_production.env
+          if [ -n "$CLIENT_PREFIX" ]; then
+             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+             FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
           echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
           gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
@@ -724,26 +724,26 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ env.IOS_CERTIFICATE_PASSWORD }}
         run: |
           # Create variables
-          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
-          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
 
           # Import certificate and provision profile from secrets
-          echo -n $P12_BASE64 | base64 --decode -o $CERTIFICATE_PATH
-          echo -n $BUILD_PROVISION_PROFILE_BASE64 | base64 --decode -o $PP_PATH
+          echo -n "$P12_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
 
           # Create temporary keychain
-          security create-keychain -p $KEYCHAIN_PASSWORD $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p $KEYCHAIN_PASSWORD $KEYCHAIN_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Import certificate to keychain
-          security import $CERTIFICATE_PATH -P $KEYCHAIN_PASSWORD -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -s -k $KEYCHAIN_PASSWORD $KEYCHAIN_PATH
+          security import "$CERTIFICATE_PATH" -P "$KEYCHAIN_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           
           # Apply Provisioning Profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -866,13 +866,14 @@ jobs:
       # Helper for iOS Pods
       - name: Install Cocoapods
         run: |
-           cd ios
-           pod install
-           cd ..
+           (
+             cd ios || exit 1
+             pod install
+           )
 
       - name: Build IPA (No Codesign stub if secrets missing)
         run: |
-          if [ -z $IOS_P12_BASE64 ]; then
+          if [ -z "$IOS_P12_BASE64" ]; then
             echo "⚠️ No Signing Certs found. Building unsigned (for testing only)..."
             flutter build ios --release --no-codesign
           fi
@@ -884,8 +885,10 @@ jobs:
 
       - name: Zip MacOS App
         run: |
-          cd build/macos/Build/Products/Release
-          zip -r ../../../../../macos-app.zip *.app
+          (
+            cd build/macos/Build/Products/Release || exit 1
+            zip -r ../../../../../macos-app.zip ./*.app
+          )
 
       - name: Upload MacOS Artifact
         if: inputs.upload-artifact == true
