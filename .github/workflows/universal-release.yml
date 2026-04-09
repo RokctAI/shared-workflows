@@ -1066,7 +1066,7 @@ jobs:
                 # Truncate at NextJS marker
                 if grep -q "##########END_NEXTJS##########" .env.raw; then
                    echo "✂️ Next.js release: Stopping at ##########END_NEXTJS##########"
-                   sed -i '/##########END_NEXTJS##########/,$d' .env.raw
+                   sed -i '1,/##########END_NEXTJS##########/!d' .env.raw
                 fi
 
                 # Normalize line endings
@@ -1156,7 +1156,7 @@ jobs:
              # Truncate at Flutter marker
              if grep -q "##########END_FLUTTER##########" .env/production.env; then
                 echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-                sed -i '/##########END_FLUTTER##########/,$d' .env/production.env
+                sed -i '1,/##########END_FLUTTER##########/!d' .env/production.env
              fi
              
              # Normalize line endings
