@@ -295,7 +295,7 @@ jobs:
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-             sed -i '/##########END_FLUTTER##########/,"$d"' ".env/production.env"
+             sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
           fi
   
           # Normalize line endings
