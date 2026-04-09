@@ -1,0 +1,55 @@
+name: Sync Upstream
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-sync
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 3 1 * *'   # monthly on the 1st — branch sync
+    - cron: '0 3 * * 5'   # every Friday — release sync
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run manually'
+        required: true
+        type: choice
+        options:
+          - branch-sync
+          - release-sync
+
+jobs:
+  branch-sync:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 1 * *') ||
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'branch-sync')
+    uses: RokctAI/shared-workflows/.github/workflows/universal-sync.yml@main
+    with:
+      upstream_url: 'https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git'
+      upstream_branch: 'version-16'
+      target_branch: 'rokct'
+      merge_strategy: 'merge'   # or 'rebase'
+      force_sync: true
+    secrets: inherit
+
+  release-sync:
+    if: |
+      github.ref_name == 'main' && (
+        (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 5') ||
+        (github.event_name == 'workflow_dispatch' && inputs.job == 'release-sync')
+      )
+    uses: RokctAI/shared-workflows/.github/workflows/universal-sync.yml@main
+    with:
+      upstream_url: 'https://github.com/ORIGINAL_OWNER/ORIGINAL_REPO.git'
+      mode: 'release'
+      version_file: 'version.json'
+      release_clean_file: 'release_clean.md'
+      washlist_script: '.rokct/washlist/rename_replace.py'
+      missed_phrases_file: '.rokct/washlist/missed_phrases.txt'
+    secrets: inherit
