@@ -1,0 +1,398 @@
+name: Universal Sync Orchestrator
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+  issues: write
+
+on:
+  workflow_call:
+    inputs:
+      # --- shared ---
+      upstream_url:
+        required: true
+        type: string
+        description: 'HTTPS URL of the upstream repo'
+      mode:
+        required: false
+        type: string
+        default: 'branch'
+        description: "Mode: 'branch' or 'release'"
+
+      # --- branch mode ---
+      upstream_branch:
+        required: false
+        type: string
+        default: 'version-16'
+      target_branch:
+        required: false
+        type: string
+        default: 'rokct'
+      merge_strategy:
+        required: false
+        type: string
+        default: 'merge'
+        description: "'merge' or 'rebase'"
+      force_sync:
+        required: false
+        type: boolean
+        default: true
+
+      # --- release mode ---
+      version_file:
+        required: false
+        type: string
+        default: 'version.json'
+      release_clean_file:
+        required: false
+        type: string
+        default: 'release_clean.md'
+      washlist_script:
+        required: false
+        type: string
+        default: '.rokct/washlist/rename_replace.py'
+      missed_phrases_file:
+        required: false
+        type: string
+        default: '.rokct/washlist/missed_phrases.txt'
+
+jobs:
+  # ─────────────────────────────────────────
+  # BRANCH SYNC
+  # ─────────────────────────────────────────
+  branch-sync:
+    if: inputs.mode == 'branch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream ${{ inputs.upstream_url }}
+          git fetch upstream ${{ inputs.upstream_branch }}
+
+      - name: Sync upstream branch
+        run: |
+          git checkout ${{ inputs.upstream_branch }} 2>/dev/null \
+            || git checkout -b ${{ inputs.upstream_branch }} upstream/${{ inputs.upstream_branch }}
+
+          if [ "${{ inputs.force_sync }}" = "true" ]; then
+            git reset --hard upstream/${{ inputs.upstream_branch }}
+          else
+            git merge upstream/${{ inputs.upstream_branch }} --no-edit
+          fi
+
+          git push origin ${{ inputs.upstream_branch }} --force
+
+      - name: Merge or rebase into target branch
+        id: sync
+        run: |
+          git checkout ${{ inputs.target_branch }}
+
+          if [ "${{ inputs.merge_strategy }}" = "rebase" ]; then
+            git rebase ${{ inputs.upstream_branch }} || {
+              CONFLICTS=$(git diff --name-only --diff-filter=U)
+              git rebase --abort
+              echo "conflicts=$CONFLICTS" >> "$GITHUB_OUTPUT"
+              echo "failed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            }
+            git push origin ${{ inputs.target_branch }} --force-with-lease
+          else
+            git merge ${{ inputs.upstream_branch }} --no-edit || {
+              CONFLICTS=$(git diff --name-only --diff-filter=U)
+              git merge --abort
+              echo "conflicts=$CONFLICTS" >> "$GITHUB_OUTPUT"
+              echo "failed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            }
+            git push origin ${{ inputs.target_branch }}
+          fi
+
+      - name: Open issue on conflict
+        if: steps.sync.outputs.failed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(cat <<EOF
+          ## ⚠️ Sync conflict detected
+
+          **Strategy:** ${{ inputs.merge_strategy }}
+          **From branch:** \`${{ inputs.upstream_branch }}\`
+          **Into branch:** \`${{ inputs.target_branch }}\`
+
+          **Conflicting files:**
+          \`\`\`
+          ${{ steps.sync.outputs.conflicts }}
+          \`\`\`
+
+          Resolve conflicts manually and re-trigger the workflow.
+          EOF
+          )
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d "$(jq -n \
+              --arg title "🔀 Sync conflict: ${{ inputs.upstream_branch }} → ${{ inputs.target_branch }}" \
+              --arg body "$BODY" \
+              '{title: $title, body: $body, labels: ["sync-conflict"]}')"
+
+  # ─────────────────────────────────────────
+  # RELEASE SYNC
+  # ─────────────────────────────────────────
+  release-sync:
+    if: inputs.mode == 'release'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for missed phrases file
+        id: precheck
+        run: |
+          if [ -f "${{ inputs.missed_phrases_file }}" ]; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open issue if blocked
+        if: steps.precheck.outputs.blocked == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(cat <<EOF
+          ## 🚫 Release sync blocked
+
+          \`${{ inputs.missed_phrases_file }}\` exists in the repo.
+
+          Resolve the missed phrases, remove the file, and re-trigger the release sync.
+          EOF
+          )
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d "$(jq -n \
+              --arg title "🚫 Release sync blocked — missed phrases unresolved" \
+              --arg body "$BODY" \
+              '{title: $title, body: $body, labels: ["release-blocked"]}')"
+
+      - name: Fetch latest upstream release
+        if: steps.precheck.outputs.blocked == 'false'
+        id: release
+        env:
+          UPSTREAM_URL: ${{ inputs.upstream_url }}
+        run: |
+          # Extract owner/repo from URL
+          REPO_PATH=$(echo "$UPSTREAM_URL" | sed 's|https://github.com/||' | sed 's|\.git||')
+
+          RELEASE=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO_PATH/releases/latest")
+
+          TAG=$(echo "$RELEASE" | jq -r '.tag_name' | sed 's/^v//')
+          ZIP_URL=$(echo "$RELEASE" | jq -r '.zipball_url')
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip_url=$ZIP_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Check version
+        if: steps.precheck.outputs.blocked == 'false'
+        id: version
+        run: |
+          CURRENT=$(jq -r '.version' ${{ inputs.version_file }} | sed 's/^v//')
+          LATEST="${{ steps.release.outputs.tag }}"
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Already at $CURRENT — nothing to do"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+            echo "🆕 Upgrade available: $CURRENT → $LATEST"
+          fi
+
+      - name: Parse release_clean.md exclusions
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        id: exclusions
+        run: |
+          # Read release_clean.md and build rsync-compatible exclude args
+          EXCLUDES=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=$(echo "$line" | xargs)
+            [ -z "$line" ] && continue
+            [[ "$line" == \#* ]] && continue
+            EXCLUDES="$EXCLUDES --exclude=$line"
+          done < "${{ inputs.release_clean_file }}"
+          echo "excludes=$EXCLUDES" >> "$GITHUB_OUTPUT"
+
+      - name: Download and extract release zip
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        run: |
+          curl -sL "${{ steps.release.outputs.zip_url }}" -o /tmp/release.zip
+          mkdir -p /tmp/release_extracted
+          unzip -q /tmp/release.zip -d /tmp/release_extracted
+
+          # GitHub zipballs extract into a single subdirectory — flatten it
+          INNER=$(ls /tmp/release_extracted/ | head -1)
+          echo "RELEASE_DIR=/tmp/release_extracted/$INNER" >> "$GITHUB_ENV"
+
+      - name: Delete repo files (respecting exclusions)
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        run: |
+          # Build find exclusions from release_clean.md
+          FIND_EXCLUDES=()
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=$(echo "$line" | xargs)
+            [ -z "$line" ] && continue
+            [[ "$line" == \#* ]] && continue
+            # Strip trailing slash for find matching
+            CLEAN=$(echo "$line" | sed 's|/$||')
+            FIND_EXCLUDES+=(-not -path "./$CLEAN" -not -path "./$CLEAN/*")
+          done < "${{ inputs.release_clean_file }}"
+
+          # Delete everything not excluded
+          find . -mindepth 1 \
+            "${FIND_EXCLUDES[@]}" \
+            -delete 2>/dev/null || true
+
+      - name: Copy release files into repo (respecting exclusions)
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        run: |
+          rsync -a ${{ steps.exclusions.outputs.excludes }} \
+            "$RELEASE_DIR/" ./
+
+      - name: Set up Python
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run washlist script
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        id: washlist
+        run: |
+          python ${{ inputs.washlist_script }} 2>&1 | tee /tmp/washlist_output.txt
+          echo "Script finished"
+
+      - name: Check for missed phrases post-run
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false'
+        id: postcheck
+        run: |
+          if [ -f "${{ inputs.missed_phrases_file }}" ]; then
+            echo "missed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "missed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Revert everything — keep only missed phrases file
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false' &&
+          steps.postcheck.outputs.missed == 'true'
+        run: |
+          # Stash the missed phrases file
+          cp "${{ inputs.missed_phrases_file }}" /tmp/missed_phrases_backup.txt
+
+          # Hard reset back to HEAD
+          git reset --hard HEAD
+          git clean -fd
+
+          # Restore only the missed phrases file
+          mkdir -p $(dirname "${{ inputs.missed_phrases_file }}")
+          cp /tmp/missed_phrases_backup.txt "${{ inputs.missed_phrases_file }}"
+
+          git add "${{ inputs.missed_phrases_file }}"
+          git commit -m "chore: add missed phrases from failed release sync ${{ steps.release.outputs.tag }}"
+          git push origin main
+
+      - name: Open issue on missed phrases
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false' &&
+          steps.postcheck.outputs.missed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(cat <<EOF
+          ## ⚠️ Release sync failed — missed phrases detected
+
+          **Attempted release:** \`${{ steps.release.outputs.tag }}\`
+          **Current version:** \`${{ steps.version.outputs.current }}\`
+
+          The washlist script found unmapped phrases during rebranding.
+          The missed phrases have been committed to \`${{ inputs.missed_phrases_file }}\`.
+
+          **Steps to fix:**
+          1. Open \`${{ inputs.missed_phrases_file }}\` and add mappings to your phrases file
+          2. Delete \`${{ inputs.missed_phrases_file }}\` from the repo
+          3. Re-trigger the release sync manually via workflow_dispatch
+
+          The release sync will remain blocked until the file is removed.
+          EOF
+          )
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d "$(jq -n \
+              --arg title "⚠️ Release sync failed: missed phrases on ${{ steps.release.outputs.tag }}" \
+              --arg body "$BODY" \
+              '{title: $title, body: $body, labels: ["release-blocked","washlist"]}')"
+
+      - name: Bump version and commit release
+        if: |
+          steps.precheck.outputs.blocked == 'false' &&
+          steps.version.outputs.up_to_date == 'false' &&
+          steps.postcheck.outputs.missed == 'false'
+        run: |
+          # Bump version.json to match fetched release tag
+          jq --arg v "${{ steps.release.outputs.tag }}" '.version = $v' \
+            ${{ inputs.version_file }} > /tmp/version_tmp.json
+          mv /tmp/version_tmp.json ${{ inputs.version_file }}
+
+          git add -A
+          git commit -m "chore: sync release ${{ steps.release.outputs.tag }}"
+          git push origin main
