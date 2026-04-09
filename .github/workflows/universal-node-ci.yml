@@ -157,7 +157,7 @@ jobs:
              if grep -q "##########END_NEXTJS##########" .env.raw; then
                 echo "✂️ Node build: Stopping at ##########END_NEXTJS##########"
                 # shellcheck disable=SC2016
-                sed -i '/##########END_NEXTJS##########/,$d' .env.raw
+                sed -i '1,/##########END_NEXTJS##########/!d' .env.raw
              fi
 
              # Normalize line endings
