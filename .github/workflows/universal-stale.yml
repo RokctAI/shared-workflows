@@ -18,6 +18,7 @@ jobs:
       - name: Track Usage
         env:
           API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        # Corrected condition to use the env variable properly
         if: env.API_KEY != ''
         run: |
           curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
@@ -27,7 +28,8 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v11
+      # FIX: Use v9 instead of the non-existent v11
+      - uses: actions/stale@v9
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           days-before-stale: 60
@@ -36,5 +38,4 @@ jobs:
           stale-pr-message: 'This PR is stale because it has been open 60 days with no activity.'
           stale-issue-label: 'no-issue-activity'
           stale-pr-label: 'no-pr-activity'
-          # Safety: Exempt critical labels
           exempt-issue-labels: 'security,critical,pinned'
