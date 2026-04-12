@@ -112,7 +112,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -132,6 +132,11 @@ jobs:
           path: .github/shared-workflows
 
       - name: Run Import Healer
+        env:
+          GIT_AUTHOR_NAME: "RokctBOT[bot]"
+          GIT_AUTHOR_EMAIL: "2956274+RokctBOT[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "RokctBOT[bot]"
+          GIT_COMMITTER_EMAIL: "2956274+RokctBOT[bot]@users.noreply.github.com"
         run: |
           chmod +x .github/shared-workflows/scripts/flutter-import-healer.sh
           .github/shared-workflows/scripts/flutter-import-healer.sh lib
