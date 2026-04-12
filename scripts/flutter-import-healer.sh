@@ -14,11 +14,17 @@ LOGFILE="import-healer.log"
 echo "--- Import Healer ($(date)) ---" | tee "$LOGFILE"
 
 # -----------------------------------------------------------------------------
-# 1. Run flutter analyze and capture output
+# 1. Run flutter analyze — or reuse output passed in via ANALYZE_OUTPUT_FILE
+#    Set ANALYZE_OUTPUT_FILE env var to skip re-running analyze (e.g. from lint step)
 # -----------------------------------------------------------------------------
 echo ""
-echo "▶ Running flutter analyze..."
-ANALYZE_OUT=$(flutter analyze --no-pub 2>&1 || true)
+if [ -n "${ANALYZE_OUTPUT_FILE:-}" ] && [ -f "$ANALYZE_OUTPUT_FILE" ]; then
+  echo "▶ Reusing flutter analyze output from $ANALYZE_OUTPUT_FILE"
+  ANALYZE_OUT=$(cat "$ANALYZE_OUTPUT_FILE")
+else
+  echo "▶ Running flutter analyze..."
+  ANALYZE_OUT=$(flutter analyze --no-pub 2>&1 || true)
+fi
 echo "$ANALYZE_OUT" >>"$LOGFILE"
 
 # -----------------------------------------------------------------------------
