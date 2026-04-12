@@ -136,7 +136,7 @@ while IFS= read -r line; do
       else
         # Not in show list — add it
         # Use Python for safe in-place substitution (avoids sed escaping hell)
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
@@ -162,7 +162,7 @@ PYEOF
     elif echo "$EXISTING_IMPORT" | grep -qE "\bhide\b"; then
       if echo "$EXISTING_IMPORT" | grep -qE "\bhide\b.*\b${IDENTIFIER}\b"; then
         # Identifier is explicitly hidden — remove it from the hide list
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
