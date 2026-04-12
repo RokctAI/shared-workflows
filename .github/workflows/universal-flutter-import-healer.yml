@@ -147,7 +147,43 @@ jobs:
           ANALYZE_OUTPUT_FILE: /tmp/analyze/flutter_analyze.txt
         run: |
           chmod +x .github/shared-workflows/scripts/flutter-import-healer.sh
-          .github/shared-workflows/scripts/flutter-import-healer.sh lib
+          HEALER=.github/shared-workflows/scripts/flutter-import-healer.sh
+          MAX_PASSES=5
+          PASS=1
+          # First pass uses the artifact from the lint job (if available)
+          # Subsequent passes run flutter analyze fresh since imports have changed
+          ANY_CHANGED=0
+          while [ $PASS -le $MAX_PASSES ]; do
+            echo ""
+            echo "━━━ Import Healer Pass $PASS / $MAX_PASSES ━━━"
+            if [ $PASS -gt 1 ]; then
+              unset ANALYZE_OUTPUT_FILE
+            fi
+            # Run in no-commit mode — accumulate fixes, commit once at the end
+            if HEALER_NO_COMMIT=1 $HEALER lib; then
+              echo "✅ Healer complete after $PASS pass(es)."
+              break
+            else
+              ANY_CHANGED=1
+            fi
+            PASS=$((PASS + 1))
+          done
+
+          if [ $PASS -gt $MAX_PASSES ]; then
+            echo "⚠️ Healer reached max passes ($MAX_PASSES) — remaining issues need manual fix."
+            echo "   See import-healer.log for details."
+          fi
+
+          # Single commit covering all passes
+          if [ "$ANY_CHANGED" -eq 1 ]; then
+            echo ""
+            echo "▶ Committing all import fixes..."
+            git add lib/
+            git commit -m "fix: auto-heal missing imports [skip ci]"
+            git push
+            echo "❌ Imports fixed and committed. Pipeline will rerun against clean code."
+            exit 1
+          fi
 
       - name: Cleanup Shared Workflows Checkout
         if: always()
