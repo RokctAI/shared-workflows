@@ -1,4 +1,4 @@
-name: "Setup ROKCT Bot Identity"
+﻿name: "Setup ROKCT Bot Identity"
 description: "Configures git with standardized ROKCT bot credentials and handles high-authority token injection"
 
 inputs:
@@ -9,11 +9,11 @@ inputs:
   bot-name:
     description: "Name for git commits"
     required: false
-    default: "ROK[bot]"
+    default: "RokctBOT[bot]"
   bot-email:
     description: "Email for git commits"
     required: false
-    default: "2956274+rok[bot]@users.noreply.github.com"
+    default: "2956274+RokctBOT[bot]@users.noreply.github.com"
 
 runs:
   using: "composite"

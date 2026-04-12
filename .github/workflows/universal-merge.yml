@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Universal Auto Merge
 
@@ -12,7 +12,7 @@ on:
       allowed_users:
         description: 'Comma-separated list of users allowed to auto-merge'
         type: string
-        default: 'Rendani Sinyage,RendaniSinyage,ROK,ROK[bot]'
+        default: 'Rendani Sinyage,RendaniSinyage,ROK,RokctBOT[bot]'
     secrets:
       COUNTER_API_KEY:
         required: false

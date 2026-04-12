@@ -204,8 +204,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -z "$(git config user.name)" ]]; then
-            git config user.name "ROK[bot]"
-            git config user.email "2956274+ROK[bot]@users.noreply.github.com"
+            git config user.name "RokctBOT[bot]"
+            git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
           fi
 
           BRANCH_NAME="fix/build-errors-android-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -580,8 +580,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -z "$(git config user.name)" ]]; then
-            git config user.name "ROK[bot]"
-            git config user.email "2956274+ROK[bot]@users.noreply.github.com"
+            git config user.name "RokctBOT[bot]"
+            git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
           fi
 
           BRANCH_NAME="fix/build-errors-windows-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -832,8 +832,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           if [[ -z "$(git config user.name)" ]]; then
-            git config user.name "ROK[bot]"
-            git config user.email "2956274+ROK[bot]@users.noreply.github.com"
+            git config user.name "RokctBOT[bot]"
+            git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
           fi
 
           BRANCH_NAME="fix/build-errors-ios-${{ github.run_id }}-${{ github.run_attempt }}"
