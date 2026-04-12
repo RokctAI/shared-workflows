@@ -340,7 +340,7 @@ jobs:
           git clean -fd
 
           # Restore only the missed phrases file
-          mkdir -p $(dirname "${{ inputs.missed_phrases_file }}")
+          mkdir -p "$(dirname "${{ inputs.missed_phrases_file }}")"
           cp /tmp/missed_phrases_backup.txt "${{ inputs.missed_phrases_file }}"
 
           git add "${{ inputs.missed_phrases_file }}"
