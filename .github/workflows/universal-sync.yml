@@ -292,13 +292,11 @@ jobs:
 
       - name: Copy release files into repo (respecting exclusions)
         if: |
-          steps.precheck.outputs.blocked == 'false' &&
-          steps.version.outputs.up_to_date == 'false'
+           steps.precheck.outputs.blocked == 'false' &&
+           steps.version.outputs.up_to_date == 'false'
         run: |
-          # SC2046: word splitting is intentional here — excludes is a list of flags
-          # shellcheck disable=SC2046
-          rsync -a ${{ steps.exclusions.outputs.excludes }} \
-            "$RELEASE_DIR/" ./
+            CMD="rsync -a ${{ steps.exclusions.outputs.excludes }} \"$RELEASE_DIR/\" ./"
+            eval "$CMD"
 
       - name: Set up Python
         if: |
