@@ -114,10 +114,12 @@ jobs:
           git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
 
           # Export as env vars so all subprocess git calls inherit the identity
-          echo "GIT_AUTHOR_NAME=RokctBOT[bot]" >> "$GITHUB_ENV"
-          echo "GIT_AUTHOR_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com" >> "$GITHUB_ENV"
-          echo "GIT_COMMITTER_NAME=RokctBOT[bot]" >> "$GITHUB_ENV"
-          echo "GIT_COMMITTER_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com" >> "$GITHUB_ENV"
+          {
+            echo "GIT_AUTHOR_NAME=RokctBOT[bot]"
+            echo "GIT_AUTHOR_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com"
+            echo "GIT_COMMITTER_NAME=RokctBOT[bot]"
+            echo "GIT_COMMITTER_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com"
+          } >> "$GITHUB_ENV"
 
           # Use app token if available, fall back to default
           if [ -n "${{ steps.app-token.outputs.token }}" ]; then
