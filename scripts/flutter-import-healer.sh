@@ -39,7 +39,9 @@ if [ -z "$UNDEFINED_ERRORS" ]; then
   exit 0
 fi
 
-echo "$UNDEFINED_ERRORS" | while IFS= read -r line; do
+# Use process substitution instead of a pipe so the loop runs in the current
+# shell and assignments to CHANGED are visible after the loop exits.
+while IFS= read -r line; do
   # Extract the identifier name (between single quotes)
   IDENTIFIER=$(echo "$line" | grep -oP "Undefined \w+ '\K[^']+")
   # Extract the file path (lib/...dart before the colon+line number)
@@ -146,7 +148,7 @@ echo "$UNDEFINED_ERRORS" | while IFS= read -r line; do
   echo "            in:   $TARGET_FILE (after line $LAST_IMPORT_LINE)" | tee -a "$LOGFILE"
   CHANGED=1
 
-done
+done < <(echo "$UNDEFINED_ERRORS")
 
 # -----------------------------------------------------------------------------
 # 7. If any file was changed, commit and exit 1 so the pipeline reruns
