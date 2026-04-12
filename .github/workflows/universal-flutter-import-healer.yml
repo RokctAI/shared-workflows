@@ -44,6 +44,14 @@ jobs:
           # Need full history so we can commit back
           fetch-depth: 0
 
+      # Set identity immediately after checkout so every subsequent step
+      # and subprocess (including flutter-import-healer.sh) can commit.
+      # --global ensures subshells inherit it without needing $GITHUB_ENV.
+      - name: Setup Bot Identity
+        run: |
+          git config --global user.name "RokctBOT[bot]"
+          git config --global user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
+
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
@@ -108,20 +116,8 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
-      - name: Setup Bot Identity
+      - name: Setup Remote URL
         run: |
-          git config user.name "RokctBOT[bot]"
-          git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
-
-          # Export as env vars so all subprocess git calls inherit the identity
-          {
-            echo "GIT_AUTHOR_NAME=RokctBOT[bot]"
-            echo "GIT_AUTHOR_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com"
-            echo "GIT_COMMITTER_NAME=RokctBOT[bot]"
-            echo "GIT_COMMITTER_EMAIL=2956274+RokctBOT[bot]@users.noreply.github.com"
-          } >> "$GITHUB_ENV"
-
-          # Use app token if available, fall back to default
           if [ -n "${{ steps.app-token.outputs.token }}" ]; then
             git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}
           else
