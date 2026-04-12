@@ -23,8 +23,6 @@ echo "$ANALYZE_OUT" >>"$LOGFILE"
 
 # -----------------------------------------------------------------------------
 # 2. Parse undefined identifier/class errors only
-#    Format: error • Undefined class 'Foo' • lib/path/file.dart:10:5
-#    We ignore errors in generated files (.g.dart, .freezed.dart, .gr.dart)
 # -----------------------------------------------------------------------------
 echo ""
 echo "▶ Parsing errors..."
@@ -36,7 +34,55 @@ if [ -z "$UNDEFINED_ERRORS" ]; then
   exit 0
 fi
 
-# Use process substitution so loop runs in current shell and CHANGED persists
+PACKAGE_NAME=$(grep -m1 "^name:" pubspec.yaml | sed 's/name:\s*//' | tr -d '[:space:]')
+
+# -----------------------------------------------------------------------------
+# 3. Build a definition index once — file:identifier for every dart file
+#    Format of index: "lib/path/to/file.dart\tIdentifierName"
+#    This replaces the per-error find+grep loop that caused the 2hr runtime.
+# -----------------------------------------------------------------------------
+echo ""
+echo "▶ Building definition index..."
+INDEX_FILE=$(mktemp)
+
+while IFS= read -r f; do
+  # Skip generated files
+  if echo "$f" | grep -qE "\.(g|freezed|gr)\.dart$"; then
+    continue
+  fi
+
+  # class / enum / mixin / typedef
+  while IFS= read -r name; do
+    [ -n "$name" ] && echo -e "${f}\t${name}"
+  done < <(grep -oP "(?:^|\s)(class|enum|mixin|typedef)\s+\K[A-Za-z_][A-Za-z0-9_]*" "$f" 2>/dev/null || true)
+
+  # extension ExtName
+  while IFS= read -r name; do
+    [ -n "$name" ] && echo -e "${f}\t${name}"
+  done < <(grep -oP "^extension\s+\K[A-Za-z_][A-Za-z0-9_]*" "$f" 2>/dev/null || true)
+
+  # getter: get identifierName
+  while IFS= read -r name; do
+    [ -n "$name" ] && echo -e "${f}\t${name}"
+  done < <(grep -oP "\bget\s+\K[A-Za-z_][A-Za-z0-9_]*" "$f" 2>/dev/null || true)
+
+  # final identifierName = ... (top-level DI accessors)
+  while IFS= read -r name; do
+    [ -n "$name" ] && echo -e "${f}\t${name}"
+  done < <(grep -oP "^\s*final\s+\K[A-Za-z_][A-Za-z0-9_]*(?=\s*=)" "$f" 2>/dev/null || true)
+
+  # top-level function: ReturnType identifierName(
+  while IFS= read -r name; do
+    [ -n "$name" ] && echo -e "${f}\t${name}"
+  done < <(grep -oP "^[A-Za-z<>?,\s]+\s+\K[a-z][A-Za-z0-9_]*(?=\s*\()" "$f" 2>/dev/null || true)
+
+done < <(find "$LIB_DIR" -name "*.dart" -type f) > "$INDEX_FILE"
+
+echo "  Index built: $(wc -l < "$INDEX_FILE") entries across $(find "$LIB_DIR" -name "*.dart" -not -name "*.g.dart" -not -name "*.freezed.dart" -not -name "*.gr.dart" | wc -l) files"
+
+# -----------------------------------------------------------------------------
+# 4. Process each error using the index
+# -----------------------------------------------------------------------------
 while IFS= read -r line; do
   IDENTIFIER=$(echo "$line" | grep -oP "Undefined \w+ '\K[^']+")
   TARGET_FILE=$(echo "$line" | grep -oP "lib/[^\s:•]+\.dart" | head -1)
@@ -56,122 +102,63 @@ while IFS= read -r line; do
   echo ""
   echo "  ⚠ '$IDENTIFIER' undefined in $TARGET_FILE"
 
-  # -------------------------------------------------------------------------
-  # 3. Scan lib/ to find which file defines this identifier
-  #    Covers: class/enum/mixin/typedef, extension, top-level variables,
-  #    getters, functions, and DI registrations (getIt.registerX / final x =)
-  # -------------------------------------------------------------------------
-  MATCHES=()
-  while IFS= read -r candidate; do
-    if echo "$candidate" | grep -qE "\.(g|freezed|gr)\.dart$"; then
-      continue
-    fi
-    if [ "$candidate" = "$TARGET_FILE" ]; then
-      continue
-    fi
+  # Look up identifier in index — exclude the target file itself
+  MATCHES=$(grep -P "^(?!${TARGET_FILE}\t).*\t${IDENTIFIER}$" "$INDEX_FILE" | cut -f1 | sort -u || true)
+  MATCH_COUNT=$(echo "$MATCHES" | grep -c "." || true)
 
-    # class / enum / mixin / typedef
-    if grep -qE "^\s*(abstract\s+|final\s+|sealed\s+|base\s+|interface\s+)?(class|enum|mixin|typedef)\s+${IDENTIFIER}\b" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # extension
-    elif grep -qE "^extension\s+${IDENTIFIER}\b" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # const/final/var with type
-    elif grep -qE "^\s*(const|final|var)\s+.*\b${IDENTIFIER}\b\s*=" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # getter: Type get identifierName
-    elif grep -qE "\bget\s+${IDENTIFIER}\b" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # top-level function: ReturnType identifierName(
-    elif grep -qE "^[A-Za-z<>?,\s]+\s+${IDENTIFIER}\s*\(" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # DI: final identifierName = getIt.get / getIt.registerX
-    elif grep -qE "^\s*final\s+${IDENTIFIER}\s*=" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # DI: getIt.registerX<SomeType>(ConcreteImpl()) — find the file that registers
-    # the concrete type used under this name
-    elif grep -qE "getIt\.(registerSingleton|registerFactory|registerLazySingleton).*${IDENTIFIER}" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    # Top-level variable with explicit capital type: SomeType identifierName =
-    elif grep -qE "^[A-Z][A-Za-z<>?,\s]+\s+${IDENTIFIER}\s*=" "$candidate" 2>/dev/null; then
-      MATCHES+=("$candidate")
-    fi
-  done < <(find "$LIB_DIR" -name "*.dart" -type f)
-
-  MATCH_COUNT=${#MATCHES[@]}
-
-  if [ "$MATCH_COUNT" -eq 0 ]; then
+  if [ -z "$MATCHES" ] || [ "$MATCH_COUNT" -eq 0 ]; then
     echo "    [NO MATCH] No definition found for '$IDENTIFIER' — manual fix needed" | tee -a "$LOGFILE"
     continue
   fi
 
   if [ "$MATCH_COUNT" -gt 1 ]; then
     echo "    [AMBIGUOUS] Multiple definitions found for '$IDENTIFIER' — manual fix needed:" | tee -a "$LOGFILE"
-    for m in "${MATCHES[@]}"; do
+    echo "$MATCHES" | while IFS= read -r m; do
       echo "      - $m" | tee -a "$LOGFILE"
     done
     continue
   fi
 
-  SOURCE_FILE="${MATCHES[0]}"
-
-  # -------------------------------------------------------------------------
-  # 4. Build the package import path from the source file path
-  # -------------------------------------------------------------------------
-  PACKAGE_NAME=$(grep -m1 "^name:" pubspec.yaml | sed 's/name:\s*//' | tr -d '[:space:]')
+  SOURCE_FILE="$MATCHES"
   IMPORT_PATH="package:${PACKAGE_NAME}/${SOURCE_FILE#lib/}"
 
   # -------------------------------------------------------------------------
-  # 5. Check if this import already exists — inspect show/hide clauses
+  # 5. Check if import exists — inspect show/hide clauses and fix them
   # -------------------------------------------------------------------------
   if grep -q "\"${IMPORT_PATH}\"\|'${IMPORT_PATH}'" "$TARGET_FILE"; then
     EXISTING_IMPORT=$(grep "'${IMPORT_PATH}'\|\"${IMPORT_PATH}\"" "$TARGET_FILE" | head -1)
 
-    # --- show clause: only listed identifiers are visible ---
+    # show clause: only listed identifiers are visible
     if echo "$EXISTING_IMPORT" | grep -qE "\bshow\b"; then
       if echo "$EXISTING_IMPORT" | grep -qE "\bshow\b.*\b${IDENTIFIER}\b"; then
-        # Already shown — error is something else
-        echo "    [SKIP] '$IMPORT_PATH' has show clause including '$IDENTIFIER' — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
-        continue
+        echo "    [SKIP] show clause already includes '$IDENTIFIER' — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
       else
-        # Not in show list — add it
-        # Use Python for safe in-place substitution (avoids sed escaping hell)
         python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
-import sys
+import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
     content = f.read()
-# Append identifier to show clause
-import re
-updated = re.sub(
-    r'(show\s+[^;]+?)(\s*;)',
-    lambda m: m.group(1).rstrip() + ', ' + ident + m.group(2),
-    existing,
-    count=1
-)
+updated = re.sub(r'(show\s+[^;]+?)(\s*;)', lambda m: m.group(1).rstrip() + ', ' + ident + m.group(2), existing, count=1)
 content = content.replace(existing, updated, 1)
 with open(path, 'w') as f:
     f.write(content)
 PYEOF
         echo "    [FIXED] Extended show clause to include '$IDENTIFIER' in $TARGET_FILE" | tee -a "$LOGFILE"
         CHANGED=1
-        continue
       fi
+      continue
+    fi
 
-    # --- hide clause: listed identifiers are hidden, rest are visible ---
-    elif echo "$EXISTING_IMPORT" | grep -qE "\bhide\b"; then
+    # hide clause: listed identifiers are blocked
+    if echo "$EXISTING_IMPORT" | grep -qE "\bhide\b"; then
       if echo "$EXISTING_IMPORT" | grep -qE "\bhide\b.*\b${IDENTIFIER}\b"; then
-        # Identifier is explicitly hidden — remove it from the hide list
         python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
     content = f.read()
-# Remove identifier from hide clause; clean up trailing comma/space
 updated = re.sub(r',?\s*\b' + re.escape(ident) + r'\b,?', '', existing)
-# If hide clause is now empty (hide  ;), remove the whole hide clause
 updated = re.sub(r'\s*hide\s*;', ';', updated)
-# Clean up double commas or leading comma in hide list
 updated = re.sub(r'hide\s*,\s*', 'hide ', updated)
 updated = re.sub(r',\s*,', ',', updated)
 content = content.replace(existing, updated, 1)
@@ -180,22 +167,19 @@ with open(path, 'w') as f:
 PYEOF
         echo "    [FIXED] Removed '$IDENTIFIER' from hide clause in $TARGET_FILE" | tee -a "$LOGFILE"
         CHANGED=1
-        continue
       else
-        # Not in hide list — import exists and identifier is visible, error is unrelated
-        echo "    [SKIP] '$IMPORT_PATH' imported with hide not covering '$IDENTIFIER' — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
-        continue
+        echo "    [SKIP] '$IDENTIFIER' not in hide clause, import visible — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
       fi
-
-    # --- plain import exists, no show/hide — error is unrelated (alias, etc.) ---
-    else
-      echo "    [SKIP] '$IMPORT_PATH' already imported plainly in $TARGET_FILE — error may be due to alias, manual fix needed" | tee -a "$LOGFILE"
       continue
     fi
+
+    # Plain import exists with no show/hide — error is unrelated
+    echo "    [SKIP] '$IMPORT_PATH' already imported plainly — error may be due to alias, manual fix needed" | tee -a "$LOGFILE"
+    continue
   fi
 
   # -------------------------------------------------------------------------
-  # 6. Insert the import after the last existing import line in the file
+  # 6. Insert import after the last existing import line
   # -------------------------------------------------------------------------
   LAST_IMPORT_LINE=$(grep -n "^import " "$TARGET_FILE" | tail -1 | cut -d: -f1)
 
@@ -216,6 +200,8 @@ PYEOF
   CHANGED=1
 
 done < <(echo "$UNDEFINED_ERRORS")
+
+rm -f "$INDEX_FILE"
 
 # -----------------------------------------------------------------------------
 # 7. If any file was changed, commit and exit 1 so the pipeline reruns
