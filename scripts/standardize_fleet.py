@@ -134,24 +134,24 @@ def fix_bot_identity(content):
     if "# rokct-ignore" in content:
         return content
 
-    # Get bot name from env or default to ROK
-    main_bot = os.environ.get("BOT_NAME", "ROK")
+    # Get bot name from env or default to RokctBOT
+    main_bot = os.environ.get("BOT_NAME", "RokctBOT")
 
     if main_bot != "ROK":
         return content
 
     # 1. Update specific bot emails if found (do this before global rename)
     content = content.replace(
-        "2956274+rok[bot]@users.noreply.github.com",
-        "rok[bot]@users.noreply.github.com",
+        "2956274+rokctbot[bot]@users.noreply.github.com",
+        "rokctbot[bot]@users.noreply.github.com",
     )
 
     # 2. Global rename of legacy bot to new bot identity
     # We target both 'rokctbot' and 'rokctbot[bot]'
-    content = content.replace("rokctbot[bot]", "ROK[bot]")
-    content = content.replace("rokctbot", "ROK")
-    content = content.replace("rokct-maintainer[bot]", "ROK[bot]")
-    content = content.replace("rokct-maintainer", "ROK")
+    content = content.replace("ROK[bot]", "RokctBOT[bot]")
+    content = content.replace("ROK", "RokctBOT")
+    content = content.replace("rokct-maintainer[bot]", "RokctBOT[bot]")
+    content = content.replace("rokct-maintainer", "RokctBOT")
 
     return content
 
@@ -160,9 +160,9 @@ def fix_merge_workflow(content):
     if "# rokct-ignore" in content:
         return content
 
-    # Get bot name from env or default to ROK
+    # Get bot name from env or default to RokctBOT
     # This allows external devs to use their own app name
-    main_bot = os.environ.get("BOT_NAME", "ROK")
+    main_bot = os.environ.get("BOT_NAME", "RokctBOT")
     bot_variants = [main_bot, f"{main_bot}[bot]"]
 
     # Ensure bots are in the allowed_users list
@@ -172,9 +172,9 @@ def fix_merge_workflow(content):
         # Split, strip, and filter out 'ROK' variants if we are migrating to 'rokct-maintainer'
         allowed = [u.strip() for u in raw_allowed.split(",")]
 
-        if main_bot == "ROK":
+        if main_bot == "RokctBOT":
             # Remove legacy bot entries to keep it clean
-            allowed = [u for u in allowed if u not in ["ROK", "ROK[bot]"]]
+            allowed = [u for u in allowed if u not in ["ROK", "RokctBOT[bot]"]]
 
         needs_update = False
         for bot in bot_variants:
