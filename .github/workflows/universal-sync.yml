@@ -265,7 +265,8 @@ jobs:
           unzip -q /tmp/release.zip -d /tmp/release_extracted
 
           # GitHub zipballs extract into a single subdirectory — flatten it
-          INNER=$(ls /tmp/release_extracted/ | head -1)
+          # SC2012: use find instead of ls to handle non-alphanumeric filenames
+          INNER=$(find /tmp/release_extracted/ -mindepth 1 -maxdepth 1 -printf '%f\n' | head -1)
           echo "RELEASE_DIR=/tmp/release_extracted/$INNER" >> "$GITHUB_ENV"
 
       - name: Delete repo files (respecting exclusions)
@@ -280,7 +281,7 @@ jobs:
             [ -z "$line" ] && continue
             [[ "$line" == \#* ]] && continue
             # Strip trailing slash for find matching
-            CLEAN=$(echo "$line" | sed 's|/$||')
+            CLEAN="${line%/}"
             FIND_EXCLUDES+=(-not -path "./$CLEAN" -not -path "./$CLEAN/*")
           done < "${{ inputs.release_clean_file }}"
 
@@ -294,6 +295,8 @@ jobs:
           steps.precheck.outputs.blocked == 'false' &&
           steps.version.outputs.up_to_date == 'false'
         run: |
+          # SC2046: word splitting is intentional here — excludes is a list of flags
+          # shellcheck disable=SC2046
           rsync -a ${{ steps.exclusions.outputs.excludes }} \
             "$RELEASE_DIR/" ./
 
