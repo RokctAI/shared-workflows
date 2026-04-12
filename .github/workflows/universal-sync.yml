@@ -245,13 +245,12 @@ jobs:
           steps.version.outputs.up_to_date == 'false'
         id: exclusions
         run: |
-          # Read release_clean.md and build rsync-compatible exclude args
           EXCLUDES=""
           while IFS= read -r line || [ -n "$line" ]; do
-            line=$(echo "$line" | xargs)
+            line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             [ -z "$line" ] && continue
             [[ "$line" == \#* ]] && continue
-            EXCLUDES="$EXCLUDES --exclude=$line"
+              EXCLUDES="$EXCLUDES --exclude=$line"
           done < "${{ inputs.release_clean_file }}"
           echo "excludes=$EXCLUDES" >> "$GITHUB_OUTPUT"
 
@@ -277,7 +276,7 @@ jobs:
           # Build find exclusions from release_clean.md
           FIND_EXCLUDES=()
           while IFS= read -r line || [ -n "$line" ]; do
-            line=$(echo "$line" | xargs)
+            line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             [ -z "$line" ] && continue
             [[ "$line" == \#* ]] && continue
             # Strip trailing slash for find matching
