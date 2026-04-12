@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Universal Flutter Import Healer
 
@@ -110,8 +110,8 @@ jobs:
 
       - name: Setup Bot Identity
         run: |
-          git config user.name "rokct-maintainer[bot]"
-          git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
+          git config user.name "ROK[bot]"
+          git config user.email "2956274+ROK[bot]@users.noreply.github.com"
           # Use app token if available, fall back to default
           if [ -n "${{ steps.app-token.outputs.token }}" ]; then
             git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}
