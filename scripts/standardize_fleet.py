@@ -137,7 +137,7 @@ def fix_bot_identity(content):
     # Get bot name from env or default to RokctBOT
     main_bot = os.environ.get("BOT_NAME", "RokctBOT")
 
-    if main_bot != "ROK":
+    if main_bot != "RokctBOT":
         return content
 
     # 1. Update specific bot emails if found (do this before global rename)
@@ -152,6 +152,45 @@ def fix_bot_identity(content):
     content = content.replace("ROK", "RokctBOT")
     content = content.replace("rokct-maintainer[bot]", "RokctBOT[bot]")
     content = content.replace("rokct-maintainer", "RokctBOT")
+
+    return content
+
+
+def fix_git_identity(content):
+    """Ensure any workflow job that runs git commit sets --global identity
+    immediately after its first checkout step. This prevents 'Author identity
+    unknown' failures in scripts that commit (linters, healers, sync jobs)."""
+    if "# rokct-ignore" in content:
+        return content
+
+    # Only touch workflows that actually commit
+    if "git commit" not in content and "git push" not in content:
+        return content
+
+    BOT_NAME = os.environ.get("BOT_NAME", "RokctBOT")
+    BOT_EMAIL_PREFIX = os.environ.get("BOT_EMAIL_PREFIX", "2956274")
+    BOT_EMAIL = f"{BOT_EMAIL_PREFIX}+{BOT_NAME}[bot]@users.noreply.github.com"
+
+    IDENTITY_STEP = (
+        "\n      - name: Setup Bot Identity\n"
+        "        run: |\n"
+        f'          git config --global user.name "{BOT_NAME}[bot]"\n'
+        f'          git config --global user.email "{BOT_EMAIL}"\n'
+    )
+
+    IDENTITY_MARKER = "git config --global user.name"
+
+    # Already has identity setup — skip
+    if IDENTITY_MARKER in content:
+        return content
+
+    # Insert after the first `actions/checkout` step block
+    # Match the checkout step and inject our identity step immediately after
+    pattern = r"(- name:.*?uses: actions/checkout@[^\n]+(?:\n[ \t]+[^\n]+)*)"
+    match = re.search(pattern, content)
+    if match:
+        insert_after = match.end()
+        content = content[:insert_after] + IDENTITY_STEP + content[insert_after:]
 
     return content
 
@@ -219,10 +258,10 @@ def fix_workflow_node_version(content):
     if "# rokct-ignore" in content:
         return content
 
-    # 1. Bump node-version: 20 -> 24
-    # Handles: node-version: 20, node-version: '20', node-version: "20", node-version: [20], node-version: ["20"]
+    # 1. Bump node-version to 24
+    # Handles: node-version: 20, node-version: '18', node-version: "16", node-version: [20], etc.
     content = re.sub(
-        r"node-version:\s*([\'\"]?20[\'\"]?|\[\s*[\'\" ]?20[\'\" ]?\s*\])",
+        r"node-version:\s*([\'\"]?(?:1[0-9]|2[0-3])[\'\"]?|\[\s*[\'\" ]?(?:1[0-9]|2[0-3])[\'\" ]?\s*\])",
         "node-version: 24",
         content,
     )
@@ -433,6 +472,7 @@ def main():
                 new_content = fix_monorepo_secrets(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
                 new_content = fix_bot_identity(new_content)
+                new_content = fix_git_identity(new_content)
                 new_content = fix_action_versions(new_content)
 
                 if file == "merge.yml":
