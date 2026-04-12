@@ -1,0 +1,144 @@
+# Copyright 2024 RokctAI
+
+name: Universal Flutter Import Healer
+
+permissions: write-all
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  workflow_call:
+    inputs:
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+      flutter-version:
+        required: false
+        type: string
+        default: ''
+      java-version:
+        required: false
+        type: string
+        default: '17'
+    secrets:
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+      MONOREPO_PAT:
+        required: false
+
+jobs:
+  import-healer:
+    name: 🩹 Import Healer
+    runs-on: ubuntu-latest
+    permissions: write-all
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Need full history so we can commit back
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel || 'stable' }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      # Freezed/build_runner must run before we analyze so generated files exist
+      - name: Generate Files (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # Write google-services.json stub if secret is missing so analyze doesn't
+      # choke on a missing file that has nothing to do with imports
+      - name: Stub Google Services (if secret missing)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "⚠️ GOOGLE_SERVICES_JSON not set — writing stub"
+            mkdir -p android/app
+            cat > android/app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "stub-project",
+              "storage_bucket": "stub-project.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": { "package_name": "com.stub.app" }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "stub_key" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          else
+            echo "✅ GOOGLE_SERVICES_JSON present"
+            mkdir -p android/app
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+          fi
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Setup Bot Identity
+        run: |
+          git config user.name "rokct-maintainer[bot]"
+          git config user.email "2956274+rokct-maintainer[bot]@users.noreply.github.com"
+          # Use app token if available, fall back to default
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}
+          else
+            git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+          fi
+
+      - name: Checkout Shared Workflows (for script)
+        uses: actions/checkout@v4
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          path: .github/shared-workflows
+
+      - name: Run Import Healer
+        run: |
+          chmod +x .github/shared-workflows/scripts/flutter-import-healer.sh
+          .github/shared-workflows/scripts/flutter-import-healer.sh lib
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+
+      - name: Upload Healer Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-healer-log
+          path: import-healer.log
+          if-no-files-found: ignore
