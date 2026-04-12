@@ -70,7 +70,7 @@ while IFS= read -r f; do
     PART_PATH=$(realpath --relative-to="." "$PART_PATH" 2>/dev/null || echo "$PART_PATH")
     echo -e "${PART_PATH}\t${f}"
   done < <(grep -oP "^part\s+'?\K[^';]+" "$f" 2>/dev/null || true)
-done < <(find "$LIB_DIR" -name "*.dart" -type f) > "$PART_MAP_FILE"
+done < <(find "$LIB_DIR" -name "*.dart" -type f) >"$PART_MAP_FILE"
 
 # Second pass: index all dart files
 while IFS= read -r f; do
@@ -109,9 +109,9 @@ while IFS= read -r f; do
     [ -n "$name" ] && echo -e "${INDEX_AS}\t${name}"
   done < <(grep -oP "^[A-Za-z<>?,\s]+\s+\K[a-z][A-Za-z0-9_]*(?=\s*\()" "$f" 2>/dev/null || true)
 
-done < <(find "$LIB_DIR" -name "*.dart" -type f) > "$INDEX_FILE"
+done < <(find "$LIB_DIR" -name "*.dart" -type f) >"$INDEX_FILE"
 
-echo "  Index built: $(wc -l < "$INDEX_FILE") entries across $(find "$LIB_DIR" -name "*.dart" | wc -l) files"
+echo "  Index built: $(wc -l <"$INDEX_FILE") entries across $(find "$LIB_DIR" -name "*.dart" | wc -l) files"
 
 # -----------------------------------------------------------------------------
 # 4. Process each error using the index
@@ -175,7 +175,7 @@ while IFS= read -r line; do
       if echo "$EXISTING_IMPORT" | grep -qE "\bshow\b.*\b${IDENTIFIER}\b"; then
         echo "    [SKIP] show clause already includes '$IDENTIFIER' — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
       else
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
@@ -208,12 +208,12 @@ PYEOF
             CONFLICT=true
             break
           fi
-        done <<< "$OTHER_IMPORTS"
+        done <<<"$OTHER_IMPORTS"
 
         if [ "$CONFLICT" = true ]; then
           echo "    [SKIP] Cannot remove '$IDENTIFIER' from hide — another import in $TARGET_FILE also exports it (would cause conflict), manual fix needed" | tee -a "$LOGFILE"
         else
-          python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+          python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
@@ -242,7 +242,7 @@ PYEOF
       if grep -q "${ALIAS}\." "$TARGET_FILE"; then
         echo "    [SKIP] alias '${ALIAS}' is in use — '$IDENTIFIER' must be accessed as '${ALIAS}.${IDENTIFIER}', manual fix needed" | tee -a "$LOGFILE"
       else
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IMPORT_PATH" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IMPORT_PATH" <<'PYEOF'
 import sys
 path, existing, import_path = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, "r") as f:
@@ -295,7 +295,7 @@ echo ""
 echo "▶ Deduplicating imports..."
 
 DEDUP_SCRIPT=$(mktemp /tmp/dedup_XXXXXX.py)
-cat > "$DEDUP_SCRIPT" << 'PYEOF'
+cat >"$DEDUP_SCRIPT" <<'PYEOF'
 import sys, os
 changed = 0
 for path in sys.argv[1:]:
@@ -339,19 +339,19 @@ if [ "$NO_MATCH_COUNT" -gt 0 ] || [ "$SKIP_COUNT" -gt 0 ]; then
   if [ "$NO_MATCH_COUNT" -gt 0 ]; then
     echo ""
     echo "  Identifier not found anywhere in lib/ — class/enum/route may be missing, not yet generated, or still using old package name:"
-    grep "\[NO MATCH\]" "$LOGFILE" |       grep -oP "for '\K[^']+" | sort -u |       while IFS= read -r id; do
-        FILES=$(grep "\[NO MATCH\].*for '${id}'" "$LOGFILE" |           grep -oP "⚠ '[^']+' undefined in \K\S+" | sort -u | tr '
+    grep "\[NO MATCH\]" "$LOGFILE" | grep -oP "for '\K[^']+" | sort -u | while IFS= read -r id; do
+      FILES=$(grep "\[NO MATCH\].*for '${id}'" "$LOGFILE" | grep -oP "⚠ '[^']+' undefined in \K\S+" | sort -u | tr '
 ' ' ')
-        echo "    • $id → $FILES"
-      done
+      echo "    • $id → $FILES"
+    done
   fi
 
   if [ "$SKIP_COUNT" -gt 0 ]; then
     echo ""
     echo "  Import exists but identifier still unresolved (check for naming conflict or missing declaration in source file):"
-    grep "\[SKIP\].*already imported plainly" "$LOGFILE" |       grep -oP "⚠ '\K[^']+" | sort -u |       while IFS= read -r id; do
-        echo "    • $id"
-      done
+    grep "\[SKIP\].*already imported plainly" "$LOGFILE" | grep -oP "⚠ '\K[^']+" | sort -u | while IFS= read -r id; do
+      echo "    • $id"
+    done
   fi
 fi
 
