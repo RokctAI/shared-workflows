@@ -82,9 +82,9 @@ while IFS= read -r f; do
     [ -n "$name" ] && echo -e "${f}\t${name}"
   done < <(grep -oP "^[A-Za-z<>?,\s]+\s+\K[a-z][A-Za-z0-9_]*(?=\s*\()" "$f" 2>/dev/null || true)
 
-done < <(find "$LIB_DIR" -name "*.dart" -type f) > "$INDEX_FILE"
+done < <(find "$LIB_DIR" -name "*.dart" -type f) >"$INDEX_FILE"
 
-echo "  Index built: $(wc -l < "$INDEX_FILE") entries across $(find "$LIB_DIR" -name "*.dart" -not -name "*.g.dart" -not -name "*.freezed.dart" -not -name "*.gr.dart" | wc -l) files"
+echo "  Index built: $(wc -l <"$INDEX_FILE") entries across $(find "$LIB_DIR" -name "*.dart" -not -name "*.g.dart" -not -name "*.freezed.dart" -not -name "*.gr.dart" | wc -l) files"
 
 # -----------------------------------------------------------------------------
 # 4. Process each error using the index
@@ -139,7 +139,7 @@ while IFS= read -r line; do
       if echo "$EXISTING_IMPORT" | grep -qE "\bshow\b.*\b${IDENTIFIER}\b"; then
         echo "    [SKIP] show clause already includes '$IDENTIFIER' — error is unrelated, manual fix needed" | tee -a "$LOGFILE"
       else
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
@@ -158,7 +158,7 @@ PYEOF
     # hide clause: listed identifiers are blocked
     if echo "$EXISTING_IMPORT" | grep -qE "\bhide\b"; then
       if echo "$EXISTING_IMPORT" | grep -qE "\bhide\b.*\b${IDENTIFIER}\b"; then
-        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" << 'PYEOF'
+        python3 - "$TARGET_FILE" "$EXISTING_IMPORT" "$IDENTIFIER" <<'PYEOF'
 import sys, re
 path, existing, ident = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, 'r') as f:
@@ -217,7 +217,7 @@ echo ""
 echo "▶ Deduplicating imports..."
 
 while IFS= read -r f; do
-  if ! python3 - "$f" << 'PYEOF'
+  if ! python3 - "$f" <<'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as fh:
