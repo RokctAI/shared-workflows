@@ -217,7 +217,7 @@ echo ""
 echo "▶ Deduplicating imports..."
 
 while IFS= read -r f; do
-  python3 - "$f" << 'PYEOF'
+  if ! python3 - "$f" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as fh:
@@ -235,7 +235,11 @@ if len(out) != len(lines):
     with open(path, 'w') as fh:
         fh.writelines(out)
     print(f"  [DEDUPED] {path}")
+    sys.exit(1)
 PYEOF
+  then
+    CHANGED=1
+  fi
 done < <(find "$LIB_DIR" -name "*.dart" -type f)
 
 # -----------------------------------------------------------------------------
