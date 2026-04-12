@@ -204,7 +204,36 @@ done < <(echo "$UNDEFINED_ERRORS")
 rm -f "$INDEX_FILE"
 
 # -----------------------------------------------------------------------------
-# 7. If any file was changed, commit and exit 1 so the pipeline reruns
+# 7. Deduplicate imports across all dart files in lib/
+#    Handles duplicate import lines left by package renames or repeated healer runs
+# -----------------------------------------------------------------------------
+echo ""
+echo "▶ Deduplicating imports..."
+
+while IFS= read -r f; do
+  python3 - "$f" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as fh:
+    lines = fh.readlines()
+seen = set()
+out = []
+for line in lines:
+    stripped = line.rstrip('\n')
+    if stripped.startswith('import '):
+        if stripped in seen:
+            continue
+        seen.add(stripped)
+    out.append(line)
+if len(out) != len(lines):
+    with open(path, 'w') as fh:
+        fh.writelines(out)
+    print(f"  [DEDUPED] {path}")
+PYEOF
+done < <(find "$LIB_DIR" -name "*.dart" -type f)
+
+# -----------------------------------------------------------------------------
+# 8. If any file was changed, commit and exit 1 so the pipeline reruns
 # -----------------------------------------------------------------------------
 if [ "$CHANGED" -eq 1 ]; then
   echo ""
