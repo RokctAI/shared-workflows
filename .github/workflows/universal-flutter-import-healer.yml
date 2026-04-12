@@ -131,12 +131,20 @@ jobs:
           token: ${{ steps.app-token.outputs.token || github.token }}
           path: .github/shared-workflows
 
+      - name: Download Analyze Output (from lint job)
+        uses: actions/download-artifact@v4
+        with:
+          name: flutter-analyze-output
+          path: /tmp/analyze
+        continue-on-error: true  # artifact may not exist if lint was skipped
+
       - name: Run Import Healer
         env:
           GIT_AUTHOR_NAME: "RokctBOT[bot]"
           GIT_AUTHOR_EMAIL: "2956274+RokctBOT[bot]@users.noreply.github.com"
           GIT_COMMITTER_NAME: "RokctBOT[bot]"
           GIT_COMMITTER_EMAIL: "2956274+RokctBOT[bot]@users.noreply.github.com"
+          ANALYZE_OUTPUT_FILE: /tmp/analyze/flutter_analyze.txt
         run: |
           chmod +x .github/shared-workflows/scripts/flutter-import-healer.sh
           .github/shared-workflows/scripts/flutter-import-healer.sh lib
