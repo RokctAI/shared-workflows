@@ -296,22 +296,38 @@ echo "▶ Deduplicating imports..."
 
 DEDUP_SCRIPT=$(mktemp /tmp/dedup_XXXXXX.py)
 cat > "$DEDUP_SCRIPT" << 'PYEOF'
-import sys, os
+import sys, re
+
+def normalize(line):
+    # Strip trailing whitespace/newline, ensure semicolon at end of import
+    s = line.rstrip()
+    if re.match(r"^import\s+['"]", s) and not s.endswith(';'):
+        s = s + ';'
+    return s
+
 changed = 0
 for path in sys.argv[1:]:
-    with open(path, 'r') as fh:
+    with open(path, 'r', encoding='utf-8') as fh:
         lines = fh.readlines()
     seen = set()
     out = []
+    file_changed = False
     for line in lines:
         stripped = line.rstrip('\n')
-        if stripped.startswith('import '):
-            if stripped in seen:
+        if re.match(r"^import\s+['\"]", stripped):
+            key = normalize(stripped)
+            if key in seen:
+                file_changed = True
                 continue
-            seen.add(stripped)
+            seen.add(key)
+            # Fix missing semicolon while we are here
+            if stripped == key[:-1] if key.endswith(';') and not stripped.endswith(';') else False:
+                out.append(key + '\n')
+                file_changed = True
+                continue
         out.append(line)
-    if len(out) != len(lines):
-        with open(path, 'w') as fh:
+    if file_changed:
+        with open(path, 'w', encoding='utf-8') as fh:
             fh.writelines(out)
         print(f"  [DEDUPED] {path}")
         changed += 1
