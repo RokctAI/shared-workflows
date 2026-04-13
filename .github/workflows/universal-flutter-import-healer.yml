@@ -160,7 +160,7 @@ jobs:
               unset ANALYZE_OUTPUT_FILE
             fi
             # Run in no-commit mode — accumulate fixes, commit once at the end
-            if HEALER_NO_COMMIT=1 $HEALER lib; then
+            if HEALER_NO_COMMIT=1 bash $HEALER lib; then
               echo "✅ Healer complete after $PASS pass(es)."
               break
             else
