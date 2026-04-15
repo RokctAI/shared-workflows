@@ -301,8 +301,9 @@ import sys, re
 def normalize(line):
     # Strip trailing whitespace/newline, ensure semicolon at end of import
     s = line.rstrip()
-    if re.match(r"^import\s+['"]", s) and not s.endswith(';'):
-        s = s + ';'
+    if re.match(r"^import\s+['\"]", s) and not s.endswith(';'):
+
+            s = s + ';'
     return s
 
 changed = 0
@@ -315,6 +316,7 @@ for path in sys.argv[1:]:
     for line in lines:
         stripped = line.rstrip('\n')
         if re.match(r"^import\s+['\"]", stripped):
+
             key = normalize(stripped)
             if key in seen:
                 file_changed = True
