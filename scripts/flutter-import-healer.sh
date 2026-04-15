@@ -301,7 +301,9 @@ import sys, re
 def normalize(line):
     # Strip trailing whitespace/newline, ensure semicolon at end of import
     s = line.rstrip()
-    if re.match(r"^import\s+['\"]", s) and not s.endswith(';'):
+    # Only add semicolon if it looks like a complete single-line import ending in quote
+    if re.match(r"^import\s+['\"].*?['\"]$", s) and not s.endswith(';'):
+
 
             s = s + ';'
     return s
