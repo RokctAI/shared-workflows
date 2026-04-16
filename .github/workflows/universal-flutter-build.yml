@@ -73,7 +73,6 @@ jobs:
       - name: Track Usage
         env:
           API_KEY: ${{ secrets.COUNTER_API_KEY }}
-        # FIX: Removed the ${{ }} wrapping which was causing the parsing error
         if: env.API_KEY != ''
         run: |
            curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
@@ -110,6 +109,7 @@ jobs:
           else
             echo "ℹ️ Standard build (no client detected)"
           fi
+
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
@@ -279,7 +279,6 @@ jobs:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
         run: |
-          # Clean start (matches original RM check)
           mkdir -p .env
           FILE_NAME="production.env"
 
@@ -287,20 +286,25 @@ jobs:
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
-  
+
           echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
           gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
           echo "✅ .env/production.env written."
-  
+
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
              sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
           fi
-  
+
           # Normalize line endings
           sed -i 's/\r$//' ".env/production.env"
+
+          # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
+          sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
+
           echo "✅ .env/production.env ready for Flutter."
+          echo "📋 Keys loaded: $(wc -l < .env/production.env)"
         continue-on-error: false
 
       # Dynamic Source Rename (Skip on develop)
@@ -310,7 +314,6 @@ jobs:
           # 1. Load Environment Variables
           if [ -f ".env/production.env" ]; then
             echo "📝 Loading .env/production.env for source transformation..."
-            # Normalize line endings (CRLF -> LF) to prevent Bash errors
             sed -i 's/\r$//' ".env/production.env"
             set -a
             source ".env/production.env"
@@ -435,7 +438,6 @@ jobs:
             echo "✅ android/key.properties already exists. Skipping keystore setup."
           else
             echo "🔑 Decoding Keystore..."
-            # Ensure target directory exists
             mkdir -p android/app
             echo "$KEY_JKS" | base64 --decode > "android/app/key.jks"
 
@@ -611,9 +613,46 @@ jobs:
           echo "Build failed. Check the windows-build-error-log artifact or the opened PR for details."
           exit 1
 
-      - name: Build Windows
+      # --- Fetch Environment from Monorepo ---
+      - name: Fetch Production Environment from Monorepo
+        if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+        shell: bash
         run: |
-          flutter build windows --release
+          mkdir -p .env
+          echo "🔍 Fetching production.env from RokctAI/Monorepo..."
+          gh api "/repos/RokctAI/Monorepo/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+
+          # Truncate at Flutter marker
+          if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
+            echo "✂️ Truncating .env at ##########END_FLUTTER##########"
+            sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
+          fi
+
+          # Normalize line endings
+          sed -i 's/\r$//' ".env/production.env"
+
+          # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
+          sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
+
+          echo "✅ .env/production.env ready for Flutter."
+          echo "📋 Keys loaded: $(wc -l < .env/production.env)"
+        continue-on-error: false
+
+      - name: Build Windows
+        shell: bash
+        run: |
+          BUILD_ARGS=(build windows --release)
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+            echo "✅ Using --dart-define-from-file=.env/production.env"
+          fi
+          flutter "${BUILD_ARGS[@]}"
+
+      - name: Zip Windows App
+        shell: pwsh
+        run: |
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
 
       - name: Upload Artifact (Windows)
@@ -645,7 +684,6 @@ jobs:
         run: |
           CLIENT=""
           if [[ "$REF_NAME" == build_* ]]; then
-            # Extract client from branch name (e.g. build_clientname-v1 -> CLIENTNAME)
             CLIENT=$(printf '%s\n' "$REF_NAME" | cut -d'_' -f2 | cut -d'-' -f1 | tr -dc 'a-zA-Z0-9' | tr '[:lower:]' '[:upper:]')
           fi
           echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
@@ -688,7 +726,7 @@ jobs:
           fi
         continue-on-error: false
 
-      # --- Fetch Environment from Monorepo (Smart Mandatory) ---
+      # --- Fetch Environment from Monorepo ---
       - name: Fetch Production Environment from Monorepo (Dynamic Resolution)
         if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
@@ -703,45 +741,44 @@ jobs:
           fi
           echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
           gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
-          
+
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
              sed -i '1,/##########END_FLUTTER##########/!d' .env/production.env
           fi
-          
+
           # Normalize line endings
           sed -i 's/\r$//' .env/production.env
+
+          # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
+          sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' .env/production.env
+
+          echo "✅ .env/production.env ready for Flutter."
+          echo "📋 Keys loaded: $(wc -l < .env/production.env)"
         continue-on-error: false
 
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
-        # We can map env vars to new names or use them directly. 
-        # The script below uses specific names (P12_BASE64, etc.), so we map them at step level from job level env.
         env:
           P12_BASE64: ${{ env.IOS_P12_BASE64 }}
           BUILD_PROVISION_PROFILE_BASE64: ${{ env.IOS_MOBILEPROVISION_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ env.IOS_CERTIFICATE_PASSWORD }}
         run: |
-          # Create variables
           CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
           PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
 
-          # Import certificate and provision profile from secrets
           echo -n "$P12_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate to keychain
           security import "$CERTIFICATE_PATH" -P "$KEYCHAIN_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           
-          # Apply Provisioning Profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles
 
@@ -871,17 +908,30 @@ jobs:
              pod install
            )
 
-      - name: Build IPA (No Codesign stub if secrets missing)
+      - name: Build IPA
         run: |
+          BUILD_ARGS=(--release)
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+            echo "✅ Using --dart-define-from-file=.env/production.env"
+          fi
           if [ -z "$IOS_P12_BASE64" ]; then
             echo "⚠️ No Signing Certs found. Building unsigned (for testing only)..."
-            flutter build ios --release --no-codesign
+            BUILD_ARGS+=(--no-codesign)
           fi
+          flutter build ios "${BUILD_ARGS[@]}"
+
       - name: Enable MacOS Config
         run: flutter config --enable-macos-desktop
 
       - name: Build MacOS
-        run: flutter build macos --release
+        run: |
+          BUILD_ARGS=(--release)
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+            echo "✅ Using --dart-define-from-file=.env/production.env"
+          fi
+          flutter build macos "${BUILD_ARGS[@]}"
 
       - name: Zip MacOS App
         run: |
