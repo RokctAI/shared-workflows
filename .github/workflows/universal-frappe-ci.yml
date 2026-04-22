@@ -310,43 +310,44 @@ jobs:
           fi
           
           # Detect actual app directory and name
-          # This handles case sensitivity (rPanel vs rpanel) and repo vs package name mismatches
-          echo "Listing apps directory content:"
-          ls -la apps/ || true
-          
           cd apps
           
-          # Priority 1: Check if directory matches Repo Name (e.g. rCore)
-          REPO_NAME="${{ github.event.repository.name }}"
-          if [ -n "$REPO_NAME" ] && [ -d "$REPO_NAME" ]; then
-              APP_DIR="$REPO_NAME"
-          # Priority 2: Check if directory matches Lowercase Repo Name (e.g. rcore)
-          elif [ -n "$REPO_NAME" ] && [ -d "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
-              APP_DIR="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
-          else
-              # Priority 3: Fallback to first non-excluded dir (excluding deps like payments)
-              # Using find to be more robust than ls
-              APP_DIR=$(find . -maxdepth 1 -type d ! -name "." ! -name "frappe" ! -name "erpnext" ! -name "payments" -printf "%f\n" | head -n 1)
-          fi
+          # 1. Determine app directory (derived directly from apps folder)
+          # Identify all potential app directories, excluding core dependencies
+          APPS_FOUND=$(ls -1 | grep -vE "^(frappe|erpnext|payments)$")
+          
+          # Default to first one found
+          APP_DIR=$(echo "$APPS_FOUND" | head -n 1)
+          
+          # 2. If multiple results exist, choose the directory that contains pyproject.toml OR setup.py
+          for d in $APPS_FOUND; do
+            if [ -f "$d/pyproject.toml" ] || [ -f "$d/setup.py" ]; then
+              APP_DIR="$d"
+              break
+            fi
+          done
           
           echo "Detected App Directory: $APP_DIR"
-          
-          if [ -n "$APP_DIR" ]; then
-              (
-                cd "$APP_DIR" || exit 1
-                if [ -f "pyproject.toml" ]; then
-                   APP_NAME=$(grep -m1 'name = "' pyproject.toml | cut -d'"' -f2)
-                elif [ -f "setup.py" ]; then
-                   APP_NAME=$(grep -m1 'name=' setup.py | cut -d"'" -f2 | cut -d'"' -f2)
-                else
-                   APP_NAME="${{ github.event.repository.name }}"
-                fi
-                echo "APP_NAME=$APP_NAME" > ../.app_name
-              )
-              APP_NAME=$(cat ../.app_name)
-          else
-              APP_NAME="${{ github.event.repository.name }}"
+
+          # 3. Derive APP_NAME from inside that directory
+          APP_NAME=""
+          if [ -n "$APP_DIR" ] && [ -d "$APP_DIR" ]; then
+            if [ -f "$APP_DIR/pyproject.toml" ]; then
+              APP_NAME=$(grep -m1 'name = "' "$APP_DIR/pyproject.toml" | cut -d'"' -f2)
+            elif [ -f "$APP_DIR/setup.py" ]; then
+              APP_NAME=$(grep -m1 'name=' "$APP_DIR/setup.py" | cut -d"'" -f2 | cut -d'"' -f2)
+            else
+              APP_NAME="$APP_DIR"
+            fi
           fi
+
+          # 5. APP_NAME MUST ALWAYS BE SET EVEN IF EVERYTHING FAILS
+          if [ -z "$APP_NAME" ]; then
+            echo "⚠️ APP_NAME empty, forcing repo name fallback"
+            APP_NAME="${{ github.event.repository.name }}"
+          fi
+
+          echo "Resolved APP_NAME: $APP_NAME"
           
           # Return to bench root
           cd ..
