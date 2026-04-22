@@ -144,6 +144,24 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
+      - name: Cache Python Pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ inputs.python-version }}-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ inputs.python-version }}-
+
+      - name: Cache Node/Yarn
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/yarn
+          key: node-yarn-${{ runner.os }}-${{ inputs.node-version }}-${{ hashFiles('**/package.json', '**/yarn.lock') }}
+          restore-keys: |
+            node-yarn-${{ runner.os }}-${{ inputs.node-version }}-
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -314,16 +332,18 @@ jobs:
           
           # 1. Determine app directory (derived directly from apps folder)
           # Identify all potential app directories, excluding core dependencies
-          APPS_FOUND=$(ls -1 | grep -vE "^(frappe|erpnext|payments)$")
-          
-          # Default to first one found
-          APP_DIR=$(echo "$APPS_FOUND" | head -n 1)
-          
-          # 2. If multiple results exist, choose the directory that contains pyproject.toml OR setup.py
-          for d in $APPS_FOUND; do
-            if [ -f "$d/pyproject.toml" ] || [ -f "$d/setup.py" ]; then
-              APP_DIR="$d"
-              break
+          APP_DIR=""
+          for d in *; do
+            if [[ -d "$d" && ! "$d" =~ ^(frappe|erpnext|payments)$ ]]; then
+              # Default to first one found if not set
+              if [ -z "$APP_DIR" ]; then
+                APP_DIR="$d"
+              fi
+              # Prioritize directory that contains pyproject.toml OR setup.py
+              if [[ -f "$d/pyproject.toml" || -f "$d/setup.py" ]]; then
+                APP_DIR="$d"
+                break
+              fi
             fi
           done
           
