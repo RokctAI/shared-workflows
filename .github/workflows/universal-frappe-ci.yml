@@ -144,6 +144,24 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
+      - name: Cache Python Pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ inputs.python-version }}-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ inputs.python-version }}-
+
+      - name: Cache Node/Yarn
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/yarn
+          key: node-yarn-${{ runner.os }}-${{ inputs.node-version }}-${{ hashFiles('**/package.json', '**/yarn.lock') }}
+          restore-keys: |
+            node-yarn-${{ runner.os }}-${{ inputs.node-version }}-
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update
