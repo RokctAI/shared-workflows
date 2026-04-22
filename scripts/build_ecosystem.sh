@@ -26,6 +26,8 @@ DB_TYPE=${DB_TYPE:-postgres}
 DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
 PY_BIN=${PY_BIN:-python3}
+INSTALL_ROK=${INSTALL_ROK:-true}
+ROK_REF=${ROK_REF:-main}
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
@@ -169,6 +171,37 @@ export PATH="$HOME/.local/bin:$PATH"
 
 cd frappe-bench
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
+
+# --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
+# ROK is not a Frappe app; keep it out of apps/ and install as a Python tool.
+if [ "$INSTALL_ROK" = "true" ]; then
+  echo "RokctAI: Installing ROK tooling..."
+  mkdir -p tools
+
+  ROK_DIR="tools/rok"
+  ROK_REPO_URL="https://github.com/RokctAI/ROK.git"
+  if [ -n "$GITHUB_TOKEN" ]; then
+    ROK_REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/ROK.git"
+  fi
+
+  if [ ! -d "$ROK_DIR/.git" ]; then
+    echo "Cloning ROK into $ROK_DIR (ref: $ROK_REF)..."
+    rm -rf "$ROK_DIR" || true
+    git clone --depth 1 --branch "$ROK_REF" "$ROK_REPO_URL" "$ROK_DIR" || git clone "$ROK_REPO_URL" "$ROK_DIR"
+  else
+    echo "✅ ROK repo already present at $ROK_DIR"
+  fi
+
+  echo "Installing ROK into bench venv (editable)..."
+  python -m pip install -e "$ROK_DIR"
+
+  echo "ROK smoke check..."
+  if ! command -v rok >/dev/null 2>&1; then
+    echo "❌ ROK install failed: 'rok' executable not found in venv PATH"
+    exit 1
+  fi
+  rok --help >/dev/null
+fi
 
 # Detect App Name if not provided
 if [ -z "$APP_NAME" ]; then
