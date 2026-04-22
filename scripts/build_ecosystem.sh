@@ -192,6 +192,49 @@ if [ "$INSTALL_ROK" = "true" ]; then
     echo "✅ ROK repo already present at $ROK_DIR"
   fi
 
+  # Upstream ROK may ship a duplicate `rok` key under [project.scripts], which
+  # breaks Python 3.14's tomllib during `pip install -e`. Patch the *clone only*
+  # (do not require editing the ROK repo on GitHub).
+  ROK_PYPROJECT="$ROK_DIR/pyproject.toml"
+  if [ -f "$ROK_PYPROJECT" ]; then
+    echo "ROK: Normalizing duplicate [project.scripts] rok entries in clone..."
+    env/bin/python <<'PY'
+import pathlib
+import re
+import tomllib
+
+p = pathlib.Path("tools/rok/pyproject.toml")
+if not p.exists():
+    raise SystemExit("ROK: missing tools/rok/pyproject.toml")
+
+text = p.read_text(encoding="utf-8")
+lines = text.splitlines(keepends=True)
+out = []
+in_scripts = False
+seen_rok = False
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]") and not stripped.startswith("[["):
+        in_scripts = stripped == "[project.scripts]"
+        seen_rok = False
+        out.append(line)
+        continue
+    if in_scripts and re.match(r"^\s*rok\s*=", line):
+        if seen_rok:
+            line = re.sub(r"^(\s*)rok\s*=", r"\1rok-agent =", line, count=1)
+        else:
+            seen_rok = True
+    out.append(line)
+
+new_text = "".join(out)
+if new_text != text:
+    p.write_text(new_text, encoding="utf-8")
+
+with p.open("rb") as f:
+    tomllib.load(f)
+PY
+  fi
+
   echo "Installing ROK into bench venv (editable)..."
   python -m pip install -e "$ROK_DIR"
 
