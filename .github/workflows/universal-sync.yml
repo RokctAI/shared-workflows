@@ -222,11 +222,30 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "zip_url=$ZIP_URL" >> "$GITHUB_OUTPUT"
 
+      - name: Find version file
+        if: steps.precheck.outputs.blocked == 'false'
+        id: find_version
+        run: |
+          FILE="${{ inputs.version_file || 'version.json' }}"
+          if [ ! -f "$FILE" ]; then
+             # Recursive discovery if not found at root
+             FOUND_FILE=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+             if [ -n "$FOUND_FILE" ]; then
+                FILE="${FOUND_FILE#./}"
+                echo "Discovered version file: $FILE"
+             else
+                echo "❌ No version file found: $FILE"
+                exit 1
+             fi
+          fi
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
       - name: Check version
         if: steps.precheck.outputs.blocked == 'false'
         id: version
         run: |
-          CURRENT=$(jq -r '.version' ${{ inputs.version_file }} | sed 's/^v//')
+          FILE="${{ steps.find_version.outputs.file }}"
+          CURRENT=$(jq -r '.version' "$FILE" | sed 's/^v//')
           LATEST="${{ steps.release.outputs.tag }}"
 
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -388,10 +407,11 @@ jobs:
           steps.version.outputs.up_to_date == 'false' &&
           steps.postcheck.outputs.missed == 'false'
         run: |
+          FILE="${{ steps.find_version.outputs.file }}"
           # Bump version.json to match fetched release tag
           jq --arg v "${{ steps.release.outputs.tag }}" '.version = $v' \
-            ${{ inputs.version_file }} > /tmp/version_tmp.json
-          mv /tmp/version_tmp.json ${{ inputs.version_file }}
+            "$FILE" > /tmp/version_tmp.json
+          mv /tmp/version_tmp.json "$FILE"
 
           git add -A
           git commit -m "chore: sync release ${{ steps.release.outputs.tag }}"

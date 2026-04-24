@@ -174,7 +174,7 @@ jobs:
         if: env.build_failed == 'true'
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -551,7 +551,7 @@ jobs:
         if: env.build_failed == 'true'
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -840,7 +840,7 @@ jobs:
         if: env.build_failed == 'true'
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 

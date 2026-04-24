@@ -164,8 +164,18 @@ jobs:
         run: |
           # Get current version details using shared action or jq
           # Assuming versions.json. Simplification for inline logic:
-          FILE="${{ inputs.version_file || 'versions.json' }}"
-          if [ ! -f "$FILE" ]; then echo "No version file found: $FILE"; exit 0; fi
+          FILE="${{ inputs.version_file || 'version.json' }}"
+          if [ ! -f "$FILE" ]; then
+             # Recursive discovery if not found at root
+             FOUND_FILE=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+             if [ -n "$FOUND_FILE" ]; then
+                FILE="${FOUND_FILE#./}"
+                echo "Discovered version file: $FILE"
+             else
+                echo "No version file found: $FILE"
+                exit 0
+             fi
+          fi
           
           # Function to extract version based on extension
           get_version() {
@@ -199,6 +209,7 @@ jobs:
                echo "bumped=true"
                echo "old_ver=$OLD_VER"
                echo "old_major=$OLD_MAJOR"
+               echo "file=$FILE"
              } >> "$GITHUB_OUTPUT"
           else
              echo "bumped=false" >> "$GITHUB_OUTPUT"
@@ -237,7 +248,7 @@ jobs:
         uses: actions/create-github-app-token@v3
         if: steps.check_major.outputs.bumped == 'true'
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -325,7 +336,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -725,7 +736,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
@@ -758,8 +769,11 @@ jobs:
       - name: Set Version Output
         id: version
         run: |
-          VER=${{ steps.version_local.outputs.version || steps.version_shared.outputs.version }}
+          # Use non-empty values from either local or shared version steps
+          VER="${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}"
+          FILE="${{ steps.version_local.outputs.file }}${{ steps.version_shared.outputs.file }}"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
       - name: Determine Release Mode
         id: mode
@@ -794,7 +808,7 @@ jobs:
                     SUFFIX="-dev-$HASH"
                 elif [[ "$REF_NAME" == "main" ]]; then
                     # Check if version in file is a stable release (no -rc)
-                    FILE="${{ inputs.version_file || 'version.json' }}"
+                    FILE="${{ steps.version.outputs.file }}"
                     CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
                     if [[ "$CUR_VER" != *"-rc"* ]]; then
                         MODE="stable"
@@ -894,7 +908,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-           FILE="${{ inputs.version_file || 'version.json' }}"
+           FILE="${{ steps.version.outputs.file }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
            
            if [[ ! -f "$FILE" ]]; then
