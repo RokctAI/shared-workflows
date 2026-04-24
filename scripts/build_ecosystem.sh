@@ -47,8 +47,18 @@ sync_apps_txt() {
   echo "✅ apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")"
 }
 
+is_app_installed() {
+  local app=$1
+  # Check if app is already installed on the target site
+  bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^${app}$"
+}
+
 safe_install_app() {
   local app=$1
+  if is_app_installed "$app"; then
+    echo "[$app] Already installed on site $SITE_NAME, skipping..."
+    return 0
+  fi
   echo "[$app] Safe-installing on site $SITE_NAME..."
   # Use direct Frappe API to bypass Click wrapper issues on Python 3.14
   # We try multiple methods to ensure success
@@ -387,31 +397,28 @@ for app_dir in apps/*; do
 
     echo "[$this_app] Guarding hooks in $hook_file"
     # Use python for safer injection that respects indentation and avoids double injection
-    env/bin/python -c "
-import sys, re
-path = '$hook_file'
-with open(path, 'r') as f: content = f.read()
-pattern = r'^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):'
+    # We pass the hook file path via env to avoid shell quoting issues with '#' and quotes
+    HOOK_FILE="$hook_file" env/bin/python -c '
+import os, sys, re
+path = os.environ.get("HOOK_FILE")
+if not path or not os.path.exists(path): sys.exit(0)
+with open(path, "r") as f: content = f.read()
+pattern = r"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):"
 def repl(m):
     indent = m.group(1)
     full_match = m.group(0)
-
-    # Per-function opt-out: check the line immediately preceding the function
     pre_content = content[:m.start()]
     lines = pre_content.splitlines()
-    if lines and "# rokct-no-guard" in lines[-1]:
-        return full_match
-
-    guard_str = 'if frappe.flags.in_install or frappe.flags.in_migrate: return'
-    # Avoid double injection: check if the next non-empty line already has the guard
-    next_lines = content[m.end():].split('\n', 4)
+    if lines and "# rokct-no-guard" in lines[-1]: return full_match
+    guard_str = "if frappe.flags.in_install or frappe.flags.in_migrate: return"
+    next_lines = content[m.end():].split("\n", 4)
     for line in next_lines:
         if guard_str in line: return full_match
-        if line.strip() and not line.strip().startswith('\"\"\"') and not line.strip().startswith('#'): break
-    return f'{full_match}\n{indent}{indent}{guard_str}'
+        if line.strip() and not line.strip().startswith("\"\"\"") and not line.strip().startswith("#"): break
+    return f"{full_match}\n{indent}{indent}{guard_str}"
 new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
-with open(path, 'w') as f: f.write(new_content)
-" || true
+with open(path, "w") as f: f.write(new_content)
+' || true
   done
 
   # G. Forced Registration (Editable Mode)
@@ -434,12 +441,20 @@ done
 # --- 6. Ecosystem Compilation & Site Setup ---
 echo "RokctAI: Compiling Ecosystem..."
 
-# Map platform host
+# Determine the working site name: In CI, we use rpanel.local to avoid rename issues.
+if [ "${CI}" = "true" ]; then
+  WORKING_SITE="rpanel.local"
+else
+  WORKING_SITE="platform.rokct.ai"
+fi
+
+# Map platform hosts
 echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts || echo "Skipped: /etc/hosts is read-only"
+echo "127.0.0.1 rpanel.local" | sudo tee -a /etc/hosts || echo "Skipped: /etc/hosts is read-only"
 
 # Site Initialization
 if [ "$BOOTSTRAP" = "false" ]; then
-  SITE_NAME="platform.rokct.ai"
+  SITE_NAME="$WORKING_SITE"
   if [ "$DB_TYPE" = "mariadb" ]; then
     bench new-site "$SITE_NAME" --db-root-password "$DB_PW" --admin-password admin --no-mariadb-socket || true
   else
@@ -449,14 +464,9 @@ if [ "$BOOTSTRAP" = "false" ]; then
   # Ensure apps.txt is synced before we start installing apps on site
   sync_apps_txt
 else
-  # Bootstrap path: rename site to platform.rokct.ai if it's not already
+  # Bootstrap path: identify the site created by install.sh
   ORIG_SITE=$(ls sites | grep .local | head -n 1)
-  ORIG_SITE=${ORIG_SITE:-rpanel.local}
-  SITE_NAME="platform.rokct.ai"
-  if [ "$ORIG_SITE" != "$SITE_NAME" ] && [ -d "sites/$ORIG_SITE" ]; then
-    echo "Renaming $ORIG_SITE to $SITE_NAME..."
-    mv "sites/$ORIG_SITE" "sites/$SITE_NAME" || true
-  fi
+  SITE_NAME=${ORIG_SITE:-rpanel.local}
   echo "$SITE_NAME" >sites/currentsite.txt
 fi
 
@@ -523,6 +533,23 @@ bench --site "$SITE_NAME" run-tests --app control --module control.control.tests
 if [ "$RUN_TESTS" = "true" ]; then
   echo "RokctAI: Running Tests for $APP_NAME..."
   bench --site $SITE_NAME run-tests --app $APP_NAME
+fi
+
+# --- 10. Finalize Site Name (Production Only) ---
+if [ "${CI}" != "true" ] && [ "$SITE_NAME" != "platform.rokct.ai" ]; then
+  echo "Finalizing site name for Production: Renaming $SITE_NAME to platform.rokct.ai..."
+  if [ -d "sites/$SITE_NAME" ]; then
+    bench rename-site "$SITE_NAME" "platform.rokct.ai" || {
+      echo "Rename failed, attempting manual move..."
+      mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
+    }
+    SITE_NAME="platform.rokct.ai"
+    echo "$SITE_NAME" >sites/currentsite.txt
+
+    echo "Updating production configurations..."
+    bench setup nginx || true
+    bench setup supervisor || true
+  fi
 fi
 
 echo "✅ RokctAI: Golden Build Complete!"
