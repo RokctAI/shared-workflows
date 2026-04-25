@@ -290,12 +290,18 @@ if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
   mkdir -p apps/control
   cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
   bench pip install -e apps/control
-elif [ ! -d "apps/control" ]; then
-  echo "Installing Control Panel via HTTPS (Fetching latest tag)..."
+else
+  # Control is always fetched from main branch — it is rapidly developed and tags lag behind.
   CONTROL_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git"
-  LATEST_TAG=$(git ls-remote --tags "$CONTROL_URL" | grep -vE 'rc|beta|alpha|dev|\^' | awk -F/ '{print $3}' | sort -V -r | head -n1)
-  if [ -z "$LATEST_TAG" ]; then LATEST_TAG="main"; fi
-  bench get-app "$CONTROL_URL" --branch "$LATEST_TAG" --resolve-deps --skip-assets || true
+  if [ -d "apps/control/.git" ]; then
+    echo "🔄 Refreshing Control Panel from branch: main..."
+    git -C apps/control fetch origin main && git -C apps/control reset --hard origin/main
+    bench pip install -e apps/control
+  else
+    echo "Installing Control Panel from branch: main..."
+    rm -rf apps/control
+    bench get-app "$CONTROL_URL" --branch main --resolve-deps --skip-assets || true
+  fi
 fi
 
 # 5. Monorepo Overrides Staging & Application
