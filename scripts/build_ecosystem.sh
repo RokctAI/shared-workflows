@@ -447,8 +447,8 @@ done
 # --- 6. Ecosystem Compilation & Site Setup ---
 echo "RokctAI: Compiling Ecosystem..."
 
-# Determine the working site name: In CI, we use rpanel.local to avoid rename issues.
-if [ "${CI}" = "true" ]; then
+# Determine the working site name: In Docker/CI, we use rpanel.local to avoid rename issues.
+if [ "${DOCKER_BUILD}" = "true" ] || [ "${CI}" = "true" ]; then
   WORKING_SITE="rpanel.local"
 else
   WORKING_SITE="platform.rokct.ai"
@@ -541,8 +541,8 @@ if [ "$RUN_TESTS" = "true" ]; then
   bench --site $SITE_NAME run-tests --app $APP_NAME
 fi
 
-# --- 10. Finalize Site Name (Production Only) ---
-if [ "${CI}" != "true" ] && [ "$SITE_NAME" != "platform.rokct.ai" ]; then
+# --- 10. Finalize Site Name (Non-Docker Production Only) ---
+if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" != "platform.rokct.ai" ]; then
   echo "Finalizing site name for Production: Renaming $SITE_NAME to platform.rokct.ai..."
   if [ -d "sites/$SITE_NAME" ]; then
     bench rename-site "$SITE_NAME" "platform.rokct.ai" || {
