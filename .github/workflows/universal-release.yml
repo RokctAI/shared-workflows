@@ -1378,33 +1378,61 @@ jobs:
               fi
            fi
 
-      - name: Build Android APK
-        # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
-        id: build_apk
-        run: |
-           echo "Building Android APK..."
-           flutter pub get
-           dart run build_runner build --delete-conflicting-outputs
-           flutter build apk --release
-           
-           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-           if [ -f "$APK_PATH" ]; then
-              echo "APK built successfully."
-              mv "$APK_PATH" "build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk"
-              echo "apk_path=build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
-           else
-              echo "APK build failed or file not found."
-              exit 1
-           fi
+        - name: Build Android APK (Release)
+          # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
+          if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+          id: build_apk
+          run: |
+             echo "Building Android Release APK..."
+             flutter pub get
+             dart run build_runner build --delete-conflicting-outputs
+             if [ -f .env/production.env ]; then
+               flutter build apk --release --dart-define-from-file=.env/production.env
+             else
+               flutter build apk --release
+             fi
+            
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+            if [ -f "$APK_PATH" ]; then
+               echo "Release APK built successfully."
+               mv "$APK_PATH" "build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk"
+               echo "apk_path=build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
+            else
+               echo "Release APK build failed or file not found."
+               exit 1
+            fi
 
-      - name: Build Android AppBundle
-        # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
-        id: build_aab
-        run: |
-           echo "Building Android AppBundle..."
-           flutter build appbundle --release
+        - name: Build Android APK (Debug)
+          if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+          run: |
+             echo "Building Android Debug APK..."
+             if [ -f .env/production.env ]; then
+               flutter build apk --debug --dart-define-from-file=.env/production.env
+             else
+               flutter build apk --debug
+             fi
+             
+             DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
+             if [ -f "$DEBUG_APK_PATH" ]; then
+                echo "Debug APK built successfully."
+                mv "$DEBUG_APK_PATH" "build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk"
+                echo "debug_apk_path=build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk" >> "$GITHUB_ENV"
+             else
+                echo "Debug APK build failed or file not found."
+                exit 1
+             fi
+
+       - name: Build Android AppBundle
+         # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
+         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
+         id: build_aab
+         run: |
+            echo "Building Android AppBundle..."
+            if [ -f .env/production.env ]; then
+              flutter build appbundle --release --dart-define-from-file=.env/production.env
+            else
+              flutter build appbundle --release
+            fi
            
            AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
            if [ -f "$AAB_PATH" ]; then
@@ -1686,12 +1714,13 @@ jobs:
            
            echo "Creating Release $TAG via gh CLI..."
            
-           # Assets List
-           FILES=()
-           if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
-           if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
-           if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
-           if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
+            # Assets List
+            FILES=()
+            if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
+            if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
+            if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
+            if [ -f "$DEBUG_APK_PATH" ]; then FILES+=("$DEBUG_APK_PATH"); fi
+            if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
            
            # Rename Windows Zip with Tag
            if [ "${{ env.has_windows }}" == "true" ]; then
