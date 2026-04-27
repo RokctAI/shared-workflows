@@ -303,9 +303,9 @@ jobs:
           # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
           sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
 
-          echo "✅ .env/production.env ready for Flutter."
-          echo "📋 Keys loaded: $(wc -l < .env/production.env)"
-           continue-on-error: false
+           echo "✅ .env/production.env ready for Flutter."
+           echo "📋 Keys loaded: $(wc -l < .env/production.env)"
+         continue-on-error: false
 
        - name: .env Diagnostics
          run: |
