@@ -450,30 +450,39 @@ jobs:
             } > "android/key.properties"
           fi
 
-      - name: Build APK
-        if: inputs.build-type == 'apk'
-        run: |
-          BUILD_ARGS=(--release)
-          if [ -f .env/production.env ]; then
-            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
-          fi
-          flutter build apk "${BUILD_ARGS[@]}"
+       - name: Build APK
+         if: inputs.build-type == 'apk'
+         run: |
+            BUILD_ARGS=(--release)
+            if [ -f .env/production.env ]; then
+              BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+            fi
+            flutter build apk "${BUILD_ARGS[@]}"
+            
+             # Also build debug APK
+            if [ -f .env/production.env ]; then
+              flutter build apk --debug --dart-define-from-file=.env/production.env
+            else
+              flutter build apk --debug
+            fi
 
-      - name: Build AppBundle
-        if: inputs.build-type == 'appbundle'
-        run: |
-          BUILD_ARGS=(--release)
-          if [ -f .env/production.env ]; then
-            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
-          fi
-          flutter build appbundle "${BUILD_ARGS[@]}"
+       - name: Build AppBundle
+         if: inputs.build-type == 'appbundle'
+         run: |
+            BUILD_ARGS=(--release)
+            if [ -f .env/production.env ]; then
+              BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+            fi
+            flutter build appbundle "${BUILD_ARGS[@]}"
 
-      - name: Upload Artifact (APK)
-        if: inputs.upload-artifact == true && inputs.build-type == 'apk'
-        uses: actions/upload-artifact@v6
-        with:
-          name: app-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+       - name: Upload Artifact (APK)
+         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
+         uses: actions/upload-artifact@v6
+         with:
+           name: app-release-apk
+           path: |
+             build/app/outputs/flutter-apk/app-release.apk
+             build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload Artifact (AAB)
         if: inputs.upload-artifact == true && inputs.build-type == 'appbundle'
