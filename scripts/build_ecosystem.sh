@@ -342,6 +342,9 @@ done
 sync_apps_txt
 
 # --- 5. Global Ecosystem Hacks (Post-Fetch) ---
+echo "RokctAI: Cleaning up empty JSON files..."
+find apps -name "*.json" -size 0 -delete
+
 echo "RokctAI: Applying Global Ecosystem Hacks..."
 
 PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
@@ -496,6 +499,9 @@ sync_apps_txt
 safe_install_app control || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
+echo "RokctAI: Seeding ERPNext default setup data..."
+bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install || echo "Warning: ERPNext fixture seeding failed."
+
 # RokctAI: Stack Installation
 STACK_INSTALLER=""
 if [ -f "../install_stack.py" ]; then
@@ -508,14 +514,8 @@ if [ -n "$STACK_INSTALLER" ]; then
   echo "RokctAI: Running Stack Installer ($STACK_INSTALLER)..."
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
-  echo "RokctAI: Generating Golden DB Seed..."
-  bench --site $SITE_NAME backup
-  BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
-  if [ -f "$BACKUP_FILE" ]; then
-    mkdir -p apps/seed_data
-    cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
-    echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
-  fi
+  echo "RokctAI: Running post-stack migration..."
+  bench --site "$SITE_NAME" migrate
 fi
 
 echo "🚀 Baking Platform API Schemas..."
@@ -527,6 +527,17 @@ if [ -d "apps/rcore" ]; then
   bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets ||
     bench --site "$SITE_NAME" execute rcore.rcore.platform.manager.bake_assets ||
     echo "Warning: Failed to bake rcore assets."
+fi
+
+if [ -n "$STACK_INSTALLER" ]; then
+  echo "RokctAI: Generating Golden DB Seed..."
+  bench --site $SITE_NAME backup
+  BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
+  if [ -f "$BACKUP_FILE" ]; then
+    mkdir -p apps/seed_data
+    cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
+    echo "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
+  fi
 fi
 
 echo "✅ Platform API Manifest Created."
