@@ -305,9 +305,18 @@ jobs:
 
           echo "✅ .env/production.env ready for Flutter."
           echo "📋 Keys loaded: $(wc -l < .env/production.env)"
-        continue-on-error: false
+           continue-on-error: false
 
-      # Dynamic Source Rename (Skip on develop)
+       - name: .env Diagnostics
+         run: |
+          echo "Total lines: $(wc -l < .env/production.env)"
+          echo "Lines with comments: $(grep -c '^#' .env/production.env || echo 0)"
+          echo "Blank lines: $(grep -c '^$' .env/production.env || echo 0)"
+          echo "Lines without = : $(grep -cv '=' .env/production.env || echo 0)"
+          echo "Keys only:"
+          cut -d'=' -f1 .env/production.env
+
+       # Dynamic Source Rename (Skip on develop)
       - name: Dynamic Source Rename
         if: github.ref_name != 'develop'
         run: |
