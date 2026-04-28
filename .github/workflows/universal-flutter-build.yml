@@ -279,29 +279,29 @@ jobs:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
         run: |
-          mkdir -p .env
-          FILE_NAME="production.env"
+            mkdir -p .env
+           FILE_NAME="production.env"
 
-          if [ -n "$CLIENT_PREFIX" ]; then
-             LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
-             FILE_NAME="${LOWER_PREFIX}_production.env"
-          fi
+           if [ -n "$CLIENT_PREFIX" ]; then
+              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
+              FILE_NAME="${LOWER_PREFIX}_production.env"
+           fi
 
-          echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
-          gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
-          echo "✅ .env/production.env written."
+           echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
+           gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+           echo "✅ .env/production.env written."
 
-          # Truncate at Flutter marker
-          if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
-             echo "✂️ Truncating .env at ##########END_FLUTTER##########"
-             sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
-          fi
+           # Truncate at Flutter marker
+           if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
+              echo "✂️ Truncating .env at ##########END_FLUTTER##########"
+              sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
+           fi
 
-          # Normalize line endings
-          sed -i 's/\r$//' ".env/production.env"
+           # Normalize line endings
+           sed -i 's/\r$//' ".env/production.env"
 
-          # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
-          sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
+           # FIX: Strip comment lines and blank lines — dart-define-from-file does not support # comments
+           sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
 
            echo "✅ .env/production.env ready for Flutter."
            echo "📋 Keys loaded: $(wc -l < .env/production.env)"
@@ -317,7 +317,7 @@ jobs:
           cut -d'=' -f1 .env/production.env
 
        # Dynamic Source Rename (Skip on develop)
-      - name: Dynamic Source Rename
+       - name: Dynamic Source Rename
         if: github.ref_name != 'develop'
         run: |
           # 1. Load Environment Variables
