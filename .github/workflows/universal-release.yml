@@ -1403,6 +1403,7 @@ jobs:
             fi
 
       - name: Build Android APK (Debug)
+        id: build_debug_apk
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
         run: |
              echo "Building Android Debug APK..."
@@ -1416,7 +1417,7 @@ jobs:
              if [ -f "$DEBUG_APK_PATH" ]; then
                 echo "Debug APK built successfully."
                 mv "$DEBUG_APK_PATH" "build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk"
-                echo "debug_apk_path=build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk" >> "$GITHUB_ENV"
+                echo "debug_apk_path=build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
              else
                 echo "Debug APK build failed or file not found."
                 exit 1
@@ -1719,7 +1720,7 @@ jobs:
             if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
             if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
             if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
-            if [ -f "$DEBUG_APK_PATH" ]; then FILES+=("$DEBUG_APK_PATH"); fi
+            if [ -f "${{ steps.build_debug_apk.outputs.debug_apk_path }}" ]; then FILES+=("${{ steps.build_debug_apk.outputs.debug_apk_path }}"); fi
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
 
            # Rename Windows Zip with Tag
