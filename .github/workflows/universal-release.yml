@@ -140,7 +140,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-        node-version: ${{ inputs.node-version }}
+          node-version: ${{ inputs.node-version }}
       # Add lint/test steps here if generic enough,
       # or rely on caller workflow to do checking before calling this.
       - run: echo "Checks passed (Placeholder)"
@@ -228,9 +228,9 @@ jobs:
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-        repository: RokctAI/shared-workflows
-        path: .github/shared-workflows
-        token: ${{ github.token }}
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
 
       - name: Configure LTS Environment
         if: steps.check_major.outputs.bumped == 'true'
@@ -248,9 +248,9 @@ jobs:
         uses: actions/create-github-app-token@v3
         if: steps.check_major.outputs.bumped == 'true'
         with:
-        client-id: ${{ secrets.APP_ID }}
-        private-key: ${{ secrets.APP_PRIVATE_KEY }}
-        continue-on-error: true
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          continue-on-error: true
 
       - name: Setup Identity (Local)
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'true'
@@ -262,7 +262,7 @@ jobs:
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
-        token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
@@ -313,8 +313,8 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-        fetch-depth: 0
-        filter: blob:none
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Determine Context
         run: |
@@ -328,9 +328,9 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-        repository: RokctAI/shared-workflows
-        path: .github/shared-workflows
-        token: ${{ github.token }}
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
 
       - name: Generate App Token
         id: app-token
@@ -464,7 +464,7 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
-        token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -512,7 +512,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-        fetch-depth: 0
+          fetch-depth: 0
 
       - name: Regenerate AI Release Notes
         env:
@@ -728,9 +728,9 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-        repository: RokctAI/shared-workflows
-        path: .github/shared-workflows
-        token: ${{ github.token }}
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
 
       - name: Generate App Token
         id: app-token
@@ -744,7 +744,7 @@ jobs:
         if: env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
-        token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: env.IS_SELF == 'false'
@@ -757,7 +757,7 @@ jobs:
         id: version_local
         uses: ./.github/actions/check-version
         with:
-        file_path: ${{ inputs.version_file }}
+          file_path: ${{ inputs.version_file }}
 
       - name: Get Version (Shared)
         if: env.IS_SELF == 'false'
@@ -1126,9 +1126,9 @@ jobs:
         if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
         uses: subosito/flutter-action@v2
         with:
-        channel: ${{ inputs.flutter-channel }}
-        flutter-version: ${{ inputs.flutter-version }}
-        cache: true
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
 
       # --- ENV SETUP (Critical for Client Config) ---
       - name: "Decode Production Environment (Priority: Monorepo > Secret)"
