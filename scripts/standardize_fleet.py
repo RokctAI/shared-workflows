@@ -487,6 +487,59 @@ def fix_android_debug_buildtype(check_only=False):
     return True
 
 
+def fix_android_gradle_properties(check_only=False):
+    """Ensure android/gradle.properties has a sensible baseline JVM heap.
+    Debug builds process large Flutter engine JARs via JetifyTransform and
+    will OOM on Gradle's default heap. The workflow retry logic will bump
+    further if needed, but a 4g baseline avoids the first OOM entirely."""
+    props_path = "android/gradle.properties"
+
+    baseline = "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError"
+
+    if not os.path.exists(props_path):
+        if not check_only:
+            os.makedirs("android", exist_ok=True)
+            with open(props_path, "w", encoding="utf-8") as f:
+                f.write(baseline + "\n")
+        return True
+
+    with open(props_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Already has a jvmargs line — check if heap is at least 4g
+    match = re.search(r"org\.gradle\.jvmargs=.*-Xmx(\d+)([gGmM])", content)
+    if match:
+        value, unit = int(match.group(1)), match.group(2).lower()
+        heap_mb = value * 1024 if unit == "g" else value
+        if heap_mb >= 4096:
+            return False  # Already sufficient
+        # Heap is set but too low — replace the whole jvmargs line
+        new_content = re.sub(
+            r"org\.gradle\.jvmargs=.*",
+            baseline,
+            content,
+        )
+    elif "org.gradle.jvmargs" in content:
+        # Has jvmargs but no -Xmx — replace it
+        new_content = re.sub(
+            r"org\.gradle\.jvmargs=.*",
+            baseline,
+            content,
+        )
+    else:
+        # No jvmargs at all — append
+        new_content = content.rstrip() + "\n" + baseline + "\n"
+
+    if new_content == content:
+        return False
+
+    if not check_only:
+        with open(props_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+    return True
+
+
 def main():
     check_only = "--check" in sys.argv
     changed = False
@@ -584,6 +637,14 @@ def main():
             print("✅ Added debug buildType to android/app/build.gradle")
         else:
             print("⚠️ android/app/build.gradle missing debug buildType")
+        changed = True
+
+    # Fix Android Gradle JVM heap
+    if fix_android_gradle_properties(check_only):
+        if not check_only:
+            print("✅ Set baseline JVM heap in android/gradle.properties")
+        else:
+            print("⚠️ android/gradle.properties missing or insufficient JVM heap")
         changed = True
 
     # Fix Dependabot
