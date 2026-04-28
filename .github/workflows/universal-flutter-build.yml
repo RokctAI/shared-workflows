@@ -307,7 +307,7 @@ jobs:
           echo "📋 Keys loaded: $(wc -l < .env/production.env)"
         continue-on-error: false
 
-       - name: .env Diagnostics
+      - name: .env Diagnostics
          run: |
           echo "Total lines: $(wc -l < .env/production.env)"
           echo "Lines with comments: $(grep -c '^#' .env/production.env || echo 0)"
@@ -317,7 +317,7 @@ jobs:
           cut -d'=' -f1 .env/production.env
 
        # Dynamic Source Rename (Skip on develop)
-       - name: Dynamic Source Rename
+      - name: Dynamic Source Rename
         if: github.ref_name != 'develop'
         run: |
           # 1. Load Environment Variables
