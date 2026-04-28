@@ -446,6 +446,47 @@ def fix_monorepo_secrets(content):
     return content
 
 
+def fix_android_debug_buildtype(check_only=False):
+    """Ensure android/app/build.gradle has an explicit debug buildType.
+    Without it, debug builds in CI fall back to Gradle defaults which can
+    fail due to missing signing config or inherited release config."""
+    gradle_path = "android/app/build.gradle"
+
+    if not os.path.exists(gradle_path):
+        return False
+
+    with open(gradle_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Already has a debug block — nothing to do
+    if re.search(r"buildTypes\s*\{[^}]*\bdebug\s*\{", content, re.DOTALL):
+        return False
+
+    debug_block = (
+        "\n        debug {\n"
+        "            signingConfig signingConfigs.debug\n"
+        "            minifyEnabled false\n"
+        "            debuggable true\n"
+        "        }\n"
+    )
+
+    new_content = re.sub(
+        r"(buildTypes\s*\{)",
+        r"\1" + debug_block,
+        content,
+        count=1,
+    )
+
+    if new_content == content:
+        return False
+
+    if not check_only:
+        with open(gradle_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+    return True
+
+
 def main():
     check_only = "--check" in sys.argv
     changed = False
@@ -536,6 +577,14 @@ def main():
                             else:
                                 print(f"⚠️ {path} needs bot identity standardization")
                             changed = True
+
+    # Fix Android debug buildType
+    if fix_android_debug_buildtype(check_only):
+        if not check_only:
+            print("✅ Added debug buildType to android/app/build.gradle")
+        else:
+            print("⚠️ android/app/build.gradle missing debug buildType")
+        changed = True
 
     # Fix Dependabot
     if fix_dependabot(".github/dependabot.yml", check_only):
