@@ -15,44 +15,44 @@ on:
         type: string
         description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
       version_file:
-         required: false
-         type: string
-         default: "version.json"
-         description: "Path to version file (json/yaml/txt)"
+        required: false
+        type: string
+        default: "version.json"
+        description: "Path to version file (json/yaml/txt)"
       version_format:
-         required: false
-         type: string
-         default: "##.##.##"
-         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+        required: false
+        type: string
+        default: "##.##.##"
+        description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
       brain_endpoint:
-         required: false
-         type: string
-         description: "Endpoint for AI Release Notes"
+        required: false
+        type: string
+        description: "Endpoint for AI Release Notes"
       cleanup_rc_releases:
-         required: false
-         type: boolean
-         default: true
-         description: "Delete RC releases/tags after promotion to stable"
+        required: false
+        type: boolean
+        default: true
+        description: "Delete RC releases/tags after promotion to stable"
       one_time_cleanup_cutoff_date:
-         required: false
-         type: string
-         default: ""
-         description: "Date (YYYY-MM-DD) - Run one-time cleanup once if current date is past this. Leave empty to disable."
+        required: false
+        type: string
+        default: ""
+        description: "Date (YYYY-MM-DD) - Run one-time cleanup once if current date is past this. Leave empty to disable."
       backfill_ai_notes_cutoff_version:
-         required: false
-         type: string
-         default: ""
-         description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
+        required: false
+        type: string
+        default: ""
+        description: "Version (e.g. 1.0.0) - Regenerate AI release notes for all stable tags *starting* from this version. Leave empty to disable."
       build_android:
-         required: false
-         type: boolean
-         default: false
-         description: "Build Android APK and include in release"
+        required: false
+        type: boolean
+        default: false
+        description: "Build Android APK and include in release"
       build_windows:
-         required: false
-         type: boolean
-         default: false
-         description: "Build Windows App and include in release"
+        required: false
+        type: boolean
+        default: false
+        description: "Build Windows App and include in release"
       node-version:
         type: string
         default: '24'
@@ -107,15 +107,15 @@ on:
         default: "immediate"
         description: "Strategy: 'immediate' (Standard) or 'weekly' (RC/Promote)"
       build_android:
-         required: false
-         type: boolean
-         default: true
-         description: "Build Android APK and include in release"
+        required: false
+        type: boolean
+        default: true
+        description: "Build Android APK and include in release"
       build_windows:
-         required: false
-         type: boolean
-         default: false
-         description: "Build Windows App and include in release"
+        required: false
+        type: boolean
+        default: false
+        description: "Build Windows App and include in release"
 
 jobs:
   # --- 0. TELEMETRY (Usage Tracking) ---
@@ -140,8 +140,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: ${{ inputs.node-version }}
-      # Add lint/test steps here if generic enough, 
+        node-version: ${{ inputs.node-version }}
+      # Add lint/test steps here if generic enough,
       # or rely on caller workflow to do checking before calling this.
       - run: echo "Checks passed (Placeholder)"
 
@@ -158,7 +158,7 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
-      
+
       - name: Check Major Version Bump
         id: check_major
         run: |
@@ -176,7 +176,7 @@ jobs:
                 exit 0
              fi
           fi
-          
+
           # Function to extract version based on extension
           get_version() {
             local f="$1"
@@ -188,21 +188,21 @@ jobs:
                cat "$f" # Fallback
             fi
           }
-          
-          
+
+
           NEW_VER=$(get_version "$FILE")
-          
+
           # Get previous commit version
           git checkout HEAD^ -- "$FILE"
           OLD_VER=$(get_version "$FILE")
           git checkout HEAD -- "$FILE" # Restore
-          
+
           echo "Old: $OLD_VER | New: $NEW_VER"
-          
+
           # Extract Major
           OLD_MAJOR=$(echo "$OLD_VER" | cut -d. -f1)
           NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
-          
+
           if [[ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]]; then
              echo "Major Bump Detected ($OLD_MAJOR -> $NEW_MAJOR)"
              {
@@ -228,9 +228,9 @@ jobs:
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-          repository: RokctAI/shared-workflows
-          path: .github/shared-workflows
-          token: ${{ github.token }}
+        repository: RokctAI/shared-workflows
+        path: .github/shared-workflows
+        token: ${{ github.token }}
 
       - name: Configure LTS Environment
         if: steps.check_major.outputs.bumped == 'true'
@@ -248,8 +248,8 @@ jobs:
         uses: actions/create-github-app-token@v3
         if: steps.check_major.outputs.bumped == 'true'
         with:
-          client-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        client-id: ${{ secrets.APP_ID }}
+        private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
       - name: Setup Identity (Local)
@@ -262,7 +262,7 @@ jobs:
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
-          token: ${{ steps.app-token.outputs.token }}
+        token: ${{ steps.app-token.outputs.token }}
 
       - name: Create LTS Branch & Tag
         if: steps.check_major.outputs.bumped == 'true'
@@ -270,31 +270,31 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           echo "Creating LTS Branch: $BRANCH_NAME at HEAD^"
-          
+
           # Branch
           git branch "$BRANCH_NAME" HEAD^
           git push origin "$BRANCH_NAME"
-          
+
           # Tag
           git tag "$TAG_NAME" HEAD^
           git push origin "$TAG_NAME"
-          
+
           # Release (Optional Stub)
           gh release create "$TAG_NAME" --title "LTS Version $OLD_VER" --notes "Final LTS Snapshot for v$MAJOR." --draft=false || true
-          
+
           # --- ARCHIVAL LOGIC (User Request: Archive previous LTS when new one created) ---
           PREV_BRANCH="version-$PREV_MAJOR"
           ARCHIVE_NAME="archived/$PREV_BRANCH"
-          
+
           if git ls-remote --exit-code --heads origin "$PREV_BRANCH" >/dev/null 2>&1; then
              echo "Found failing LTS branch: $PREV_BRANCH. Archiving..."
-             
+
              # Rename remote branch (Delete old, push new)
              git checkout "$PREV_BRANCH"
              git checkout -b "$ARCHIVE_NAME"
              git push origin "$ARCHIVE_NAME"
              git push origin --delete "$PREV_BRANCH"
-             
+
              echo "Moved $PREV_BRANCH to $ARCHIVE_NAME"
           else
              echo "No previous LTS branch ($PREV_BRANCH) found to archive."
@@ -313,8 +313,8 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          filter: blob:none
+        fetch-depth: 0
+        filter: blob:none
 
       - name: Determine Context
         run: |
@@ -328,9 +328,9 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-          repository: RokctAI/shared-workflows
-          path: .github/shared-workflows
-          token: ${{ github.token }}
+        repository: RokctAI/shared-workflows
+        path: .github/shared-workflows
+        token: ${{ github.token }}
 
       - name: Generate App Token
         id: app-token
@@ -345,67 +345,67 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           CUTOFF_DATE="${{ inputs.one_time_cleanup_cutoff_date }}"
-          
+
           echo " Date-based cleanup mode (cutoff: $CUTOFF_DATE)"
-          
+
           # Get current date in YYYY-MM-DD format
           CURRENT_DATE=$(date +%Y-%m-%d)
-          
+
           # Compare dates
           if [[ "$CURRENT_DATE" > "$CUTOFF_DATE" ]] || [[ "$CURRENT_DATE" == "$CUTOFF_DATE" ]]; then
              echo "✅ Current date ($CURRENT_DATE) is past cutoff ($CUTOFF_DATE)"
-             
+
              # Check if cleanup marker file exists
              MARKER_FILE=".github/.rc-cleanup-done"
              if [[ -f "$MARKER_FILE" ]]; then
                 echo "⏭️ Cleanup already completed (marker file exists). Skipping."
                 exit 0
              fi
-             
+
              echo "🆕 First time running cleanup past cutoff date"
           else
              echo "⏸️ Current date ($CURRENT_DATE) is before cutoff ($CUTOFF_DATE). Skipping cleanup."
              exit 0
           fi
-          
+
           echo ""
           echo "🧹 Starting RC cleanup..."
-          
+
           # Fetch all tags
           git fetch --tags --force
-          
+
           # Get all stable releases (no -rc, -dev, -alpha, -beta suffixes)
           STABLE_TAGS=$(git tag -l "v*" | grep -v -E -- '-(rc|dev|alpha|beta)' | sort -V)
-          
+
           if [[ -z "$STABLE_TAGS" ]]; then
              echo "No stable releases found. Nothing to clean up."
              exit 0
           fi
-          
+
           echo "Found $(echo "$STABLE_TAGS" | wc -l) stable releases"
           echo "$STABLE_TAGS"
           echo ""
-          
+
           # Convert to array
           readarray -t STABLE_ARRAY <<< "$STABLE_TAGS"
           TOTAL_DELETED=0
-          
+
           # Iterate through consecutive pairs of stable releases
           for i in $(seq 0 $(("${#STABLE_ARRAY[@]}" - 2))); do
              PREV_STABLE="${STABLE_ARRAY[$i]}"
              NEXT_STABLE="${STABLE_ARRAY[$((i+1))]}"
-             
+
              echo "🔍 Checking RCs between $PREV_STABLE and $NEXT_STABLE..."
-             
+
              # Extract version from NEXT_STABLE (e.g., v1.2.0 -> 1.2.0)
              VERSION=${NEXT_STABLE#v}
-             
+
              # Get the creation date of the stable tag
              STABLE_DATE=$(git log -1 --format=%ai "$NEXT_STABLE" | cut -d' ' -f1)
-             
+
              # Find all RC tags for this version
              ALL_RC_TAGS=$(git tag -l "v${VERSION}-rc*" | sort -V)
-             
+
              # Filter RCs: only keep those created BEFORE the stable tag
              RC_TAGS=""
              for RC_TAG in $ALL_RC_TAGS; do
@@ -415,27 +415,27 @@ jobs:
                 fi
              done
              RC_TAGS=$(echo "$RC_TAGS" | sed '/^$/d')  # Remove empty lines
-             
+
              if [[ -n "$RC_TAGS" ]]; then
                 echo "  Found $(echo "$RC_TAGS" | wc -l) RC tags created before $NEXT_STABLE ($STABLE_DATE):"
                 echo "$RC_TAGS" | awk '{ print "    " $0 }'
-                
+
                 # Delete GitHub releases
                 while read -r RC_TAG; do
                    [ -z "$RC_TAG" ] && continue
                    echo "  Deleting release for $RC_TAG..."
                    gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || echo "    No release found for $RC_TAG"
                 done <<< "$RC_TAGS"
-                
+
                 # Delete remote tags
                 while read -r RC_TAG; do
                    [ -z "$RC_TAG" ] && continue
                    git push origin --delete "$RC_TAG" 2>/dev/null || echo "    Tag $RC_TAG already deleted"
                 done <<< "$RC_TAGS"
-                
+
                 # Delete local tags (suppress errors if already deleted)
                 echo "$RC_TAGS" | xargs -r git tag -d 2>/dev/null || true
-                
+
                 COUNT=$(echo "$RC_TAGS" | wc -l)
                 TOTAL_DELETED=$((TOTAL_DELETED + COUNT))
                 echo "  ✅ Deleted $COUNT RC releases for $NEXT_STABLE"
@@ -444,9 +444,9 @@ jobs:
              fi
              echo ""
           done
-          
+
           echo "✅ Cleanup complete. Deleted $TOTAL_DELETED RC releases total."
-          
+
           # Create marker file to prevent future cleanups
           echo ""
           echo "📝 Creating marker file to prevent future cleanups..."
@@ -464,7 +464,7 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: ./.github/shared-workflows/.github/actions/setup-identity
         with:
-          token: ${{ steps.app-token.outputs.token }}
+        token: ${{ steps.app-token.outputs.token }}
 
       - name: Cleanup Shared Workflows Checkout
         if: always() && env.IS_SELF == 'false'
@@ -480,9 +480,9 @@ jobs:
             echo "📝 PR-First Strategy: Committing cleanup marker via PR..."
             git add .github/.rc-cleanup-done
             git commit -m "chore: mark RC cleanup as completed"
-            
+
             BRANCH_NAME="auto-std-${{ github.ref_name }}-${{ github.run_id }}"
-            
+
             # Check if PR already exists
             EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
@@ -512,61 +512,61 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          
+        fetch-depth: 0
+
       - name: Regenerate AI Release Notes
         env:
-           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
-           GROQ_API: ${{ secrets.GROQ_API }}
-           GITHUB_TOKEN: ${{ github.token }}
+          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+          BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+          GROQ_API: ${{ secrets.GROQ_API }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
            CUTOFF="${{ inputs.backfill_ai_notes_cutoff_version }}"
            echo "🚀 Starting AI Release Notes Backfill (Cutoff: $CUTOFF)"
-           
+
            # Get all stable tags sorted by version descending
            ALL_STABLE_TAGS=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)')
-           
-           # We want to process tags from oldest to newest to follow history, 
+
+           # We want to process tags from oldest to newest to follow history,
            # but let's just iterate and use the descending list to find predecessors.
-           
+
            for TAG in $ALL_STABLE_TAGS; do
               VER="${TAG#v}"
-              
+
               # Check if this tag is >= Cutoff
               # Simple string comparison isn't perfect for versions, but usually works for our tags.
-              # A better way is to check if it's in the range. 
+              # A better way is to check if it's in the range.
               # For now, let's just do a simple break when we hit below cutoff if sorted.
-              
+
               if [[ "$CUTOFF" != "all" ]] && [[ "$VER" < "$CUTOFF" ]]; then
                  echo "⏭️ Tag $TAG is below cutoff $CUTOFF. Stopping backfill."
                  break
               fi
-              
+
               echo "---------------------------------------------------"
               echo "📝 Processing $TAG..."
-              
+
               # Find Predecessor in the stable list
               PREV_TAG=$(echo "$ALL_STABLE_TAGS" | grep -A 1 "^${TAG}$" | tail -n 1)
               if [ "$PREV_TAG" == "$TAG" ]; then PREV_TAG=""; fi
-              
+
               echo "    Range: ${PREV_TAG:-START} -> $TAG"
-              
+
               # Generate Log (same logic as main release)
               if [ -z "$PREV_TAG" ]; then
                  LOG_INPUT="Initial Release"
               else
                  LOG_INPUT=$(git log "$PREV_TAG".."$TAG" --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
               fi
-              
+
               if [ -z "$LOG_INPUT" ]; then
                  echo "    ⚠️ No significant changes found for $TAG. Skipping AI."
                  continue
               fi
-              
+
               AI_SUCCESS=false
               CHANGELOG_CONTENT=""
-              
+
               # --- TIER 1: BRAIN API ---
               if [ -n "$BRAIN_ENDPOINT" ] && [ -n "$BRAIN_TOKEN" ]; then
                  echo "    🧠 Calling Brain Writer API..."
@@ -582,7 +582,7 @@ jobs:
                     fi
                  fi
               fi
-              
+
               # --- TIER 2: GROQ AI FALLBACK ---
               if [ "$AI_SUCCESS" = false ] && [ -n "$GROQ_API" ]; then
                  echo "    ☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
@@ -597,13 +597,13 @@ jobs:
                     fi
                  fi
               fi
-              
+
               # --- TIER 3: DENOISED GIT LOG FALLBACK ---
               if [ "$AI_SUCCESS" = false ]; then
                  echo "    📝 Using Denoised Git Log fallback..."
                  CHANGELOG_CONTENT="## 🚀 Release $TAG\n\n### 📦 Changes\n$LOG_INPUT"
               fi
-              
+
               # UPDATE GITHUB RELEASE
               echo -e "$CHANGELOG_CONTENT" > temp_changelog.txt
               if gh release edit "$TAG" --notes-file temp_changelog.txt 2>/dev/null; then
@@ -611,7 +611,7 @@ jobs:
               else
                  echo "    ❌ Failed to update release notes for $TAG (Does release exist?)"
               fi
-              
+
            done
            echo "AI Backfill complete."
 
@@ -635,7 +635,7 @@ jobs:
       - name: Build Windows
         shell: pwsh
         # We need to filter Release Mode logic here too to avoid building for RC if user requested
-        # Logic: 
+        # Logic:
         # 1. Promote (Schedule) = Yes
         # 2. Dev (Develop branch) = Yes
         # 3. Stable (Immediate input + Main branch) = Yes
@@ -644,11 +644,11 @@ jobs:
           $BRANCH = "${{ github.ref_name }}"
           $EVENT = "${{ github.event_name }}"
           $STRAT = "${{ inputs.release_strategy }}"
-          
+
           # Check for RC condition: Weekly Strategy + Main Branch + NOT Schedule
           if ("$STRAT" -eq "weekly" -and $BRANCH -eq "main" -and $EVENT -ne "schedule") {
              Write-Output "RC Release Mode on Main (Push). Skipping Windows Build."
-             exit 0 
+             exit 0
           }
 
           # Check for Windows directory existence
@@ -660,10 +660,10 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
           flutter build windows --release
-          
+
           # Zip the build
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
-          
+
       - name: Upload Windows Artifact
         # Only upload if zip exists (meaning we didn't skip)
         if: hashFiles('flutter-windows-app.zip') != ''
@@ -701,7 +701,7 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
-      
+
       # --- WINDOWS ARTIFACT RETRIEVAL ---
       - name: Download Windows Artifact
         if: inputs.build_windows == true
@@ -709,7 +709,7 @@ jobs:
         with:
           name: windows-release-build
           path: windows_build
-        continue-on-error: true # Might not exist if we skipped build due to RC logic
+          continue-on-error: true # Might not exist if we skipped build due to RC logic
 
       - name: Prepare Windows Asset
         if: inputs.build_windows == true
@@ -728,9 +728,9 @@ jobs:
         if: env.IS_SELF == 'false'
         uses: actions/checkout@v6
         with:
-          repository: RokctAI/shared-workflows
-          path: .github/shared-workflows
-          token: ${{ github.token }}
+        repository: RokctAI/shared-workflows
+        path: .github/shared-workflows
+        token: ${{ github.token }}
 
       - name: Generate App Token
         id: app-token
@@ -744,7 +744,7 @@ jobs:
         if: env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
         with:
-          token: ${{ steps.app-token.outputs.token }}
+        token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Identity (Shared)
         if: env.IS_SELF == 'false'
@@ -757,14 +757,14 @@ jobs:
         id: version_local
         uses: ./.github/actions/check-version
         with:
-           file_path: ${{ inputs.version_file }}
+        file_path: ${{ inputs.version_file }}
 
       - name: Get Version (Shared)
         if: env.IS_SELF == 'false'
         id: version_shared
         uses: ./.github/shared-workflows/.github/actions/check-version
         with:
-           file_path: ${{ inputs.version_file }}
+          file_path: ${{ inputs.version_file }}
 
       - name: Set Version Output
         id: version
@@ -782,16 +782,16 @@ jobs:
         run: |
           # Fetch all tags to ensure accurate calc
           git fetch --tags --force
-          
+
           STRAT="${{ inputs.release_strategy }}"
           EVENT="${{ github.event_name }}"
           BRANCH="$REF_NAME"
-          
+
           echo "🔍 DEBUG: Strategy='$STRAT', Event='$EVENT', Branch='$BRANCH'"
-          
+
           MODE="none"
           SUFFIX=""
-          
+
           if [[ "$STRAT" == "immediate" || "$STRAT" == "" ]]; then
              MODE="stable" # Old behavior
           elif [[ "$STRAT" == "weekly" ]]; then
@@ -800,7 +800,7 @@ jobs:
              else
                 # Push Event - Check Branch
                 # BRANCH=${{ github.ref_name }} # Redundant, now using $REF_NAME from env
-                
+
                 if [[ "$REF_NAME" == "develop" ]]; then
                     MODE="dev"
                     # Short Hash
@@ -827,11 +827,11 @@ jobs:
                     echo "client_upper=$CLIENT_UPPER" >> "$GITHUB_OUTPUT"
                 else
                     echo "Branch $BRANCH ignored for weekly strategy."
-                    exit 0 
+                    exit 0
                 fi
              fi
           fi
-          
+
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
           echo "Selected Mode: $MODE (Suffix: $SUFFIX)"
@@ -845,7 +845,7 @@ jobs:
           # Find latest stable tag
           PREV_STABLE=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | head -n 1 || true)
           echo "prev_stable=$PREV_STABLE" >> "$GITHUB_OUTPUT"
-          
+
           if [ -n "$PREV_STABLE" ]; then
              echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
              RANGE="${PREV_STABLE}..HEAD"
@@ -853,21 +853,21 @@ jobs:
              echo "🔍 Extracting Authors and Reviewers from Initial Commit..."
              RANGE="HEAD" # Will log all commits
           fi
-          
+
              AUTHORS=""
              REVIEWERS=""
              SEEN_PRS=""
-             
+
              # Get all SHAs
              SHAS=$(git log "$RANGE" --pretty=format:%H)
-             
+
              for sha in $SHAS; do
                 PR_DATA=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null || echo "null")
                 PR_NUM=$(echo "$PR_DATA" | jq -r '.number' 2>/dev/null || echo "null")
                 PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author' 2>/dev/null || echo "null")
-                
+
                 if [ "$PR_AUTHOR" != "null" ] && [ -n "$PR_AUTHOR" ]; then AUTHORS="$AUTHORS $PR_AUTHOR"; fi
-                
+
                 if [ "$PR_NUM" != "null" ] && [ -n "$PR_NUM" ]; then
                    if [[ ! " $SEEN_PRS " == *"$PR_NUM"* ]]; then
                       SEEN_PRS="$SEEN_PRS $PR_NUM"
@@ -876,25 +876,25 @@ jobs:
                       REVIEWERS="$REVIEWERS $PR_REVIEWS $PR_COMMENTS"
                    fi
                 fi
-                
+
                 if [ "$PR_AUTHOR" == "null" ] || [ -z "$PR_AUTHOR" ]; then
                    COMMIT_AUTHOR=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login' 2>/dev/null || echo "null")
                    if [ "$COMMIT_AUTHOR" != "null" ] && [ -n "$COMMIT_AUTHOR" ]; then AUTHORS="$AUTHORS $COMMIT_AUTHOR"; fi
                 fi
              done
-             
+
              # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like ROK)
              UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
              UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-             
+
              echo "authors=$UNIQUE_AUTHORS" >> "$GITHUB_OUTPUT"
              echo "reviewers=$UNIQUE_REVIEWERS" >> "$GITHUB_OUTPUT"
-             
+
              # Generate Git Trailers for Sidebar Sync
              TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | while read -r user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
-             
+
              # Use a custom delimiter for multi-line output
              {
                echo "trailers<<EOF"
@@ -910,7 +910,7 @@ jobs:
         run: |
            FILE="${{ steps.version.outputs.file }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
-           
+
            if [[ ! -f "$FILE" ]]; then
               echo "❌ Version file not found ($FILE). Cannot bump."
               exit 1
@@ -918,7 +918,7 @@ jobs:
 
            CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
            echo "✅ Current: $CUR_VER"
-           
+
            # Automated Bump Logic
            NEW_VER=$(python3 -c "
            import sys
@@ -938,7 +938,7 @@ jobs:
            except Exception as e:
                print(cur_ver)
            ")
-           
+
            if [ "$CUR_VER" == "$NEW_VER" ]; then
               echo "⏭️ No version change calculated. Skipping PR."
               exit 0
@@ -950,14 +950,14 @@ jobs:
            else
              sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
            fi
-           
+
            echo "🚀 PR-First Strategy: Opening Version Bump PR ($CUR_VER -> $NEW_VER)..."
            BRANCH_NAME="auto-bump-v$NEW_VER"
-           
+
            git checkout -b "$BRANCH_NAME"
            git add "$FILE"
            git commit -m "chore(release): bump version to $NEW_VER [skip ci]"
-           
+
            if git push -u origin "$BRANCH_NAME" --force; then
               gh pr create --title "🚀 Release: Bump to v$NEW_VER" \
                            --body "Automated version bump for weekly release promotion.\n\nMerge this PR to trigger the final v$NEW_VER tag and release notes." \
@@ -975,11 +975,11 @@ jobs:
         if: steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'dev' || steps.mode.outputs.mode == 'client'
         id: create_tag
         env:
-           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
-           
+
            # Check for Ghost Release (Record exists but tag might not)
            if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
               if gh release view "$TAG" >/dev/null 2>&1; then
@@ -991,7 +991,7 @@ jobs:
            # Check Local AND Remote
            if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
               echo "Tag $TAG exists."
-              
+
                if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
                   echo "⚠️ RC/Dev/Client Mode Detected. Performing Nuclear Cleanup."
                   echo "Deleting remote tag $TAG to force fresh creation..."
@@ -1007,9 +1007,9 @@ jobs:
               echo "Calculated new tag: $TAG"
               echo "continue=true" >> "$GITHUB_OUTPUT"
            fi
-           
+
            echo "TAG_NAME=$TAG" >> "$GITHUB_ENV"
-           
+
            if [[ "$MODE" == "rc" || "$MODE" == "dev" || "$MODE" == "client" ]]; then
               echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
            else
@@ -1023,12 +1023,12 @@ jobs:
         run: |
           # Ensure we have all tags/commits for diffing
           git fetch origin --tags --force
-          
+
           TAG="${{ env.TAG_NAME }}"
           # Robust previous tag finding: Use bracket expression [-] to avoid flag parsing issues
           # grep -F for Fixed string (literal tag name)
           PREV_TAG=$(git tag --sort=-v:refname | grep -F -v "$TAG" | grep -v "[-]rc" | head -n 1 || true)
-          
+
           if [ -z "$PREV_TAG" ]; then
             echo "No previous stable tag. Full release."
           else
@@ -1067,16 +1067,16 @@ jobs:
           # If package.json exists and has next build scripts, it's a Next.js project
           if [ -f "package.json" ] && grep -q '"next"' package.json; then
              echo "📦 Next.js project detected. Generating safe .env for release."
-             
+
              ENV_CONTENT="$DEFAULT_ENV"
              if [ -n "$CLIENT_ENV" ]; then
                 echo "🚀 Using Client-Specific Environment Secret."
                 ENV_CONTENT="$CLIENT_ENV"
              fi
-             
+
              if [ -n "$ENV_CONTENT" ]; then
                 echo "$ENV_CONTENT" | base64 --decode > .env.raw
-                
+
                 # Truncate at NextJS marker
                 if grep -q "##########END_NEXTJS##########" .env.raw; then
                    echo "✂️ Next.js release: Stopping at ##########END_NEXTJS##########"
@@ -1086,26 +1086,26 @@ jobs:
                 # Normalize line endings
                 sed -i 's/\r$//' .env.raw
                 mv .env.raw .env
-                
+
                 # Hydrate variables natively
                 set -a
                 source .env
                 set +a
                 envsubst < .env > .env.expanded
                 mv .env.expanded .env
-                
+
                 # Strip backend secrets, keeping only public Next.js variables
                 if grep -q "^NEXT_PUBLIC_" .env; then
                    grep "^NEXT_PUBLIC_" .env > .env.public
                    mv .env.public .env
-                   
+
                    # Inject into the Delta Zip without altering the host repository
                    zip -ur update_package.zip .env
                    echo "✅ Safe NEXT_PUBLIC_ .env injected into update_package.zip"
                 else
                    echo "⚠️ No NEXT_PUBLIC_ variables found. No .env injected."
                 fi
-                
+
                 # Clean up runner
                 rm -f .env
              fi
@@ -1126,9 +1126,9 @@ jobs:
         if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
         uses: subosito/flutter-action@v2
         with:
-           channel: ${{ inputs.flutter-channel }}
-           flutter-version: ${{ inputs.flutter-version }}
-           cache: true
+        channel: ${{ inputs.flutter-channel }}
+        flutter-version: ${{ inputs.flutter-version }}
+        cache: true
 
       # --- ENV SETUP (Critical for Client Config) ---
       - name: "Decode Production Environment (Priority: Monorepo > Secret)"
@@ -1157,7 +1157,7 @@ jobs:
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"
                 ENV_CONTENT="$CLIENT_ENV"
              fi
-             
+
              if [ -n "$ENV_CONTENT" ]; then
                 echo "$ENV_CONTENT" | base64 --decode > .env/production.env
                 echo "✅ Successfully decoded from secrets."
@@ -1172,7 +1172,7 @@ jobs:
                 echo "✂️ Truncating .env at ##########END_FLUTTER##########"
                 sed -i '1,/##########END_FLUTTER##########/!d' .env/production.env
              fi
-             
+
              # Normalize line endings
              sed -i 's/\r$//' .env/production.env
              echo "✅ .env/production.env ready for Flutter release."
@@ -1209,7 +1209,7 @@ jobs:
                        echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"
                        JSON_CONTENT="$CLIENT_JSON"
                     fi
-                    
+
                     if [ -n "$JSON_CONTENT" ]; then
                        echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
                        echo "✅ Successfully decoded from secrets."
@@ -1271,10 +1271,10 @@ jobs:
            # Construct environment variable name (e.g. SHOPPER -> SHOPPER_ANDROID_PACKAGE_NAME)
            APP_TYPE_UPPER=$(echo "$APP_TYPE" | tr '[:lower:]' '[:upper:]')
            ENV_VAR_NAME="${APP_TYPE_UPPER}_ANDROID_PACKAGE_NAME"
-           
+
            # Indirect reference to get value
            TARGET_PACKAGE="${!ENV_VAR_NAME}"
-           
+
            echo "🔧 App Type: $APP_TYPE"
            echo "🔑 Looking for: $ENV_VAR_NAME"
            echo "🎯 Target Package: $TARGET_PACKAGE"
@@ -1302,7 +1302,7 @@ jobs:
 
            BASE_DIR="android/app/src/main/kotlin"
            TARGET_PATH=$(echo "$TARGET_PACKAGE" | sed 's/\./\//g')
-           
+
            # 3. Check if Target Exists (Idempotent)
            if [ -d "$BASE_DIR/$TARGET_PATH" ]; then
               echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
@@ -1310,7 +1310,7 @@ jobs:
               # For now, we trust the directory presence.
            else
               echo "🔄 Target not found. Detecting current vendor source..."
-              
+
               # Extract namespace="..." value from build.gradle
               GRADLE_FILE="android/app/build.gradle"
               if [ ! -f "$GRADLE_FILE" ]; then
@@ -1319,7 +1319,7 @@ jobs:
               fi
 
               VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\\([^'\"]*\\)['\"].*/\\1/")
-              
+
               if [ -z "$VENDOR_PACKAGE" ]; then
                   echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
                   exit 1
@@ -1338,10 +1338,10 @@ jobs:
               # 5. Move Directories
               echo "🚀 Applying directory structure..."
               mkdir -p "$BASE_DIR/$TARGET_PATH"
-              
+
               if [ -d "$BASE_DIR/$VENDOR_PATH" ]; then
                   mv "$BASE_DIR/$VENDOR_PATH"/* "$BASE_DIR/$TARGET_PATH"/
-                  
+
                   # Optional: Remove empty vendor dirs if they are empty
                   # rmdir -p "$BASE_DIR/$VENDOR_PATH" 2>/dev/null || true
               else
@@ -1353,7 +1353,7 @@ jobs:
            # 6. Update File Content (MainActivity & Manifests)
            # We check the file at the TARGET location now
            MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
-           
+
            if [ -f "$MAIN_ACTIVITY" ]; then
               # Check if we need to update package declaration
               if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
@@ -1378,40 +1378,40 @@ jobs:
               fi
            fi
 
-        - name: Build Android APK (Release)
-          # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
-          if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
-          id: build_apk
-          run: |
-             echo "Building Android Release APK..."
-             flutter pub get
-             dart run build_runner build --delete-conflicting-outputs
-             if [ -f .env/production.env ]; then
-               flutter build apk --release --dart-define-from-file=.env/production.env
-             else
-               flutter build apk --release
-             fi
-            
-            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-            if [ -f "$APK_PATH" ]; then
-               echo "Release APK built successfully."
-               mv "$APK_PATH" "build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk"
-               echo "apk_path=build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
+      - name: Build Android APK (Release)
+        # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        id: build_apk
+        run: |
+            echo "Building Android Release APK..."
+            flutter pub get
+            dart run build_runner build --delete-conflicting-outputs
+            if [ -f .env/production.env ]; then
+              flutter build apk --release --dart-define-from-file=.env/production.env
             else
-               echo "Release APK build failed or file not found."
-               exit 1
+              flutter build apk --release
             fi
 
-        - name: Build Android APK (Debug)
-          if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
-          run: |
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+            if [ -f "$APK_PATH" ]; then
+              echo "Release APK built successfully."
+              mv "$APK_PATH" "build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk"
+              echo "apk_path=build/app/outputs/flutter-apk/app-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release APK build failed or file not found."
+              exit 1
+            fi
+
+      - name: Build Android APK (Debug)
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        run: |
              echo "Building Android Debug APK..."
              if [ -f .env/production.env ]; then
                flutter build apk --debug --dart-define-from-file=.env/production.env
              else
                flutter build apk --debug
              fi
-             
+
              DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
              if [ -f "$DEBUG_APK_PATH" ]; then
                 echo "Debug APK built successfully."
@@ -1422,27 +1422,27 @@ jobs:
                 exit 1
              fi
 
-       - name: Build Android AppBundle
-         # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
-         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
-         id: build_aab
-         run: |
+      - name: Build Android AppBundle
+        # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
+        id: build_aab
+        run: |
             echo "Building Android AppBundle..."
             if [ -f .env/production.env ]; then
               flutter build appbundle --release --dart-define-from-file=.env/production.env
             else
               flutter build appbundle --release
             fi
-           
-           AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
-           if [ -f "$AAB_PATH" ]; then
-              echo "AAB built successfully."
-              mv "$AAB_PATH" "build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab"
-              echo "aab_path=build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab" >> "$GITHUB_OUTPUT"
-           else
-              echo "AAB build failed or file not found."
-              exit 1
-           fi
+
+            AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+            if [ -f "$AAB_PATH" ]; then
+               echo "AAB built successfully."
+               mv "$AAB_PATH" "build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab"
+               echo "aab_path=build/app/outputs/bundle/release/app-${{ env.TAG_NAME }}.aab" >> "$GITHUB_OUTPUT"
+            else
+               echo "AAB build failed or file not found."
+               exit 1
+            fi
 
       # --- ASSET BUNDLING (Developer Setup) ---
       - name: Bundle Developer Assets
@@ -1451,14 +1451,14 @@ jobs:
         run: |
            echo "Bundling Developer Setup Pack..."
            mkdir -p dev_pack
-           
+
            # 1. Copy 'examples/' and rename it to '.github'
            if [ -d "examples" ]; then cp -r examples dev_pack/.github; fi
-           
+
            # 2. Copy Templates into that .github folder
            if [ -d ".github/ISSUE_TEMPLATE" ]; then cp -r .github/ISSUE_TEMPLATE dev_pack/.github/; fi
            if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then cp .github/PULL_REQUEST_TEMPLATE.md dev_pack/.github/; fi
-           
+
            # Zip Logic (Condition Check)
            (
              cd dev_pack || exit 1
@@ -1476,16 +1476,16 @@ jobs:
         if: env.TAG_NAME != ''
         id: changelog
         env:
-           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
-           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
-           GROQ_API: ${{ secrets.GROQ_API }}
-           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+          BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+          GROQ_API: ${{ secrets.GROQ_API }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PREV_TAG=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | grep -v "$TAG" | head -n 1 || true)
-           
+
            echo "## 🚀 Release $TAG" > changelog.txt
-           
+
             # Capture Log
             if [ -z "$PREV_TAG" ]; then
                LOG="Initial Release"
@@ -1494,22 +1494,22 @@ jobs:
                 LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"* %s ([%h](${{ github.server_url }}/${{ github.repository }}/commit/%H))" -- . ":!.rokct" | sed -E '/^\* (chore|ci|test|docs|style|refactor)/d' | sed -E '/(automated|auto-fix|\[skip ci\])/Id' | sed -E 's/by @mergify //')
                 DIFF_STAT=$(git diff "$PREV_TAG"..HEAD --stat -- . ":!.rokct" 2>/dev/null || echo "No diff stats available")
             fi
-            
+
              AI_SUCCESS=false
-             
+
              # --- TIER 1: BRAIN API ---
              if [ -n "$BRAIN_ENDPOINT" ] && [ -n "$BRAIN_TOKEN" ]; then
                 echo "🧠 Calling Brain Writer API..."
-                
+
                 JSON_PAYLOAD=$(jq -n \
                  --arg repo "${{ github.server_url }}/${{ github.repository }}" \
                  --arg ver "$TAG" \
                  --arg log "$LOG" \
                  --arg diff "$DIFF_STAT" \
                  '{repo_url: $repo, version_name: $ver, commit_log: $log, diff_summary: $diff}')
-               
+
                RESPONSE=$(curl -s -m 60 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
-               
+
                if [[ "$RESPONSE" != *"AI Error"* ]] && [[ "$RESPONSE" != *"Traceback"* ]] && [[ "$RESPONSE" != "Curl Failed" ]] && [[ -n "$RESPONSE" ]]; then
                   if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
                      MSG=$(echo "$RESPONSE" | jq -r '.message' || echo "Invalid JSON")
@@ -1519,7 +1519,7 @@ jobs:
                      fi
                   fi
                fi
-               
+
                if [ "$AI_SUCCESS" = false ]; then
                   echo "⚠️ Brain Writer Failed."
                fi
@@ -1530,17 +1530,17 @@ jobs:
             # --- TIER 2: GROQ AI FALLBACK ---
              if [ "$AI_SUCCESS" = false ] && [ -n "$GROQ_API" ]; then
                 echo "☁️ Calling Groq AI Fallback..."
-               
+
                # System Prompt for Groq - Enforcing human-readable logical feature summaries
                SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log and code diff.
-               
+
                CATEGORIZATION RULES:
                Use exactly these headers if relevant:
                - ### Breaking Changes
                - ### Features
                - ### Bug Fixes
                - ### Performance Improvements
-               
+
                STYLE RULES:
                - Focus on high-level LOGICAL changes and human-readable features.
                - Descriptions should be detailed and explain the 'what' and 'why'.
@@ -1558,7 +1558,7 @@ jobs:
                 - Do NOT include any introductory text, disclaimers, or notes about methodology.
                 - ALWAYS preserve the commit links in the log (format: [hash](link)).
                 - Use the CODE DIFF to understand what ACTUALLY changed. Commit messages may be generic (e.g. 'Update auth.py') — the diff is your primary source of truth."
-               
+
                # Full diff with per-file cap (new files can be huge)
                # Exclude binary/image files — they add no useful context for AI
                git diff "$PREV_TAG"..HEAD -- . ":!.rokct" \
@@ -1571,9 +1571,9 @@ jobs:
                  { file_lines++; if (file_lines <= 200) print }
                  file_lines == 200 { print "... (truncated, file too large)" }
                ' > /tmp/diff_full.txt 2>/dev/null || echo "" > /tmp/diff_full.txt
-               
+
                echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
-               
+
                # Build user message via temp file to avoid shell argument limits
                {
                  echo "Repository: ${{ github.repository }}"
@@ -1585,7 +1585,7 @@ jobs:
                  echo "Code Diff:"
                  cat /tmp/diff_full.txt
                } > /tmp/groq_user.txt
-               
+
                # --- TIER 2A: groq/compound (70K TPM) with full diff ---
                echo "  🧪 Trying groq/compound (70K TPM)..."
                jq -n \
@@ -1594,17 +1594,17 @@ jobs:
                  --rawfile user /tmp/groq_user.txt \
                  '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
                  > /tmp/groq_payload.json
-                 
+
                echo "  Payload size: $(wc -c < /tmp/groq_payload.json) bytes"
-               
+
                GROQ_RESPONSE=$(curl -s -m 90 "https://api.groq.com/openai/v1/chat/completions" \
                  -H "Content-Type: application/json" \
                  -H "Authorization: Bearer $GROQ_API" \
                  -d @/tmp/groq_payload.json || echo "Groq Failed")
-                 
+
                if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
                   MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content // empty')
-                  
+
                   if [[ -n "$MSG" ]] && [[ "$MSG" != "null" ]]; then
                      echo "✅ groq/compound succeeded."
                      echo "## 🚀 Release $TAG" > changelog.txt
@@ -1613,19 +1613,19 @@ jobs:
                      AI_SUCCESS=true
                   fi
                fi
-               
+
                # --- TIER 2B: 70B fallback with compact diff (12K TPM) ---
                if [ "$AI_SUCCESS" = false ]; then
                   echo "  ⚠️ Compound failed. Escalating to 70B with compact diff..."
                   [[ -n "$GROQ_RESPONSE" ]] && echo "  Response: ${GROQ_RESPONSE:0:300}"
-                  
+
                   git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" \
                     ":!*.png" ":!*.jpg" ":!*.jpeg" ":!*.gif" ":!*.ico" ":!*.webp" ":!*.bmp" \
                     ":!*.svg" ":!*.woff" ":!*.woff2" ":!*.ttf" ":!*.eot" ":!*.otf" \
                     ":!*.pdf" ":!*.zip" ":!*.tar.gz" ":!*.jks" ":!*.keystore" \
                     ":!*.lock" ":!package-lock.json" ":!yarn.lock" ":!pnpm-lock.yaml" \
                     2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
-                  
+
                   # Build compact user message (cap commit log for token budget)
                   {
                     echo "Repository: ${{ github.repository }}"
@@ -1638,19 +1638,19 @@ jobs:
                     cat /tmp/diff_compact.txt
                   } > /tmp/groq_user_70b.txt
                   echo "  70B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
-                  
+
                   jq -n \
                     --arg model "llama-3.3-70b-versatile" \
                     --arg system "$SYSTEM_PROMPT" \
                     --rawfile user /tmp/groq_user_70b.txt \
                     '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
                     > /tmp/groq_payload_70b.json
-                  
+
                   GROQ_RESPONSE_70B=$(curl -s -m 60 "https://api.groq.com/openai/v1/chat/completions" \
                     -H "Content-Type: application/json" \
                     -H "Authorization: Bearer $GROQ_API" \
                     -d @/tmp/groq_payload_70b.json || echo "Groq Failed")
-                  
+
                   if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
                      MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
                      if [[ -n "$MSG_70B" ]] && [[ "$MSG_70B" != "null" ]]; then
@@ -1666,7 +1666,7 @@ jobs:
                      echo "⚠️ 70B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                   fi
                fi
-               
+
                if [ "$AI_SUCCESS" = false ]; then
                   echo "⚠️ Groq AI Failed (all tiers exhausted)."
                fi
@@ -1683,7 +1683,7 @@ jobs:
                  echo "$LOG"
                } > changelog.txt
             fi
-            
+
              # Extract Contributors (Using step outputs)
              AUTHORS="${{ steps.contrib.outputs.authors }}"
              REVIEWERS="${{ steps.contrib.outputs.reviewers }}"
@@ -1699,21 +1699,21 @@ jobs:
                   echo -e "\n---\n\n<details>\n<summary><b>🤖 AI content</b></summary>\n\nFor these release notes, we used an LLM to review and summarise the code changes, along with the associated issue and PR descriptions. It may contain typical errors and inaccuracies.\n\n**Excluded changes:**\n- style, refactor, docs (markdown), test, chore, ci, build\n- Automated whitespace/formatting fixes\n- skip-release-notes labeled changes\n</details>"
                fi
              } >> changelog.txt
-             
+
 
             echo "changelog_path=changelog.txt" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         env:
-           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            TAG="${{ env.TAG_NAME }}"
            PRERELEASE_FLAG=""
            if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
-           
+
            echo "Creating Release $TAG via gh CLI..."
-           
+
             # Assets List
             FILES=()
             if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
@@ -1721,15 +1721,15 @@ jobs:
             if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
             if [ -f "$DEBUG_APK_PATH" ]; then FILES+=("$DEBUG_APK_PATH"); fi
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
-           
+
            # Rename Windows Zip with Tag
            if [ "${{ env.has_windows }}" == "true" ]; then
               mv windows_app.zip "app-windows-${TAG}.zip"
               FILES+=("app-windows-${TAG}.zip")
            fi
-           
+
            echo "Files to upload: ${FILES[*]}"
-           
+
            # Check if release already exists (handles protected tags / static RCs)
            if gh release view "$TAG" >/dev/null 2>&1; then
               echo "♻️ Release $TAG already exists. Updating notes and assets..."
@@ -1765,18 +1765,18 @@ jobs:
       - name: Rolling RC Cleanup (Static Single Tag)
         if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'true'
         env:
-           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            VERSION="${{ steps.version.outputs.version }}"
            CURRENT_TAG="${{ env.TAG_NAME }}"
            echo "🧹 Rolling Cleanup for RC v$VERSION..."
-           
+
            # Get all RC tags for this current version
            ALL_RC_TAGS=$(git tag -l "v${VERSION}-rc*")
-           
+
            # Filter out the one we just created
            TAGS_TO_PRUNE=$(echo "$ALL_RC_TAGS" | grep -v "^$CURRENT_TAG$" || true)
-           
+
            if [[ -n "$TAGS_TO_PRUNE" ]]; then
               echo "Pruning older RCs for this version..."
               for TAG in $TAGS_TO_PRUNE; do
@@ -1794,19 +1794,19 @@ jobs:
       - name: Post-Release RC Cleanup
         if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'false' && inputs.cleanup_rc_releases == true
         env:
-           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            VERSION="${{ env.TAG_NAME }}"
            VER_PREFIX=${VERSION#v}
            echo "🧹 Stable Release $VERSION detected. Cleaning up RCs for $VER_PREFIX..."
-           
+
            # Get all RC tags for this version
            ALL_RC_TAGS=$(git tag -l "v${VER_PREFIX}-rc*")
-           
+
            if [[ -n "$ALL_RC_TAGS" ]]; then
               echo "Found RC tags to purge:"
               echo "$ALL_RC_TAGS"
-              
+
               for RC_TAG in $ALL_RC_TAGS; do
                  echo "Deleting $RC_TAG..."
                  gh release delete "$RC_TAG" --yes --cleanup-tag 2>/dev/null || true
