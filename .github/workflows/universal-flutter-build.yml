@@ -148,7 +148,7 @@ jobs:
 
           errors = {}
           pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
-          
+
           matches = re.findall(pattern, log, re.DOTALL)
           for filepath, details in matches:
               errors[filepath] = details.strip()
@@ -156,7 +156,7 @@ jobs:
           with open('error_log.md', 'w') as md:
               md.write('# 🤖 Android Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
-              
+
               if not errors:
                   md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
               else:
@@ -249,7 +249,7 @@ jobs:
           else
              FILE_NAME="google-services.json"
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
-             
+
              # 1. Try Monorepo
              if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
@@ -261,7 +261,7 @@ jobs:
                    echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"
                    JSON_CONTENT="$CLIENT_JSON"
                 fi
-                
+
                 if [ -n "$JSON_CONTENT" ]; then
                    echo "$JSON_CONTENT" | base64 --decode > android/app/google-services.json
                    echo "✅ Successfully decoded from secrets."
@@ -307,8 +307,8 @@ jobs:
           echo "📋 Keys loaded: $(wc -l < .env/production.env)"
         continue-on-error: false
 
-       - name: .env Diagnostics
-         run: |
+      - name: .env Diagnostics
+        run: |
            echo "Total lines: $(wc -l < .env/production.env)"
            echo "Lines with comments: $(grep -c '^#' .env/production.env || echo 0)"
            echo "Blank lines: $(grep -c '^$' .env/production.env || echo 0)"
@@ -384,7 +384,7 @@ jobs:
             echo "✅ Target directory $TARGET_PATH already exists. Skipping move."
           else
             echo "🔄 Target not found. Detecting current vendor source..."
-            
+
             GRADLE_FILE="android/app/build.gradle"
             if [ ! -f "$GRADLE_FILE" ]; then
               echo "❌ Error: No build.gradle found to detect namespace!"
@@ -459,15 +459,15 @@ jobs:
             } > "android/key.properties"
           fi
 
-       - name: Build APK
-         if: inputs.build-type == 'apk'
-         run: |
+      - name: Build APK
+        if: inputs.build-type == 'apk'
+        run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
               BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
             fi
             flutter build apk "${BUILD_ARGS[@]}"
-            
+
              # Also build debug APK
             if [ -f .env/production.env ]; then
               flutter build apk --debug --dart-define-from-file=.env/production.env
@@ -475,23 +475,23 @@ jobs:
               flutter build apk --debug
             fi
 
-       - name: Build AppBundle
-         if: inputs.build-type == 'appbundle'
-         run: |
+      - name: Build AppBundle
+        if: inputs.build-type == 'appbundle'
+        run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
               BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
             fi
             flutter build appbundle "${BUILD_ARGS[@]}"
 
-       - name: Upload Artifact (APK)
-         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
-         uses: actions/upload-artifact@v6
-         with:
-           name: app-release-apk
-           path: |
-             build/app/outputs/flutter-apk/app-release.apk
-             build/app/outputs/flutter-apk/app-debug.apk
+      - name: Upload Artifact (APK)
+        if: inputs.upload-artifact == true && inputs.build-type == 'apk'
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-release-apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload Artifact (AAB)
         if: inputs.upload-artifact == true && inputs.build-type == 'appbundle'
@@ -543,7 +543,7 @@ jobs:
 
           errors = {}
           pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
-          
+
           matches = re.findall(pattern, log, re.DOTALL)
           for filepath, details in matches:
               errors[filepath] = details.strip()
@@ -551,7 +551,7 @@ jobs:
           with open('error_log.md', 'w') as md:
               md.write('# 🪟 Windows Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
-              
+
               if not errors:
                   md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
               else:
@@ -721,7 +721,7 @@ jobs:
           else
              FILE_NAME="GoogleService-Info.plist"
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
-             
+
              # 1. Try Monorepo
              if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Monorepo."
@@ -733,7 +733,7 @@ jobs:
                    echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_$CLIENT_PREFIX"
                    PLIST_CONTENT="$CLIENT_PLIST"
                 fi
-                
+
                 if [ -n "$PLIST_CONTENT" ]; then
                    echo "$PLIST_CONTENT" | base64 --decode > ios/Runner/GoogleService-Info.plist
                    echo "✅ Successfully decoded from secrets."
@@ -796,7 +796,7 @@ jobs:
 
           security import "$CERTIFICATE_PATH" -P "$KEYCHAIN_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          
+
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles
 
@@ -832,7 +832,7 @@ jobs:
 
           errors = {}
           pattern = r'E \w+ on (lib/.*?):\s*((?:(?!E \w+ on |Failed to build).)*)'
-          
+
           matches = re.findall(pattern, log, re.DOTALL)
           for filepath, details in matches:
               errors[filepath] = details.strip()
@@ -840,7 +840,7 @@ jobs:
           with open('error_log.md', 'w') as md:
               md.write('# 🍎 iOS/MacOS Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
-              
+
               if not errors:
                   md.write('Could not parse specific file errors from the log. Please review the raw logs.\n')
               else:
