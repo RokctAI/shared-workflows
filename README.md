@@ -1,7 +1,7 @@
 # Universal Shared Workflows
 
 <!-- usage-badge-start -->
-![Total Builds](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.counterapi.dev%2Fv2%2Frokctai%2Fusage%2Fstats&query=%24.data.up_count&label=Total%20Builds&color=blue)
+![Total Builds](https://img.shields.io/badge/Total%20Builds-10k-blue)
 ![Stable](https://img.shields.io/github/v/release/RokctAI/shared-workflows?label=Stable&color=0052cc)
 ![Candidate](https://img.shields.io/github/v/tag/RokctAI/shared-workflows?label=Candidate&color=e67e22&include_prereleases)
 <!-- usage-badge-end -->
