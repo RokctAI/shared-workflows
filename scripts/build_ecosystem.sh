@@ -107,15 +107,15 @@ else
   echo "Starting Redis Service (Container)..."
   # In CI we usually have services: redis, but we might need local ones for ports
   if [ -n "$CI" ]; then
-     echo "CI environment: Ensuring local Redis for manual ports if needed..."
-     if ! command -v redis-server >/dev/null; then
-        apt-get update -qq && apt-get install -y -qq redis-server
-     fi
-     redis-server --port 11000 --daemonize yes || true
-     redis-server --port 12000 --daemonize yes || true
-     redis-server --port 13000 --daemonize yes || true
+    echo "CI environment: Ensuring local Redis for manual ports if needed..."
+    if ! command -v redis-server >/dev/null; then
+      apt-get update -qq && apt-get install -y -qq redis-server
+    fi
+    redis-server --port 11000 --daemonize yes || true
+    redis-server --port 12000 --daemonize yes || true
+    redis-server --port 13000 --daemonize yes || true
   else
-     sudo service redis-server start || true
+    sudo service redis-server start || true
   fi
 fi
 
