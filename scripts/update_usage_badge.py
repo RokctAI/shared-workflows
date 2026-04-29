@@ -20,6 +20,9 @@ def format_count(n):
         val = f"{n // 1000}k"
     else:
         val = str(n)
+
+    if n >= 5000:
+        val = f"^{val}"
     return val
 
 
