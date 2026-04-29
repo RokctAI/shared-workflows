@@ -7,15 +7,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-sync
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
+permissions: write-all
 on:
   schedule:
     - cron: '0 3 1 * *'   # monthly on the 1st — branch sync
     - cron: '0 3 * * 5'   # every Friday — release sync
   workflow_dispatch:
     inputs:
+      backfill_ai_notes_cutoff_version:
+        type: string
+        default: ""
+        description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
+
       job:
         description: 'Which job to run manually'
         required: true

@@ -67,13 +67,13 @@ safe_install_app() {
     bench --site "$SITE_NAME" install-app "$app"
 }
 
-# Detect if running in Docker
-if [ -f /.dockerenv ]; then
+# Detect if running in Docker or CI Container
+if [ -f /.dockerenv ] || [ -n "$CI" ]; then
   IS_DOCKER=true
-  echo "📦 Environment: Docker detected."
+  echo "📦 Environment: Docker/CI Container detected."
 else
   IS_DOCKER=false
-  echo "☁️ Environment: Host/CI detected."
+  echo "☁️ Environment: Host detected."
 fi
 
 # --- 2. Identity & Services ---
@@ -88,7 +88,7 @@ fi
 
 # Redis Startup
 if [ "$IS_DOCKER" = "false" ]; then
-  echo "Starting Redis instances (Host/CI)..."
+  echo "Starting Redis instances (Host)..."
   if ! command -v redis-server >/dev/null; then
     sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
   fi
@@ -104,8 +104,19 @@ if [ "$IS_DOCKER" = "false" ]; then
   done
   echo "✅ Redis instances ready."
 else
-  echo "Starting Redis Service (Docker)..."
-  sudo service redis-server start || true
+  echo "Starting Redis Service (Container)..."
+  # In CI we usually have services: redis, but we might need local ones for ports
+  if [ -n "$CI" ]; then
+     echo "CI environment: Ensuring local Redis for manual ports if needed..."
+     if ! command -v redis-server >/dev/null; then
+        apt-get update -qq && apt-get install -y -qq redis-server
+     fi
+     redis-server --port 11000 --daemonize yes || true
+     redis-server --port 12000 --daemonize yes || true
+     redis-server --port 13000 --daemonize yes || true
+  else
+     sudo service redis-server start || true
+  fi
 fi
 
 # PostgreSQL Startup

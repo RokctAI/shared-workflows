@@ -1,4 +1,4 @@
-﻿# Copyright 2024 RokctAI
+# Copyright 2024 RokctAI
 
 name: Universal Release Workflow
 
@@ -10,6 +10,11 @@ env:
 on:
   workflow_call:
     inputs:
+      project_type:
+        required: false
+        type: string
+        default: 'smart'
+        description: "Project type: 'frappe', 'node', or 'flutter'"
       release_strategy:
         required: true
         type: string
@@ -121,8 +126,15 @@ jobs:
   # --- 0. TELEMETRY (Usage Tracking) ---
   telemetry:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     continue-on-error: true # Don't fail build if tracking fails
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y curl
+
       - name: Track Usage (CounterAPI)
         env:
           API_KEY: ${{ secrets.COUNTER_API_KEY }}
@@ -135,12 +147,23 @@ jobs:
   checks:
     # telemetry is optional tracking, don't block checks on it
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y sudo git curl nodejs npm
+
       - uses: actions/checkout@v6
       - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ inputs.node-version }}
+        run: |
+          if [ "${{ inputs.project_type }}" == "frappe" ]; then
+             curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+             apt-get install -y nodejs
+          else
+             sudo apt-get update && sudo apt-get install -y nodejs npm
+          fi
       # Add lint/test steps here if generic enough,
       # or rely on caller workflow to do checking before calling this.
       - run: echo "Checks passed (Placeholder)"
@@ -150,10 +173,17 @@ jobs:
     needs: checks
     permissions: write-all
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     if: github.event_name == 'push'
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y sudo git curl jq
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -306,10 +336,17 @@ jobs:
     needs: checks
     permissions: write-all
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     if: inputs.one_time_cleanup_cutoff_date != ''
     env:
       IS_SELF: ''
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y sudo git curl jq
+
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
@@ -507,8 +544,15 @@ jobs:
   ai-changelog-backfill:
     needs: [checks]
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     if: inputs.backfill_ai_notes_cutoff_version != ''
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y sudo git curl jq
+
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
@@ -682,12 +726,19 @@ jobs:
     # We use always() to ensure it runs even if build-windows was skipped (which it often is)
     if: always() && needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     env:
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
       KEY_JKS: ${{ secrets.KEY_JKS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y sudo git curl jq zip
+
       - name: Determine Context
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
@@ -883,15 +934,15 @@ jobs:
                 fi
              done
 
-             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like ROK)
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like RokctBOT)
+             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
 
              echo "authors=$UNIQUE_AUTHORS" >> "$GITHUB_OUTPUT"
              echo "reviewers=$UNIQUE_REVIEWERS" >> "$GITHUB_OUTPUT"
 
              # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|ROK|ROK)(\[bot\])?$/github-actions/' | while read -r user; do
+             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | while read -r user; do
                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
              done)
 

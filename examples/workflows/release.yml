@@ -45,9 +45,15 @@ jobs:
   # --- 1. DETECT PROJECT TYPE ---
   detect:
     runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+      options: --user root
     outputs:
       type: ${{ steps.check.outputs.type }}
     steps:
+      - name: System Essentials
+        run: apt-get update && apt-get install -y sudo git curl
+
       - uses: actions/checkout@v6
       - name: Check Project Type
         id: check

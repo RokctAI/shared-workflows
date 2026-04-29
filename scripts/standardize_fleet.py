@@ -244,7 +244,7 @@ def fix_action_versions(content):
         r"actions/upload-artifact@v[0-5]": "actions/upload-artifact@v6",
         r"actions/download-artifact@v[0-5]": "actions/download-artifact@v6",
         r"actions/setup-java@v[0-4]": "actions/setup-java@v5",
-        r"actions/stale@v[0-9]+": "actions/stale@v11",
+        r"actions/stale@v[0-9]+": "actions/stale@v9",
         r"actions/first-interaction@v1": "actions/first-interaction@v2",
     }
 

@@ -83,6 +83,9 @@ jobs:
     needs: telemetry
     permissions: write-all
     runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+      options: --user root -v /var/run/docker.sock:/var/run/docker.sock
     timeout-minutes: 60
     env:
       DB_PW: ${{ secrets.DB_ROOT_PASSWORD || inputs.db-password }}
@@ -95,6 +98,13 @@ jobs:
         options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=2s --health-retries=5
 
     steps:
+      - name: System Essentials
+        run: |
+          apt-get update
+          apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
+          # Install Docker CLI to support Docker commands from within the container
+          curl -fsSL https://get.docker.com | sh
+
       - uses: actions/checkout@v6
 
       - name: Debug Secret Presence
@@ -116,13 +126,13 @@ jobs:
         run: |
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
+             docker run -d --name db-service --network host -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
              # Wait for health
              timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
              echo "Starting PostgreSQL (pgvector/pgvector)..."
              # Standardized fleet database: pgvector/pgvector (Official)
-             docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg15
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
@@ -133,16 +143,16 @@ jobs:
              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
           fi
 
-      - name: Setup Python
-        id: setup-python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ inputs.node-version }}
+      - name: Install Runtime Toolchains (Python & Node)
+        run: |
+          # 1. Install Python
+          apt-get update
+          apt-get install -y python3 python3-pip python3-venv
+          ln -sf /usr/bin/python3 /usr/bin/python
+          
+          # 2. Install Node.js
+          curl -fsSL https://deb.nodesource.com/setup_${{ inputs.node-version }}.x | bash -
+          apt-get install -y nodejs
 
       - name: Cache Python Pip
         uses: actions/cache@v4
@@ -164,12 +174,12 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wkhtmltopdf
+          apt-get update
+          apt-get install -y wkhtmltopdf
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-             sudo apt-get install -y mariadb-client
+             apt-get install -y mariadb-client
           else
-             sudo apt-get install -y postgresql-client
+             apt-get install -y postgresql-client
           fi
 
       - name: Checkout Monorepo for Overrides
@@ -192,15 +202,18 @@ jobs:
 
           # 2. Manual Redis Startup (Bypassing Supervisor failures in CI)
           echo "Starting Redis instances manually..."
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq redis-server
-          sudo redis-server --port 11000 --daemonize yes # Queue
-          sudo redis-server --port 12000 --daemonize yes # Socketio
-          sudo redis-server --port 13000 --daemonize yes # Cache
+          apt-get update -qq
+          apt-get install -y -qq redis-server
+          redis-server --port 11000 --daemonize yes # Queue
+          redis-server --port 12000 --daemonize yes # Socketio
+          redis-server --port 13000 --daemonize yes # Cache
           
           # Wait for Redis to be ready
           for port in 11000 12000 13000; do
-             while ! nc -z localhost $port; do
+             while ! command -v nc >/dev/null || ! nc -z localhost $port; do
+                if ! command -v nc >/dev/null; then
+                   apt-get install -y -qq netcat-openbsd
+                fi
                 echo "Waiting for Redis on $port..."
                 sleep 1
              done
@@ -212,20 +225,20 @@ jobs:
         if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == false
         run: |
           npm install -g yarn
-          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python ${{ steps.setup-python.outputs.python-path }} --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
+          python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python python3 --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
         if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == true
         run: |
           npm install -g yarn
           # Install official bench first
-          ${{ steps.setup-python.outputs.python-path }} -m pip install frappe-bench
+          python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
           
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
              echo "🔥 Applying Bench Overrides from Monorepo..."
-             BENCH_PATH="$(${{ steps.setup-python.outputs.python-path }} -c "import bench; import os; print(os.path.dirname(bench.__file__))")"
+             BENCH_PATH="$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")"
              echo "Target Bench Path: $BENCH_PATH"
              cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
              echo "✅ Bench patches applied."
@@ -243,7 +256,7 @@ jobs:
           wget "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install.sh"
           chmod +x install.sh
           # Run as root in CI mode
-          sudo CI=true DB_TYPE="$DB_TYPE" ./install.sh
+          CI=true DB_TYPE="$DB_TYPE" ./install.sh
           
           # move frappe-bench to standard location if needed by later steps
           # install.sh uses /home/frappe/frappe-bench
@@ -253,8 +266,8 @@ jobs:
                 echo "Cleaning up local frappe-bench folder..."
                 rm -rf frappe-bench
              fi
-             sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-             sudo chown -R "$USER":"$USER" /home/frappe/frappe-bench
+             ln -sf /home/frappe/frappe-bench ./frappe-bench
+             chown -R root:root /home/frappe/frappe-bench
           fi
 
       - name: Sync Workspace Code to Bootstrap Bench 🔄
@@ -275,7 +288,7 @@ jobs:
           echo "Syncing workspace code into apps/$TARGET_DIR..."
           # Source is the GITHUB_WORKSPACE root
           # We use a trailing slash to copy contents, and ensure absolute path resolution
-          sudo rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
+          rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
           
           echo "Verifying sync results in apps/$TARGET_DIR/:"
           ls -la "apps/$TARGET_DIR/" || true

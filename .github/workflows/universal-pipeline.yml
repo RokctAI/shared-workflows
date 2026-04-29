@@ -120,12 +120,19 @@ jobs:
   # 🔥 NEW: Detect trivial (whitespace-only) changes
   detect-changes:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
     outputs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
       trivial: ${{ steps.diff.outputs.trivial }}
     steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y git curl sudo
+
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -195,6 +202,8 @@ jobs:
     needs: detect-changes
     if: inputs.run_security && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    with:
+      project_type: ${{ inputs.project_type }}
     secrets: inherit
 
   # 2. LINT
@@ -203,6 +212,7 @@ jobs:
     if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
     with:
+      project_type: ${{ inputs.project_type }}
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
@@ -286,6 +296,7 @@ jobs:
       (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
+      project_type: ${{ inputs.project_type }}
       release_strategy: ${{ inputs.release_strategy || 'immediate' }}
       version_file: ${{ inputs.version_file || 'version.json' }}
       version_format: ${{ inputs.version_format || '##.##.##' }}

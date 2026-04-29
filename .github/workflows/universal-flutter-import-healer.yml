@@ -1,4 +1,4 @@
-﻿# Copyright 2024 RokctAI
+# Copyright 2024 RokctAI
 
 name: Universal Flutter Import Healer
 
@@ -36,10 +36,9 @@ jobs:
     name: 🩹 Import Healer
     runs-on: ubuntu-latest
     permissions: write-all
-
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Need full history so we can commit back
           fetch-depth: 0
@@ -125,14 +124,14 @@ jobs:
           fi
 
       - name: Checkout Shared Workflows (for script)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ steps.app-token.outputs.token || github.token }}
           path: .github/shared-workflows
 
       - name: Download Analyze Output (from lint job)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: flutter-analyze-output
           path: /tmp/analyze
@@ -191,7 +190,7 @@ jobs:
 
       - name: Upload Healer Log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: import-healer-log
           path: import-healer.log
