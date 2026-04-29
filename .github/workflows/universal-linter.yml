@@ -88,11 +88,17 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "ENGINE_PATH=scripts/standardize_fleet.py" >> "$GITHUB_ENV"
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            {
+              echo "ENGINE_PATH=scripts/standardize_fleet.py"
+              echo "README_ENGINE_PATH=scripts/update_readme_badges.py"
+              echo "IS_SELF=true"
+            } >> "$GITHUB_ENV"
           else
-            echo "ENGINE_PATH=.github/shared-workflows/scripts/standardize_fleet.py" >> "$GITHUB_ENV"
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            {
+              echo "ENGINE_PATH=.github/shared-workflows/scripts/standardize_fleet.py"
+              echo "README_ENGINE_PATH=.github/shared-workflows/scripts/update_readme_badges.py"
+              echo "IS_SELF=false"
+            } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -118,8 +124,10 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" || "${{ inputs.force-fix }}" == "true" ]]; then
             python3 ${{ env.ENGINE_PATH }}
+            python3 ${{ env.README_ENGINE_PATH }}
           else
             python3 ${{ env.ENGINE_PATH }} --check || echo "⚠️ Repository standardization check failed (minor). Proceeding anyway."
+            python3 ${{ env.README_ENGINE_PATH }} --check || echo "⚠️ README badges check failed. Proceeding anyway."
           fi
 
       - name: Setup Identity (Local)
@@ -273,9 +281,9 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -301,9 +309,9 @@ jobs:
         id: check_python
         run: |
           if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "Pipfile" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            { echo "exists=true"; } >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            { echo "exists=false"; } >> "$GITHUB_OUTPUT"
           fi
         shell: bash
 
@@ -380,9 +388,9 @@ jobs:
           cat ruff_output.txt
 
           if grep -q ":" ruff_output.txt; then
-             echo "findings=true" >> "$GITHUB_ENV"
+             { echo "findings=true"; } >> "$GITHUB_ENV"
           else
-             echo "findings=false" >> "$GITHUB_ENV"
+             { echo "findings=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Run ty (Type Check)
@@ -396,9 +404,9 @@ jobs:
           cat ty_output.txt
 
           if grep -qi "error" ty_output.txt; then
-             echo "ty_findings=true" >> "$GITHUB_ENV"
+             { echo "ty_findings=true"; } >> "$GITHUB_ENV"
           else
-             echo "ty_findings=false" >> "$GITHUB_ENV"
+             { echo "ty_findings=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Create Issue on Ruff Findings
@@ -542,9 +550,9 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -694,9 +702,9 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -852,9 +860,9 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -880,9 +888,9 @@ jobs:
         id: check_flutter
         run: |
           if [ -f "pubspec.yaml" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            { echo "exists=true"; } >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            { echo "exists=false"; } >> "$GITHUB_OUTPUT"
           fi
         shell: bash
 
@@ -912,9 +920,9 @@ jobs:
           
           # Set output if findings exist (contains :)
           if grep -q ":" flutter_output.txt; then
-             echo "findings=true" >> "$GITHUB_ENV"
+             { echo "findings=true"; } >> "$GITHUB_ENV"
           else
-             echo "findings=false" >> "$GITHUB_ENV"
+             { echo "findings=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Upload Analyze Output (for import healer)
@@ -1074,9 +1082,9 @@ jobs:
       - name: Setup Fleet Standardizer
         run: |
           if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
-            echo "IS_SELF=true" >> "$GITHUB_ENV"
+            { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
-            echo "IS_SELF=false" >> "$GITHUB_ENV"
+            { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Checkout Shared Workflows
@@ -1102,9 +1110,9 @@ jobs:
         id: check_node
         run: |
           if [ -f "package.json" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            { echo "exists=true"; } >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            { echo "exists=false"; } >> "$GITHUB_OUTPUT"
           fi
         shell: bash
 
@@ -1134,9 +1142,9 @@ jobs:
           
           # Set findings if vulnerabilities found (contains "high" or "critical")
           if grep -qEi "high|critical" npm_audit_output.txt; then
-             echo "audit_findings=true" >> "$GITHUB_ENV"
+             { echo "audit_findings=true"; } >> "$GITHUB_ENV"
           else
-             echo "audit_findings=false" >> "$GITHUB_ENV"
+             { echo "audit_findings=false"; } >> "$GITHUB_ENV"
           fi
 
       - name: Create Issue on Audit Findings
