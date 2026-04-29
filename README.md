@@ -1,9 +1,9 @@
 # Universal Shared Workflows
 
 <!-- usage-badge-start -->
-![Total Builds](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.counterapi.dev%2Fv2%2Frokctai%2Fusage%2Fstats&query=%24.data.up_count&label=Total%20Builds&color=blue)
+![Total Builds](https://img.shields.io/badge/Total%20Builds-^10k-blue)
 ![Stable](https://img.shields.io/github/v/release/RokctAI/shared-workflows?label=Stable&color=0052cc)
-![Candidate](https://img.shields.io/github/v/tag/RokctAI/shared-workflows?label=Candidate&color=e67e22&include_prereleases)
+![Candidate](https://img.shields.io/badge/Candidate-v1.1.3--rc-e67e22)
 <!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
@@ -89,7 +89,6 @@ To maintain a healthy balance between **speed** and **stability**, we use a tier
 | :--- | :--- | :--- |
 | **`@main`** | Fleet Applications | **Fleet Default.** Represents the latest code on the main branch. |
 | **`@v1.2.3`** | Mission Critical | **Pinned.** Locked to a specific snapshot. Never changes. |
-
 
 ---
 
