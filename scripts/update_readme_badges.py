@@ -77,10 +77,6 @@ def fix_usage_badge(path, check_only=False):
              return False
 
     formatted_value = format_count(count)
-    # Note: Shields.io handles ^ fine in some contexts but for static badges we should be careful.
-    # The user wanted literal ^, but in URL it might need %5E.
-    # However, user said "Never use URL encoding like %5E in badge values" and "literal ^ used".
-    # Let's try literal.
     new_badge = f"![Total Builds](https://img.shields.io/badge/Total%20Builds-{formatted_value}-blue)"
 
     with open(path, "r", encoding="utf-8") as f:
@@ -108,20 +104,15 @@ def fix_candidate_badge(path, check_only=False):
     if not os.path.exists(path):
         return False
 
+    latest_rc = None
     try:
         # Get latest tag containing -rc
         cmd = ["git", "tag", "-l", "*-rc*", "--sort=-v:refname"]
         tags = subprocess.check_output(cmd).decode().splitlines()
-        if not tags:
-            return False
-        latest_rc = tags[0]
+        if tags:
+            latest_rc = tags[0]
     except Exception as e:
         print(f"⚠️ Failed to fetch candidate tag: {e}")
-        return False
-
-    # Shields.io format: dash must be --
-    formatted_rc = latest_rc.replace("-", "--")
-    new_badge = f"![Candidate](https://img.shields.io/badge/Candidate-{formatted_rc}-e67e22)"
 
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -129,8 +120,25 @@ def fix_candidate_badge(path, check_only=False):
     if "usage-badge-start" not in content:
         return False
 
-    pattern = r"(!\[Candidate\]\(.*?\))"
-    new_content = re.sub(pattern, new_badge, content, count=1)
+    new_content = content
+    candidate_pattern = r"\s*!\[Candidate\]\(.*?\)\n?"
+
+    if latest_rc:
+        # Update or Insert
+        formatted_rc = latest_rc.replace("-", "--")
+        new_badge = f"![Candidate](https://img.shields.io/badge/Candidate-{formatted_rc}-e67e22)"
+
+        if "![Candidate]" in content:
+            new_content = re.sub(r"!\[Candidate\]\(.*?\)", new_badge, content, count=1)
+        else:
+            # Insert before usage-badge-end
+            new_content = content.replace("<!-- usage-badge-end -->", f"{new_badge}\n<!-- usage-badge-end -->")
+    else:
+        # Hide/Remove if exists
+        if "![Candidate]" in content:
+            new_content = re.sub(candidate_pattern, "\n", content, count=1)
+            # Clean up potential double newlines
+            new_content = new_content.replace("\n\n\n", "\n\n")
 
     if new_content != content:
         if not check_only:
@@ -153,7 +161,7 @@ def main():
 
     if fix_candidate_badge("README.md", check_only):
         if not check_only:
-            print("✅ Updated Candidate badge in README.md")
+            print("✅ Updated/Hidden Candidate badge in README.md")
         else:
             print("⚠️ README.md Candidate badge needs update.")
         changed = True
