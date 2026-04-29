@@ -148,10 +148,10 @@ def fix_bot_identity(content):
 
     # 2. Global rename of legacy bot to new bot identity
     # We target both 'rokctbot' and 'rokctbot[bot]'
-    content = content.replace("ROK[bot]", "RokctBOT[bot]")
-    content = content.replace("ROK", "RokctBOT")
-    content = content.replace("rokct-maintainer[bot]", "RokctBOT[bot]")
-    content = content.replace("rokct-maintainer", "RokctBOT")
+    content = re.sub(r"\bROK\[bot\]", "RokctBOT[bot]", content)
+    content = re.sub(r"\bROK\b", "RokctBOT", content)
+    content = re.sub(r"\brokct-maintainer\[bot\]", "RokctBOT[bot]", content)
+    content = re.sub(r"\brokct-maintainer\b", "RokctBOT", content)
 
     return content
 
@@ -492,6 +492,9 @@ def fix_android_gradle_properties(check_only=False):
     Debug builds process large Flutter engine JARs via JetifyTransform and
     will OOM on Gradle's default heap. The workflow retry logic will bump
     further if needed, but a 4g baseline avoids the first OOM entirely."""
+    if not os.path.exists("android"):
+        return False
+
     props_path = "android/gradle.properties"
 
     baseline = "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError"
