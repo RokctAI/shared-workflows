@@ -3,7 +3,7 @@
 <!-- usage-badge-start -->
 ![Total Builds](https://img.shields.io/badge/Total%20Builds-^10k-blue)
 ![Stable](https://img.shields.io/github/v/release/RokctAI/shared-workflows?label=Stable&color=0052cc)
-![Candidate](https://img.shields.io/github/v/tag/RokctAI/shared-workflows?label=Candidate&color=e67e22&include_prereleases)
+![Candidate](https://img.shields.io/badge/Candidate-v1.1.3--rc-e67e22)
 <!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
