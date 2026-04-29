@@ -1,5 +1,5 @@
-﻿name: "Setup ROKCT Bot Identity"
-description: "Configures git with standardized ROKCT bot credentials and handles high-authority token injection"
+﻿name: "Setup RokctBOTCT Bot Identity"
+description: "Configures git with standardized RokctBOTCT bot credentials and handles high-authority token injection"
 
 inputs:
   token:
