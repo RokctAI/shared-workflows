@@ -146,14 +146,14 @@ elif [ "$IS_DOCKER" = "true" ]; then
   else
     sudo service postgresql start || true
   fi
-  
+
   # Wait for postgres to be ready
   for i in {1..30}; do
     if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then break; fi
     echo "Waiting for PostgreSQL..."
     sleep 2
   done
-  
+
   # Only attempt to alter user and create extensions if we can connect
   if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
     sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$DB_PW';" || true
