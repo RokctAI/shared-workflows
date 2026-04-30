@@ -126,23 +126,43 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
     docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg15
   fi
   timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
-  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
   echo "✅ PostgreSQL ready."
 elif [ "$IS_DOCKER" = "true" ]; then
   echo "Starting PostgreSQL Service (Docker Native)..."
-  sudo service postgresql start || true
+  # Check if postgresql service exists, if not try to install it
+  if ! command -v service >/dev/null 2>&1 || ! service --status-all | grep -q postgresql; then
+    echo "PostgreSQL service not found. Attempting to install..."
+    if [ -f /etc/debian_version ]; then
+      # Debian/Ubuntu
+      apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib
+      sudo service postgresql start || true
+    else
+      echo "Unsupported distribution for automatic PostgreSQL installation."
+      echo "Please ensure PostgreSQL is installed and running before executing this script."
+    fi
+  else
+    sudo service postgresql start || true
+  fi
+  
   # Wait for postgres to be ready
   for i in {1..30}; do
     if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then break; fi
     echo "Waiting for PostgreSQL..."
     sleep 2
   done
-  sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$DB_PW';" || true
-  sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
-  sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
-  sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
+  
+  # Only attempt to alter user and create extensions if we can connect
+  if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
+    sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$DB_PW';" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
+    sudo -u postgres psql -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
+  else
+    echo "Warning: Could not connect to PostgreSQL to configure extensions and user."
+  fi
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
