@@ -29,6 +29,21 @@ PY_BIN=${PY_BIN:-python3}
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
+# --- 0. Bootstrap Python 3.14 (Universal) ---
+# All apps require 3.14, so we ensure it is available via uv early.
+if ! command -v python3.14 >/dev/null 2>&1; then
+  echo "RokctAI: Bootstrapping Python 3.14 via uv..."
+  if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh || true
+  fi
+  if command -v uv >/dev/null 2>&1; then
+    export PATH="/usr/local/bin:$PATH"
+    uv python install 3.14 || true
+    PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
+  fi
+fi
+PY_BIN=${PY_BIN:-python3}
+
 # --- 0. Helper Functions ---
 sync_apps_txt() {
   echo "RokctAI: Synchronizing sites/apps.txt..."
