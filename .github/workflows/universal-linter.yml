@@ -735,11 +735,11 @@ jobs:
           # 1. Check if there are any .ps1 files we actually need to format
           # (excluding node_modules, venv, and other common CI/hidden folders)
           $psFiles = Get-ChildItem -Path . -Filter "*.ps1" -Recurse -File | Where-Object {
-              $_.FullName -notmatch "\\node_modules\" -and
-              $_.FullName -notmatch "\\venv\" -and
-              $_.FullName -notmatch "\\env\" -and
-              $_.FullName -notmatch "\\.venv\" -and
-              $_.FullName -notmatch "\\\.git\" -and $_.FullName -notmatch "\\\.github\"
+              $_.FullName -notmatch "node_modules" -and
+              $_.FullName -notmatch "venv" -and
+              $_.FullName -notmatch "env" -and
+              $_.FullName -notmatch "\.venv" -and
+              $_.FullName -notmatch "\.git" -and $_.FullName -notmatch "\.github"
           }
           
           if (@($psFiles).Count -eq 0) {
