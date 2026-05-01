@@ -5,6 +5,7 @@ name: Frappe App Test
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 on:
   workflow_call:
     inputs:
@@ -100,8 +101,11 @@ jobs:
     steps:
       - name: System Essentials
         run: |
-          apt-get update
-          apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          apt-get update && apt-get install -y sudo git curl wget ca-certificates gnupg2
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+          apt-get update && apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
           # Install Docker CLI to support Docker commands from within the container
           curl -fsSL https://get.docker.com | sh
 
@@ -146,7 +150,6 @@ jobs:
       - name: Install Runtime Toolchains (Python & Node)
         run: |
           # 1. Install Python
-          apt-get update
           apt-get install -y python3 python3-pip python3-venv
           ln -sf /usr/bin/python3 /usr/bin/python
           
@@ -174,12 +177,11 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          apt-get update
           apt-get install -y wkhtmltopdf
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              apt-get install -y mariadb-client
           else
-             apt-get install -y postgresql-client
+             apt-get install -y postgresql-16 postgresql-client-16 postgresql-16-pgvector
           fi
 
       - name: Checkout Monorepo for Overrides
@@ -202,7 +204,6 @@ jobs:
 
           # 2. Manual Redis Startup (Bypassing Supervisor failures in CI)
           echo "Starting Redis instances manually..."
-          apt-get update -qq
           apt-get install -y -qq redis-server
           redis-server --port 11000 --daemonize yes # Queue
           redis-server --port 12000 --daemonize yes # Socketio

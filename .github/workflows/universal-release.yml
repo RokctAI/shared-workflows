@@ -5,6 +5,7 @@ name: Universal Release Workflow
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 
 
 on:
@@ -133,7 +134,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y curl
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
 
       - name: Track Usage (CounterAPI)
         env:
@@ -153,7 +154,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl nodejs npm
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl nodejs npm
 
       - uses: actions/checkout@v6
       - name: Setup Node
@@ -182,7 +183,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - uses: actions/checkout@v6
         with:
@@ -345,7 +346,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -551,7 +552,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -737,7 +738,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq zip
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq zip
 
       - name: Determine Context
         run: |
