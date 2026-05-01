@@ -209,8 +209,8 @@ else
   fi
   chmod +x install.sh
 
-  echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE PYTHON_BIN=$PY_BIN bash ./install.sh"
-  sudo CI=true DB_TYPE=$DB_TYPE PYTHON_BIN=$PY_BIN bash ./install.sh
+  echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
+  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
 
   if [ -d "/home/frappe/frappe-bench" ] && [ "$PWD" != "/home/frappe" ]; then
     [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ] && rm -rf frappe-bench
