@@ -125,12 +125,12 @@ jobs:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
     outputs:
-       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
-       trivial: ${{ steps.diff.outputs.trivial }}
+      only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
+      trivial: ${{ steps.diff.outputs.trivial }}
     steps:
       - name: System Essentials
-         if: inputs.project_type == 'frappe'
-         run: |
+        if: inputs.project_type == 'frappe'
+        run: |
            apt-get update
            apt-get install -y git curl sudo
            git config --global --add safe.directory "$GITHUB_WORKSPACE"
