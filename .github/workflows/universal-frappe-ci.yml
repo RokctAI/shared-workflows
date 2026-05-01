@@ -5,6 +5,7 @@ name: Frappe App Test
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 on:
   workflow_call:
     inputs:
@@ -99,9 +100,18 @@ jobs:
 
     steps:
       - name: System Essentials
-        run: |
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update
-          apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
+          apt-get install -y sudo git curl wget ca-certificates gnupg2
+
+          # Add PostgreSQL Official Repository for Bookworm
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+
+          apt-get update
+          apt-get install -y redis-server wkhtmltopdf mariadb-client postgresql-16 postgresql-client-16 postgresql-16-pgvector procps build-essential
           # Install Docker CLI to support Docker commands from within the container
           curl -fsSL https://get.docker.com | sh
 

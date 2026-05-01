@@ -5,6 +5,7 @@ name: Universal Pipeline Orchestrator
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 
 on:
   workflow_call:
@@ -129,7 +130,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y git curl sudo
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y git curl sudo
 
       - name: Checkout code
         uses: actions/checkout@v6
