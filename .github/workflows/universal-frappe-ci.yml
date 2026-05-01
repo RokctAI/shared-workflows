@@ -100,8 +100,8 @@ jobs:
 
     steps:
       - name: System Essentials
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: |
+
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update
           apt-get install -y sudo git curl wget ca-certificates gnupg2

@@ -130,7 +130,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y git curl sudo
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y git curl sudo
 
       - name: Checkout code
         uses: actions/checkout@v6

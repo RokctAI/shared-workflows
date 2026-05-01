@@ -73,7 +73,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl python3
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl python3
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -203,7 +203,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y curl
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
 
       - name: Track Usage
         env:
@@ -223,7 +223,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -267,7 +267,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl python3 python3-pip
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl python3 python3-pip
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -532,8 +532,8 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && |
-          git config --global --add safe.directory \"$GITHUB_WORKSPACE\"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update
           apt-get install -y sudo git curl docker.io
           # Install Docker CLI if not present via docker.io
@@ -682,8 +682,8 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && |
-          git config --global --add safe.directory \"$GITHUB_WORKSPACE\"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update
           apt-get install -y sudo git curl wget gnupg software-properties-common
           # Install PowerShell
@@ -735,11 +735,11 @@ jobs:
           # 1. Check if there are any .ps1 files we actually need to format
           # (excluding node_modules, venv, and other common CI/hidden folders)
           $psFiles = Get-ChildItem -Path . -Filter "*.ps1" -Recurse -File | Where-Object {
-              $_.FullName -notmatch "\\node_modules\\" -and
-              $_.FullName -notmatch "\\venv\\" -and
-              $_.FullName -notmatch "\\env\\" -and
-              $_.FullName -notmatch "\\.venv\\" -and
-              $_.FullName -notmatch "\\\.git\\" -and $_.FullName -notmatch "\\\.github\\"
+              $_.FullName -notmatch "\\node_modules\" -and
+              $_.FullName -notmatch "\\venv\" -and
+              $_.FullName -notmatch "\\env\" -and
+              $_.FullName -notmatch "\\.venv\" -and
+              $_.FullName -notmatch "\\\.git\" -and $_.FullName -notmatch "\\\.github\"
           }
           
           if (@($psFiles).Count -eq 0) {
@@ -849,7 +849,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl unzip
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl unzip
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
@@ -1006,7 +1006,7 @@ jobs:
                      {
                        echo "### 🚨 Action Required: GitHub App Permissions"
                        echo "The Fleet Standardizer attempted to update your workflow files but failed due to missing permissions."
-                       echo "- **Error**: $(grep -i \"permission\" push_error.log | head -n 1)"
+                       echo "- **Error**: $(grep -i "permission" push_error.log | head -n 1)"
                        echo "- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**."
                      } >> "$GITHUB_STEP_SUMMARY"
                      exit 0 # Non-blocking for permission issues
@@ -1030,7 +1030,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -1070,7 +1070,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl
 
       - name: Checkout Code
         uses: actions/checkout@v6
