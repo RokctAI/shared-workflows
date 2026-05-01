@@ -42,7 +42,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo curl
+        run: apt-get update && apt-get install -y git sudo curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - id: vars
         run: |
@@ -69,7 +69,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: apt-get update && apt-get install -y git curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Track Usage
         env:
@@ -93,7 +93,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
+        run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -202,7 +202,7 @@ jobs:
     steps:
     - name: System Essentials
       if: inputs.project_type == 'frappe'
-      run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl python3 python3-pip jq
+      run: apt-get update && apt-get install -y git sudo curl python3 python3-pip jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
     - name: Checkout Code
       uses: actions/checkout@v6
@@ -311,7 +311,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl nodejs npm
+        run: apt-get update && apt-get install -y git sudo curl nodejs npm && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -374,7 +374,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: apt-get update && apt-get install -y git curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Enable Secret Scanning & Push Protection
         env:
@@ -399,7 +399,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: apt-get update && apt-get install -y git curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Create Bot Installation Issue
         env:

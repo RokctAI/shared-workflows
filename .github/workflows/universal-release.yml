@@ -134,7 +134,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: apt-get update && apt-get install -y git curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Track Usage (CounterAPI)
         env:
@@ -154,7 +154,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl nodejs npm
+        run: apt-get update && apt-get install -y git sudo curl nodejs npm && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/checkout@v6
       - name: Setup Node
@@ -183,7 +183,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
+        run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/checkout@v6
         with:
@@ -346,7 +346,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
+        run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -552,7 +552,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
+        run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -738,7 +738,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq zip
+        run: apt-get update && apt-get install -y git sudo curl jq zip && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Determine Context
         run: |

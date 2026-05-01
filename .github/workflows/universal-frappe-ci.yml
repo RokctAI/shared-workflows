@@ -101,8 +101,8 @@ jobs:
     steps:
       - name: System Essentials
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update && apt-get install -y sudo git curl wget ca-certificates gnupg2
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
           echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
           apt-get update && apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
