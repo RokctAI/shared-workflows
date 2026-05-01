@@ -311,7 +311,7 @@ jobs:
            steps.precheck.outputs.blocked == 'false' &&
            steps.version.outputs.up_to_date == 'false'
         run: |
-            CMD="rsync -a ${{ steps.exclusions.outputs.excludes }} \"$RELEASE_DIR/\" ./"
+            CMD="rsync -a ${{ steps.exclusions.outputs.excludes }} "$RELEASE_DIR/" ./"
             eval "$CMD"
 
       - name: Set up Python
