@@ -361,10 +361,10 @@ jobs:
           GS_JSON="android/app/google-services.json"
           if [ -f "$GS_JSON" ]; then
             echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
-            if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+            if ! grep -q ""package_name": "$TARGET_PACKAGE"" "$GS_JSON"; then
               echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
               echo "📄 Clients found in JSON:"
-              grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+              grep ""package_name":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
               exit 1
             else
               echo "✅ Package match confirmed in google-services.json."
@@ -430,7 +430,7 @@ jobs:
 
           # 5. Update build.gradle namespace & applicationId
           if [ -f "$GRADLE_FILE" ]; then
-            if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$GRADLE_FILE"; then
+            if ! grep -q "applicationId "$TARGET_PACKAGE"" "$GRADLE_FILE"; then
               echo "✏️ Updating $GRADLE_FILE..."
               sed -i "s|applicationId ["'][^"']*["']|applicationId "$TARGET_PACKAGE"|" "$GRADLE_FILE"
               sed -i "s|namespace ["'][^"']*["']|namespace "$TARGET_PACKAGE"|" "$GRADLE_FILE"

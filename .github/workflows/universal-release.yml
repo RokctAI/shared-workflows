@@ -1475,8 +1475,8 @@ jobs:
              fi
 
       - name: Build Android AppBundle
-        # Build only for Stable releases (Promote or Immediate Stable). Exclude Dev and RC.
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || github.event_name == 'workflow_dispatch')
+# Build for Stable releases (Promote or Immediate Stable), RC, and Client builds.
+      if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'client' || github.event_name == 'workflow_dispatch')
         id: build_aab
         run: |
             echo "Building Android AppBundle..."
