@@ -998,7 +998,7 @@ jobs:
 
            # Update File
            if [[ "$FILE" == *.json ]]; then
-             jq ".version = "$NEW_VER"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+             jq ".version = \"$NEW_VER\"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
            else
              sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
            fi
@@ -1337,10 +1337,10 @@ jobs:
            GS_JSON="android/app/google-services.json"
            if [ -f "$GS_JSON" ]; then
               echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
-              if ! grep -q ""package_name": "$TARGET_PACKAGE"" "$GS_JSON"; then
+              if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
                  echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
                  echo "📄 Clients found in JSON:"
-                 grep ""package_name":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+                 grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
                  exit 1
               else
                  echo "✅ Package match confirmed in google-services.json."
@@ -1420,11 +1420,11 @@ jobs:
            # Update build.gradle namespace
            BUILD_GRADLE="android/app/build.gradle"
            if [ -f "$BUILD_GRADLE" ]; then
-              if ! grep -q "applicationId "$TARGET_PACKAGE"" "$BUILD_GRADLE"; then
+              if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
                  echo "✏️ Updating $BUILD_GRADLE..."
                  # Replace applicationId and namespace
-                 sed -i "s/applicationId ["'][^"']*["']/applicationId "$TARGET_PACKAGE"/" "$BUILD_GRADLE"
-                 sed -i "s/namespace ["'][^"']*["']/namespace "$TARGET_PACKAGE"/" "$BUILD_GRADLE"
+                 sed -i "s/applicationId [\"'][^\"']*[\"']/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+                 sed -i "s/namespace [\"'][^\"']*[\"']/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
               else
                  echo "✅ $BUILD_GRADLE is correct."
               fi
@@ -1476,8 +1476,8 @@ jobs:
              fi
 
       - name: Build Android AppBundle
-# Build for Stable releases (Promote or Immediate Stable), RC, and Client builds.
-      if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'client' || github.event_name == 'workflow_dispatch')
+        # Build for Stable releases (Promote or Immediate Stable), RC, and Client builds.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode == 'promote' || steps.mode.outputs.mode == 'stable' || steps.mode.outputs.mode == 'rc' || steps.mode.outputs.mode == 'client' || github.event_name == 'workflow_dispatch')
         id: build_aab
         run: |
             echo "Building Android AppBundle..."
