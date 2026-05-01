@@ -538,6 +538,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           # Install Docker CLI if not present via docker.io
           if ! command -v docker >/dev/null; then curl -fsSL https://get.docker.com | sh; fi
+          # Install shfmt binary directly to avoid nested docker mount issues
+          curl -sSLo /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64
+          chmod +x /usr/local/bin/shfmt
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -582,19 +585,22 @@ jobs:
           # Find all .sh files, explicitly excluding Flutter's native build directories
           # because they contain auto-generated scripts we shouldn't touch
           # We also exclude node_modules and .git
-          
-          # We format the find output directly into a string that docker can use as arguments relative to /mnt
-          FILES_TO_FORMAT=$(find . -name "*.sh" -not -path "*/\.git/*" -not -path "*/\.github/*" -not -path "*/node_modules/*" -not -path "*/ios/*" -not -path "*/macos/*" -not -path "*/android/*" -not -path "*/windows/*" -not -path "*/linux/*" | sed "s|^\./|/mnt/|")
+          FILES_TO_FORMAT=$(find . -name "*.sh" -not -path "*/\.git/*" -not -path "*/\.github/*" -not -path "*/node_modules/*" -not -path "*/ios/*" -not -path "*/macos/*" -not -path "*/android/*" -not -path "*/windows/*" -not -path "*/linux/*")
           
           if [ -n "$FILES_TO_FORMAT" ]; then
              echo "Found shell scripts to format:"
              echo "$FILES_TO_FORMAT"
              
+             # Install shfmt if not present (for non-frappe ubuntu host)
+             if ! command -v shfmt >/dev/null; then
+                curl -sSLo /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64
+                chmod +x /usr/local/bin/shfmt
+             fi
+
              # -w: write
              # -i 2: indent 2 spaces
-             # -ln bash: force bash parser (prevents posix 'function' keyword errors like in Flutter's extract_dart_defines.sh)
-             # xargs is used here to pass the list of files to the docker container
-             echo "$FILES_TO_FORMAT" | xargs docker run --rm -v "$(pwd)":/mnt mvdan/shfmt:latest -w -i 2 -ln bash
+             # -ln bash: force bash parser
+             echo "$FILES_TO_FORMAT" | xargs shfmt -w -i 2 -ln bash
           else
              echo "No target shell scripts found. Skipping."
           fi
