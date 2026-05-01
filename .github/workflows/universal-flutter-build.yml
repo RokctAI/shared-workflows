@@ -287,7 +287,7 @@ jobs:
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
 
-          echo "🔍 Fetching \"$FILE_NAME\" from RokctAI/Monorepo..."
+          echo "🔍 Fetching $FILE_NAME" from RokctAI/Monorepo..."
           gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
           echo "✅ .env/production.env written."
 
@@ -391,7 +391,7 @@ jobs:
               exit 1
             fi
 
-            VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\([^'\"]*\)['\"].*/\1/")
+            VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['"]\([^'"]*\)['"].*/\1/")
 
             if [ -z "$VENDOR_PACKAGE" ]; then
               echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
@@ -432,8 +432,8 @@ jobs:
           if [ -f "$GRADLE_FILE" ]; then
             if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$GRADLE_FILE"; then
               echo "✏️ Updating $GRADLE_FILE..."
-              sed -i "s|applicationId [\"'][^\"']*[\"']|applicationId \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
-              sed -i "s|namespace [\"'][^\"']*[\"']|namespace \"$TARGET_PACKAGE\"|" "$GRADLE_FILE"
+              sed -i "s|applicationId ["'][^"']*["']|applicationId "$TARGET_PACKAGE"|" "$GRADLE_FILE"
+              sed -i "s|namespace ["'][^"']*["']|namespace "$TARGET_PACKAGE"|" "$GRADLE_FILE"
             else
               echo "✅ $GRADLE_FILE is correct."
             fi
