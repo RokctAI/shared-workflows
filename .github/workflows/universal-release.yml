@@ -5,7 +5,7 @@ name: Universal Release Workflow
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 
 on:
   workflow_call:
@@ -133,7 +133,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y curl
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
 
       - name: Track Usage (CounterAPI)
         env:
@@ -153,7 +153,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl nodejs npm
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl nodejs npm
 
       - uses: actions/checkout@v6
       - name: Setup Node
@@ -182,7 +182,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - uses: actions/checkout@v6
         with:
@@ -345,7 +345,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -551,7 +551,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -737,7 +737,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl jq zip
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq zip
 
       - name: Determine Context
         run: |
@@ -997,7 +997,7 @@ jobs:
 
            # Update File
            if [[ "$FILE" == *.json ]]; then
-             jq ".version = \"$NEW_VER\"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+             jq ".version = "$NEW_VER"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
            else
              sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
            fi
@@ -1336,10 +1336,10 @@ jobs:
            GS_JSON="android/app/google-services.json"
            if [ -f "$GS_JSON" ]; then
               echo "🔍 Validating $TARGET_PACKAGE against $GS_JSON..."
-              if ! grep -q "\"package_name\": \"$TARGET_PACKAGE\"" "$GS_JSON"; then
+              if ! grep -q ""package_name": "$TARGET_PACKAGE"" "$GS_JSON"; then
                  echo "❌ CRITICAL ERROR: Package '$TARGET_PACKAGE' NOT found in google-services.json!"
                  echo "📄 Clients found in JSON:"
-                 grep "\"package_name\":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
+                 grep ""package_name":" "$GS_JSON" | sed 's/.*: "\(.*\)".*/  - \1/'
                  exit 1
               else
                  echo "✅ Package match confirmed in google-services.json."
@@ -1369,7 +1369,7 @@ jobs:
                   exit 1
               fi
 
-              VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\"]\\([^'\"]*\\)['\"].*/\\1/")
+              VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['"]\\([^'"]*\\)['"].*/\\1/")
 
               if [ -z "$VENDOR_PACKAGE" ]; then
                   echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
@@ -1419,11 +1419,11 @@ jobs:
            # Update build.gradle namespace
            BUILD_GRADLE="android/app/build.gradle"
            if [ -f "$BUILD_GRADLE" ]; then
-              if ! grep -q "applicationId \"$TARGET_PACKAGE\"" "$BUILD_GRADLE"; then
+              if ! grep -q "applicationId "$TARGET_PACKAGE"" "$BUILD_GRADLE"; then
                  echo "✏️ Updating $BUILD_GRADLE..."
                  # Replace applicationId and namespace
-                 sed -i "s/applicationId [\"'][^\"']*[\"']/applicationId \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
-                 sed -i "s/namespace [\"'][^\"']*[\"']/namespace \"$TARGET_PACKAGE\"/" "$BUILD_GRADLE"
+                 sed -i "s/applicationId ["'][^"']*["']/applicationId "$TARGET_PACKAGE"/" "$BUILD_GRADLE"
+                 sed -i "s/namespace ["'][^"']*["']/namespace "$TARGET_PACKAGE"/" "$BUILD_GRADLE"
               else
                  echo "✅ $BUILD_GRADLE is correct."
               fi
