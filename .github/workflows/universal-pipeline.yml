@@ -128,9 +128,12 @@ jobs:
       only_whitespace: ${{ steps.diff.outputs.only_whitespace }}
       trivial: ${{ steps.diff.outputs.trivial }}
     steps:
-      - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y git curl sudo
+       - name: System Essentials
+         if: inputs.project_type == 'frappe'
+         run: |
+           apt-get update
+           apt-get install -y git curl sudo
+           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout code
         uses: actions/checkout@v6
