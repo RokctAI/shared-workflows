@@ -33,16 +33,16 @@ jobs:
   # -----------------------------
   pre-check:
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
-      options: --user root
     outputs:
       has_monorepo_pat: ${{ steps.vars.outputs.has_monorepo_pat }}
       has_app_id: ${{ steps.vars.outputs.has_app_id }}
     steps:
       - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo curl
+        run: |
+          if [[ "${{ inputs.project_type }}" == "frappe" ]]; then
+            sudo apt-get update && sudo apt-get install -y git
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - id: vars
         run: |
@@ -62,14 +62,14 @@ jobs:
   # -----------------------------
   telemetry:
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
-      options: --user root
     continue-on-error: true
     steps:
       - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: |
+          if [[ "${{ inputs.project_type }}" == "frappe" ]]; then
+            sudo apt-get update && sudo apt-get install -y git curl
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Track Usage
         env:
@@ -86,14 +86,14 @@ jobs:
     needs: telemetry
     name: 🔑 Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
-      options: --user root
     if: github.event.repository.visibility == 'public'
     steps:
       - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl jq
+        run: |
+          if [[ "${{ inputs.project_type }}" == "frappe" ]]; then
+            sudo apt-get update && sudo apt-get install -y git jq
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -103,23 +103,25 @@ jobs:
       - name: Run Gitleaks
         id: gitleaks
         uses: gitleaks/gitleaks-action@v2
+        with:
+          report-path: gitleaks-report.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         continue-on-error: true
 
       - name: Display Found Secret Types
-        if: steps.gitleaks.outcome == 'failure'
+        if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
         run: |
           echo "🔍 Analyzing findings..."
           echo "-------------------------------------------------------"
           echo "❌ SECURITY ALERT: The following secret types were found:"
           echo "-------------------------------------------------------"
-          jq -r '.[] | "- Found: " + .Description + " in file: " + .File' gitleaks-report.json || echo "Could not parse report, check raw logs above."
+          jq -r '.[] | "- Found: " + .Description + " in file: " + .File' gitleaks-report.json
           echo "-------------------------------------------------------"
 
       - name: Create Remediation Issue
-        if: steps.gitleaks.outcome == 'failure'
+        if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
@@ -184,10 +186,16 @@ jobs:
             || echo "⚠️ Issue may already exist, skipping."
 
       - name: Fail if Secret Found
-        if: steps.gitleaks.outcome == 'failure'
+        if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
         run: |
           echo "❌ Secret detected. See the issue created for remediation steps."
           exit 1
+
+      - name: Warning on Tool Failure
+        if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') == ''
+        run: |
+          echo "⚠️ Gitleaks tool failed to run correctly, but no report was generated."
+          echo "This usually indicates a tool crash rather than a security finding."
 
   # -----------------------------
   # Python Security
@@ -202,7 +210,12 @@ jobs:
     steps:
     - name: System Essentials
       if: inputs.project_type == 'frappe'
-      run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl python3 python3-pip jq
+      run: |
+        apt-get update && apt-get install -y git sudo curl python3 python3-pip jq gpg
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+        apt-get update && apt-get install -y gh
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
     - name: Checkout Code
       uses: actions/checkout@v6
@@ -311,7 +324,12 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y sudo git curl nodejs npm
+        run: |
+          apt-get update && apt-get install -y git sudo curl nodejs npm gpg
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update && apt-get install -y gh
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -367,19 +385,26 @@ jobs:
     needs: [telemetry, secret-scan, pre-check]
     name: 🔒 Enable Push Protection
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
-      options: --user root
     if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_monorepo_pat == 'true'
     steps:
       - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: |
+          if [[ "${{ inputs.project_type }}" == "frappe" ]]; then
+            sudo apt-get update && sudo apt-get install -y git curl
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Enable Secret Scanning & Push Protection
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
+            if ! command -v gh >/dev/null 2>&1; then
+              echo "Installing GitHub CLI..."
+              sudo apt-get update && sudo apt-get install -y curl gpg
+              curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list
+              sudo apt-get update && sudo apt-get install -y gh
+            fi
             gh api --method PATCH "/repos/${{ github.repository }}" \
             -f "security_and_analysis[secret_scanning][status]=enabled" \
             -f "security_and_analysis[secret_scanning_push_protection][status]=enabled"
@@ -392,19 +417,26 @@ jobs:
     needs: [telemetry, pre-check]
     name: 🤖 Notify Bot Required
     runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
-      options: --user root
     if: github.event.repository.visibility == 'public' && needs.pre-check.outputs.has_app_id == 'false'
     steps:
       - name: System Essentials
-        if: inputs.project_type == 'frappe'
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && apt-get update && apt-get install -y curl
+        run: |
+          if [[ "${{ inputs.project_type }}" == "frappe" ]]; then
+            sudo apt-get update && sudo apt-get install -y git curl
+          fi
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Create Bot Installation Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "Installing GitHub CLI..."
+            sudo apt-get update && sudo apt-get install -y curl gpg
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list
+            sudo apt-get update && sudo apt-get install -y gh
+          fi
           {
             echo "### 🤖 RokctAI Bot Not Detected"
             echo ""
