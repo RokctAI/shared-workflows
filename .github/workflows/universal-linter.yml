@@ -5,6 +5,7 @@ name: Universal Code Quality (Lint)
 permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
 
 on:
   workflow_call:
@@ -72,7 +73,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl python3
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl python3
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -202,7 +203,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y curl
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y curl
 
       - name: Track Usage
         env:
@@ -222,7 +223,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -266,7 +267,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl python3 python3-pip
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl python3 python3-pip
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -531,7 +532,8 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: |
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && |
+          git config --global --add safe.directory \"$GITHUB_WORKSPACE\"
           apt-get update
           apt-get install -y sudo git curl docker.io
           # Install Docker CLI if not present via docker.io
@@ -680,7 +682,8 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: |
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && |
+          git config --global --add safe.directory \"$GITHUB_WORKSPACE\"
           apt-get update
           apt-get install -y sudo git curl wget gnupg software-properties-common
           # Install PowerShell
@@ -846,7 +849,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl unzip
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl unzip
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
@@ -1027,7 +1030,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -1067,7 +1070,7 @@ jobs:
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
-        run: apt-get update && apt-get install -y sudo git curl
+        run: git config --global --add safe.directory \"$GITHUB_WORKSPACE\" && apt-get update && apt-get install -y sudo git curl
 
       - name: Checkout Code
         uses: actions/checkout@v6
