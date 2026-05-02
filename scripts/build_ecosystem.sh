@@ -77,7 +77,7 @@ safe_install_app() {
   echo "[$app] Safe-installing on site $SITE_NAME..."
   # Use direct Frappe API with force=True to bypass unique constraint conflicts (Module Def)
   # We also try bench install-app with --force as a secondary fallback
-  env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME'); frappe.connect(); from frappe.installer import install_app; install_app('$app', force=True)" ||
+  env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME', sites_path='sites'); frappe.connect(); from frappe.installer import install_app; install_app('$app', force=True)" ||
     bench --site "$SITE_NAME" install-app "$app" --force ||
     bench --site "$SITE_NAME" execute frappe.installer.install_app --args "['$app']"
 }
@@ -234,6 +234,12 @@ else
     echo "RokctAI: Applying Nuclear Permissions for $CURRENT_USER..."
     sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
     sudo chmod -R 777 /home/frappe/frappe-bench
+    
+    # Pre-create the directory that causes permission issues during plaid-python install
+    S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
+    echo "RokctAI: Pre-patching site-packages for plaid-python..."
+    sudo mkdir -p "$S_PATH/tests/integration" || true
+    sudo chmod -R 777 "$S_PATH" || true
     
     # Debug: Verify site structure
     echo "RokctAI: Debugging site structure..."
@@ -595,6 +601,8 @@ echo "Current apps directory: $(ls apps)"
 sync_apps_txt
 
 # Final Migration & App Installation
+if [ -d "apps/lending" ]; then safe_install_app lending || true; fi
+if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
