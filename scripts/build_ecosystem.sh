@@ -186,7 +186,11 @@ echo "RokctAI: Bench Initialization & CLI Setup..."
 # Ensure bench CLI is installed regardless of path
 if ! command -v bench >/dev/null; then
   echo "Installing frappe-bench CLI from Frappenize fork..."
-  $PY_BIN -m pip install --user git+https://github.com/Frappenize/bench.git@rokct || pip install --user git+https://github.com/Frappenize/bench.git@rokct
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --system git+https://github.com/Frappenize/bench.git@rokct
+  else
+    $PY_BIN -m pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct || pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct
+  fi
   export PATH="$HOME/.local/bin:$PATH"
 fi
 
@@ -292,7 +296,8 @@ PY
   fi
 
   echo "Installing ROK into bench venv (editable)..."
-  python -m pip install -e "$ROK_DIR"
+  # Use bench pip to ensure it goes into the venv
+  bench pip install -e "$ROK_DIR"
 
   echo "ROK smoke check..."
   if ! command -v rok >/dev/null 2>&1; then
