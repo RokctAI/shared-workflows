@@ -250,7 +250,8 @@ echo "RokctAI: Preparing Workspace & Fetching Apps..."
 # Ensure path is updated for current shell
 export PATH="$HOME/.local/bin:$PATH"
 
-cd frappe-bench
+BENCH_DIR="/home/frappe/frappe-bench"
+cd "$BENCH_DIR" || { echo "❌ Error: Could not find bench at $BENCH_DIR"; exit 1; }
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
