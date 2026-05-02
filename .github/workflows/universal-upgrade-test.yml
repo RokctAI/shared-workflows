@@ -70,23 +70,21 @@ jobs:
 
       - name: 🟢 Phase 2: Upgrade to Current (Green)
         run: |
-          echo "Upgrading to version ${{ inputs.current_version }}..."
+          echo "Triggering SELF-UPGRADE from the Hub..."
           
-          # Update compose file to use current (newly built) version
-          sed -i "s|:${{ steps.prev.outputs.prev_version }}|:${{ inputs.current_version }}|g" docker-compose.yml
+          # In the CI, we want to upgrade to the images we just built.
+          # The images are already tagged as 'latest' on GHCR by the previous job.
+          # We tell the Hub to perform an immediate upgrade.
+          docker compose exec -T app bench --site platform.rokct.ai update-ecosystem --immediate
           
-          # Pull and Restart
-          docker compose pull
-          docker compose up -d
-          
-          # Run Migrations
-          echo "Running Database Migrations..."
+          # Run Migrations (just in case, though the script should handle it)
+          echo "Ensuring Migrations are complete..."
           docker compose exec -T app bench --site platform.rokct.ai migrate
           
           # Wait for health
           echo "Waiting for upgraded app to boot..."
           timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
-          echo "✅ Upgrade successful and healthy."
+          echo "✅ Self-upgrade successful and healthy."
 
       - name: 🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)
         run: |
