@@ -192,7 +192,6 @@ if ! command -v bench >/dev/null; then
     $PY_BIN -m pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct || pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct
   fi
   # Ensure bench is in the global path
-  local bench_bin
   bench_bin=$(which bench 2>/dev/null || find /root/.local/bin /github/home/.local/bin /usr/local/bin -name bench 2>/dev/null | head -n 1)
   if [[ -n "$bench_bin" ]]; then
     sudo ln -sf "$bench_bin" /usr/local/bin/bench || ln -sf "$bench_bin" /usr/local/bin/bench
