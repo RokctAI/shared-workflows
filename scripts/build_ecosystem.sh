@@ -222,8 +222,9 @@ else
   sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
 
     # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
-    echo "RokctAI: Hardening permissions for current user ($USER)..."
-    sudo chown -R $USER:$USER /home/frappe/frappe-bench
+    CURRENT_USER=$(whoami)
+    echo "RokctAI: Hardening permissions for current user ($CURRENT_USER)..."
+    sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
     sudo chmod -R 777 /home/frappe/frappe-bench/env
     sudo chmod -R 777 /home/frappe/frappe-bench/sites
     
@@ -630,8 +631,9 @@ if [ -d "apps/rcore" ]; then
   echo "RokctAI: Checking for baked asset changes in rcore..."
   (
     cd apps/rcore
-    if [ -d ".git" ]; then
+    if [ -e ".git" ]; then
       # Identify changes specifically in the platform directory
+      # We check for both modified and untracked files
       CHANGES=$(git status --porcelain rcore/platform | wc -l)
       if [ "$CHANGES" -gt 0 ]; then
         echo "✅ Detected $CHANGES changed assets in rcore/platform. Persisting..."
@@ -643,13 +645,16 @@ if [ -d "apps/rcore" ]; then
         # Only push if we are in a CI environment with a token
         if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
           echo "Pushing baked assets to remote..."
+          # Use --force-with-lease to be safer, or just force if needed for detached HEAD
           git push origin HEAD || echo "Warning: Failed to push baked assets. Check permissions/branch protection."
         fi
       else
         echo "No asset changes detected in rcore/platform."
       fi
     else
-      echo "rcore is not a git repository, skipping persistence."
+      echo "rcore is not a git repository (missing .git), skipping persistence."
+      # Debug: list the directory
+      ls -la
     fi
   )
 fi
