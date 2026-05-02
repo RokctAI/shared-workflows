@@ -224,7 +224,7 @@ else
   if [ -d "/home/frappe/frappe-bench" ] && [ "$PWD" != "/home/frappe" ]; then
     [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ] && rm -rf frappe-bench
     sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-    
+
     # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
     echo "RokctAI: Hardening permissions for current user ($USER)..."
     sudo chown -R $USER:$USER /home/frappe/frappe-bench
@@ -311,7 +311,7 @@ PY
   # Ensure the current user owns the ROK directory for the build process
   sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
   chmod -R 777 "$ROK_DIR"
-  
+
   # Use the venv pip directly to avoid any bench-specific user-switching logic
   ./env/bin/pip install -e "$ROK_DIR"
 
@@ -546,14 +546,14 @@ else
   ORIG_SITE=$(ls sites | grep .local | head -n 1 || true)
   SITE_NAME=${ORIG_SITE:-rpanel.local}
   echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
-  
+
   # SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
   if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
     echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
     # Ensure currentsite.txt is set
-    echo "$SITE_NAME" > sites/currentsite.txt
+    echo "$SITE_NAME" >sites/currentsite.txt
   fi
-  
+
   # Ensure the detected site name is available as a host
   echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
   echo "$SITE_NAME" >sites/currentsite.txt
@@ -624,7 +624,7 @@ if [ -d "apps/rcore" ]; then
         git config user.name "RokctAI Bot"
         git add rcore/platform
         git commit -m "chore(rcore): auto-bake platform assets [skip ci]" || true
-        
+
         # Only push if we are in a CI environment with a token
         if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
           echo "Pushing baked assets to remote..."
