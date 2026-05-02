@@ -134,9 +134,14 @@ jobs:
              # Wait for health
              timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
-             echo "Starting PostgreSQL (pgvector/pgvector)..."
-             # Standardized fleet database: pgvector/pgvector (Official)
-             docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg16
+              echo "Starting PostgreSQL (rpanel-db:latest)..."
+              # Try to use the custom rpanel-db image if it exists, otherwise fallback to official pgvector
+              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+              if ! docker pull "$DB_IMAGE" > /dev/null 2>&1; then
+                 echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
+                 DB_IMAGE="pgvector/pgvector:pg16"
+              fi
+              docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
