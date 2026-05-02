@@ -1,0 +1,108 @@
+# Copyright 2024 RokctAI
+# Universal Upgrade & Integration Test
+# Validates Blue/Green handover from previous version to current version
+
+name: Universal Upgrade Test
+
+on:
+  workflow_call:
+    inputs:
+      current_version:
+        required: true
+        type: string
+        description: "The version just built and pushed (e.g. 2.0.6)"
+      registry:
+        required: false
+        type: string
+        default: "ghcr.io/rokctai/monorepo"
+      app_name:
+        required: false
+        type: string
+        default: "rpanel"
+    secrets:
+      MONOREPO_PAT:
+        required: false
+
+jobs:
+  upgrade-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.MONOREPO_PAT || github.token }}
+
+      - name: Detect Previous Version
+        id: prev
+        run: |
+          # Fetch tags from GitHub API
+          TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/tags" | jq -r '.[].name')
+          
+          # Find the second tag (current version is usually index 0)
+          # If only 1 tag exists, fallback to 'latest'
+          PREV_VERSION=$(echo "$TAGS" | sed -n '2p')
+          if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "${{ inputs.current_version }}" ]; then
+            PREV_VERSION="latest"
+          fi
+          
+          echo "prev_version=$PREV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "🚀 Previous Version detected: $PREV_VERSION"
+
+      - name: 🔴 Phase 1: Deploy Legacy (Red)
+        run: |
+          echo "Deploying version ${{ steps.prev.outputs.prev_version }}..."
+          
+          # Update compose file to use previous version
+          sed -i "s|:latest|:${{ steps.prev.outputs.prev_version }}|g" docker-compose.yml
+          
+          docker compose up -d
+          
+          # Wait for health
+          echo "Waiting for legacy app to boot..."
+          timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
+          echo "✅ Legacy version is healthy."
+
+      - name: 🟢 Phase 2: Upgrade to Current (Green)
+        run: |
+          echo "Upgrading to version ${{ inputs.current_version }}..."
+          
+          # Update compose file to use current (newly built) version
+          sed -i "s|:${{ steps.prev.outputs.prev_version }}|:${{ inputs.current_version }}|g" docker-compose.yml
+          
+          # Pull and Restart
+          docker compose pull
+          docker compose up -d
+          
+          # Run Migrations
+          echo "Running Database Migrations..."
+          docker compose exec -T app bench --site platform.rokct.ai migrate
+          
+          # Wait for health
+          echo "Waiting for upgraded app to boot..."
+          timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
+          echo "✅ Upgrade successful and healthy."
+
+      - name: 🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)
+        run: |
+          echo "Testing REAL Tenant Provisioning via Control Hub..."
+          
+          # Map the test domains to localhost
+          echo "127.0.0.1 platform.rokct.ai juvo.tenant.rokct.ai" | sudo tee -a /etc/hosts
+          
+          # Run the debug provisioning script inside the Hub container
+          # This script runs everything synchronously and prints tracebacks on failure
+          docker compose exec -T app bench --site platform.rokct.ai execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
+          
+          echo "✅ Real-world provisioning verified via Control Hub."
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.tenant.yml down -v
+          docker compose down -v
