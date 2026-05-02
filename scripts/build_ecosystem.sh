@@ -231,7 +231,7 @@ else
   sed -i 's/gpg --dearmor/gpg --dearmor --batch --yes/g' install.sh
   # PATCH: Prevent yarn install OOM and timeouts in container environments
   sed -i 's/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\";/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\"; export YARN_NETWORK_TIMEOUT=300000; export NODE_OPTIONS=\\x27--max-old-space-size=2048\\x27;/g' install.sh
-  
+
   # PATCH: Configure yarn for the frappe user specifically
   sed -i 's/run_quiet "Initializing frappe-bench"/run_quiet "Configuring Frappe User Yarn" sudo -u frappe -i bash -c "yarn config set ignore-engines true; yarn config set network-timeout 300000"\n\n  run_quiet "Initializing frappe-bench"/g' install.sh
   chmod +x install.sh
