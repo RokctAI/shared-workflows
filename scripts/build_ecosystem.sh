@@ -187,7 +187,7 @@ echo "RokctAI: Bench Initialization & CLI Setup..."
 if ! command -v bench >/dev/null; then
   echo "Installing frappe-bench CLI from Frappenize fork..."
   if command -v uv >/dev/null 2>&1; then
-    uv pip install --system git+https://github.com/Frappenize/bench.git@rokct
+    uv pip install --system --break-system-packages --python "$PY_BIN" git+https://github.com/Frappenize/bench.git@rokct
   else
     $PY_BIN -m pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct || pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct
   fi
