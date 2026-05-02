@@ -417,7 +417,11 @@ echo "RokctAI: Checking stack dependencies..."
 # Others are expected to be present or handled by install_stack.py.
 for extra_app in lending rcore; do
   echo "Checking for $extra_app..."
-  if [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
+  if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/$extra_app" ]; then
+    echo "🔥 Using LOCAL $extra_app from workspace..."
+    mkdir -p "apps/$extra_app"
+    cp -r "$GITHUB_WORKSPACE/$extra_app/." "apps/$extra_app/"
+  elif [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
     if [ "$extra_app" = "lending" ]; then
       REPO_URL="https://github.com/Frappenize/lending.git"
       BRANCH="rokct"
@@ -494,6 +498,18 @@ for app_dir in apps/*; do
   # Inject guard into all on_update and after_insert hooks to prevent transaction aborts during installation.
   # We use a whitespace-aware sed to handle both tabs and spaces.
   # We also handle docstrings by injecting after the def line, and ensuring we use the same whitespace type.
+
+  # G. Dynamic App Dependency Stripping
+  if [ -f "apps/$this_app/$this_app/hooks.py" ]; then
+    if [ "$this_app" = "lending" ]; then
+      echo "[$this_app] Stripping 'erpnext' requirement from hooks.py..."
+      sed -i "s/[\"']erpnext[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+    fi
+    if [ "$this_app" = "rcore" ]; then
+      echo "[$this_app] Stripping 'payments' requirement from hooks.py..."
+      sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+    fi
+  fi
   find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self[^\)]*\):" | while read -r hook_file; do
     # Skip files with explicit opt-out
     if grep -q "# rokct-no-guard" "$hook_file"; then
