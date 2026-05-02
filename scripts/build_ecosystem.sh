@@ -221,17 +221,20 @@ else
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
 
-  if [ -d "/home/frappe/frappe-bench" ] && [ "$PWD" != "/home/frappe" ]; then
-    [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ] && rm -rf frappe-bench
-    sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
-    
     # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
     echo "RokctAI: Hardening permissions for current user ($USER)..."
     sudo chown -R $USER:$USER /home/frappe/frappe-bench
     sudo chmod -R 777 /home/frappe/frappe-bench/env
     sudo chmod -R 777 /home/frappe/frappe-bench/sites
+    
     # Specifically target site-packages for poorly packaged apps like plaid-python
-    [ -d "/home/frappe/frappe-bench/env/lib/python3.14/site-packages" ] && sudo chmod -R 777 /home/frappe/frappe-bench/env/lib/python3.14/site-packages
+    # Pre-create the directory that causes permission issues during install
+    S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
+    if [ -d "$S_PATH" ]; then
+       echo "RokctAI: Pre-patching site-packages for plaid-python..."
+       mkdir -p "$S_PATH/tests/integration" || true
+       sudo chmod -R 777 "$S_PATH"
+    fi
   fi
 fi
 
@@ -557,6 +560,18 @@ else
   # Ensure the detected site name is available as a host
   echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
   echo "$SITE_NAME" >sites/currentsite.txt
+  
+  # VERIFY SITE PATH: Fix for "IncorrectSitePath"
+  if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
+    echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..."
+    # If the directory is empty or missing, try to restore from symlink
+    if [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
+      cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
+    fi
+  fi
+  
+  # Force bench to "use" this site to set the internal context
+  bench --site "$SITE_NAME" set-config developer_mode 1 || true
 fi
 
 # Ensure all dependencies are installed on site
@@ -680,7 +695,8 @@ if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" !=
 fi
 
 # Final Smoke Check & App List
-rok tests run --site "$SITE_NAME" --app rpanel || echo "Warning: RPanel integration tests failed."
+# 'rok tests' is not a valid command in the current version, use bench instead
+bench --site "$SITE_NAME" run-tests --app rpanel || echo "Warning: RPanel integration tests failed."
 
 echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
