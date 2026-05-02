@@ -229,7 +229,8 @@ else
 
   # PATCH: Force GPG to not require a TTY when overwriting keyring files.
   sed -i 's/gpg --dearmor/gpg --dearmor --batch --yes/g' install.sh
-
+  # PATCH: Prevent yarn install OOM and timeouts in container environments
+  sed -i 's/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\";/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\"; export YARN_NETWORK_TIMEOUT=300000; export NODE_OPTIONS=\\x27--max-old-space-size=2048\\x27;/g' install.sh
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
