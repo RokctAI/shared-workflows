@@ -693,6 +693,28 @@ if [ -d "apps/rcore" ]; then
       else
         echo "No asset changes detected in rcore/platform."
       fi
+    elif [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then
+      echo "RokctAI: rcore is part of a monorepo. Syncing baked assets to monorepo root..."
+      # Sync the baked assets back to the workspace directory
+      cp -r rcore/platform/. "$GITHUB_WORKSPACE/rcore/rcore/platform/" || true
+      
+      cd "$GITHUB_WORKSPACE"
+      CHANGES=$(git status --porcelain rcore/rcore/platform | wc -l)
+      if [ "$CHANGES" -gt 0 ]; then
+        echo "✅ Detected $CHANGES changed assets in monorepo rcore/platform. Persisting..."
+        git config user.email "bot@rokct.ai"
+        git config user.name "RokctAI Bot"
+        git add rcore/rcore/platform
+        git commit -m "chore(rcore): auto-bake platform assets [skip ci]" || true
+
+        if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
+          echo "Pushing baked monorepo assets to remote..."
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY:-RokctAI/Monorepo}.git" || true
+          git push origin HEAD || echo "Warning: Failed to push monorepo baked assets."
+        fi
+      else
+        echo "No asset changes detected in monorepo rcore/platform."
+      fi
     else
       echo "rcore is not a git repository (missing .git), skipping persistence."
       # Debug: list the directory
