@@ -138,7 +138,13 @@ fi
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   echo "Starting PostgreSQL Service (CI Docker DB)..."
   if ! docker ps -a | grep -q db-service; then
-    docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg16
+    # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
+    DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+    if ! docker pull $DB_IMAGE > /dev/null 2>&1; then
+      echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
+      DB_IMAGE="pgvector/pgvector:pg16"
+    fi
+    docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
   fi
   timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
   docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
