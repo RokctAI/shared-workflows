@@ -40,15 +40,25 @@ jobs:
       - name: Detect Previous Version
         id: prev
         run: |
-          # Fetch tags from GitHub API
-          TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/tags" | jq -r '.[].name')
+          # Fetch tags from GitHub Container Registry (GHCR)
+          REPO_LOWER=$(echo "${{ github.repository_owner }}/monorepo/${{ inputs.app_name }}-control" | tr '[:upper:]' '[:lower:]')
           
-          # Find the second tag (current version is usually index 0)
-          # If only 1 tag exists, fallback to 'latest'
-          PREV_VERSION=$(echo "$TAGS" | sed -n '2p')
-          if [ -z "$PREV_VERSION" ] || [ "$PREV_VERSION" = "${{ inputs.current_version }}" ]; then
-            PREV_VERSION="latest"
+          # Authenticate and get token
+          TOKEN=$(curl -s -u "${{ github.actor }}:${{ secrets.MONOREPO_PAT || github.token }}" "https://ghcr.io/token?scope=repository:${REPO_LOWER}:pull" | jq -r .token)
+          
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+             echo "Failed to authenticate with GHCR or repo not found. Falling back to latest."
+             PREV_VERSION="latest"
+          else
+             # Fetch all tags, remove 'latest', sort by version descending
+             TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO_LOWER}/tags/list" | jq -r '.tags[]?' | grep -v 'latest' | sort -V -r || echo "")
+             
+             # Find the highest version that is NOT the current version we just built
+             PREV_VERSION=$(echo "$TAGS" | grep -v "^${{ inputs.current_version }}$" | head -n 1)
+             
+             if [ -z "$PREV_VERSION" ]; then
+                PREV_VERSION="latest"
+             fi
           fi
           
           echo "prev_version=$PREV_VERSION" >> "$GITHUB_OUTPUT"
