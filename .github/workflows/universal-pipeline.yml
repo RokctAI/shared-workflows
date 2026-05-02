@@ -49,7 +49,7 @@ on:
         default: '10.6'
       postgres-version:
         type: string
-        default: '15'
+        default: '16'
       db-type:
         type: string
         default: 'mariadb'
@@ -247,7 +247,7 @@ jobs:
     with:
       python-version: ${{ inputs.python-version || '3.14' }}
       mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
-      postgres-version: ${{ inputs.postgres-version || '15' }}
+      postgres-version: ${{ inputs.postgres-version || '16' }}
       db-type: ${{ inputs.db-type || 'mariadb' }}
       db-password: ${{ inputs.db-password || 'travis' }}
       redis-version: ${{ inputs.redis-version || '6.0' }}
