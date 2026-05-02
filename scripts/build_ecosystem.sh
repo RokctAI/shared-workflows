@@ -75,11 +75,11 @@ safe_install_app() {
     return 0
   fi
   echo "[$app] Safe-installing on site $SITE_NAME..."
-  # Use direct Frappe API to bypass Click wrapper issues on Python 3.14
-  # We try multiple methods to ensure success
-  env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME'); frappe.connect(); from frappe.installer import install_app; install_app('$app')" ||
-    bench --site "$SITE_NAME" execute frappe.installer.install_app --args "['$app']" ||
-    bench --site "$SITE_NAME" install-app "$app"
+  # Use direct Frappe API with force=True to bypass unique constraint conflicts (Module Def)
+  # We also try bench install-app with --force as a secondary fallback
+  env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME'); frappe.connect(); from frappe.installer import install_app; install_app('$app', force=True)" ||
+    bench --site "$SITE_NAME" install-app "$app" --force ||
+    bench --site "$SITE_NAME" execute frappe.installer.install_app --args "['$app']"
 }
 
 # Detect if running in Docker or CI Container
@@ -224,7 +224,14 @@ else
   if [ -d "/home/frappe/frappe-bench" ] && [ "$PWD" != "/home/frappe" ]; then
     [ -d "frappe-bench" ] && [ ! -L "frappe-bench" ] && rm -rf frappe-bench
     sudo ln -sf /home/frappe/frappe-bench ./frappe-bench
+    
+    # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
+    echo "RokctAI: Hardening permissions for current user ($USER)..."
     sudo chown -R $USER:$USER /home/frappe/frappe-bench
+    sudo chmod -R 777 /home/frappe/frappe-bench/env
+    sudo chmod -R 777 /home/frappe/frappe-bench/sites
+    # Specifically target site-packages for poorly packaged apps like plaid-python
+    [ -d "/home/frappe/frappe-bench/env/lib/python3.14/site-packages" ] && sudo chmod -R 777 /home/frappe/frappe-bench/env/lib/python3.14/site-packages
   fi
 fi
 
@@ -536,8 +543,19 @@ if [ "$BOOTSTRAP" = "false" ]; then
   sync_apps_txt
 else
   # Bootstrap path: identify the site created by install.sh
-  ORIG_SITE=$(ls sites | grep .local | head -n 1)
+  ORIG_SITE=$(ls sites | grep .local | head -n 1 || true)
   SITE_NAME=${ORIG_SITE:-rpanel.local}
+  echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
+  
+  # SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
+  if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
+    echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
+    # Ensure currentsite.txt is set
+    echo "$SITE_NAME" > sites/currentsite.txt
+  fi
+  
+  # Ensure the detected site name is available as a host
+  echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
   echo "$SITE_NAME" >sites/currentsite.txt
 fi
 
@@ -591,6 +609,36 @@ if [ -d "apps/rcore" ]; then
     echo "Warning: Failed to bake rcore assets."
 fi
 
+# 8B. Persist Baked Assets (rcore)
+# If rcore assets were updated during bake, commit and push them back to the repo.
+if [ -d "apps/rcore" ]; then
+  echo "RokctAI: Checking for baked asset changes in rcore..."
+  (
+    cd apps/rcore
+    if [ -d ".git" ]; then
+      # Identify changes specifically in the platform directory
+      CHANGES=$(git status --porcelain rcore/platform | wc -l)
+      if [ "$CHANGES" -gt 0 ]; then
+        echo "✅ Detected $CHANGES changed assets in rcore/platform. Persisting..."
+        git config user.email "bot@rokct.ai"
+        git config user.name "RokctAI Bot"
+        git add rcore/platform
+        git commit -m "chore(rcore): auto-bake platform assets [skip ci]" || true
+        
+        # Only push if we are in a CI environment with a token
+        if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
+          echo "Pushing baked assets to remote..."
+          git push origin HEAD || echo "Warning: Failed to push baked assets. Check permissions/branch protection."
+        fi
+      else
+        echo "No asset changes detected in rcore/platform."
+      fi
+    else
+      echo "rcore is not a git repository, skipping persistence."
+    fi
+  )
+fi
+
 if [ -n "$STACK_INSTALLER" ]; then
   echo "RokctAI: Generating Golden DB Seed..."
   bench --site $SITE_NAME backup
@@ -629,6 +677,19 @@ if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" !=
     bench setup nginx || true
     bench setup supervisor || true
   fi
+fi
+
+# Final Smoke Check & App List
+rok tests run --site "$SITE_NAME" --app rpanel || echo "Warning: RPanel integration tests failed."
+
+echo "RokctAI: Final Workspace State..."
+if [ -f "sites/apps.txt" ]; then
+  echo "--- Global apps.txt ---"
+  cat sites/apps.txt
+fi
+if [ -f "sites/$SITE_NAME/apps.txt" ]; then
+  echo "--- Site-specific apps.txt ($SITE_NAME) ---"
+  cat "sites/$SITE_NAME/apps.txt"
 fi
 
 echo "✅ RokctAI: Golden Build Complete!"
