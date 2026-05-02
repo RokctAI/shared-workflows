@@ -301,12 +301,18 @@ PY
   fi
 
   echo "Installing ROK into bench venv (editable)..."
-  # Use bench pip to ensure it goes into the venv
-  bench pip install -e "$ROK_DIR"
+  # Ensure the current user owns the ROK directory for the build process
+  sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
+  chmod -R 777 "$ROK_DIR"
+  
+  # Use the venv pip directly to avoid any bench-specific user-switching logic
+  ./env/bin/pip install -e "$ROK_DIR"
 
+  # Ensure the venv bin is in the PATH for the smoke check
+  export PATH="$PWD/env/bin:$PATH"
   echo "ROK smoke check..."
   if ! command -v rok >/dev/null 2>&1; then
-    echo "❌ ROK install failed: 'rok' executable not found in venv PATH"
+    echo "❌ ROK install failed: 'rok' executable not found in PATH"
     exit 1
   fi
   rok --help >/dev/null
