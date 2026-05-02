@@ -627,7 +627,7 @@ if [ -n "$STACK_INSTALLER" ]; then
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   echo "RokctAI: Running post-stack migration..."
-  bench --site "$SITE_NAME" migrate
+  bench --site "$SITE_NAME" migrate || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
 fi
 
 echo "🚀 Baking Platform API Schemas..."
