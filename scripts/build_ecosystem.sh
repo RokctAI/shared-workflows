@@ -243,7 +243,6 @@ else
        sudo chmod -R 777 "$S_PATH"
     fi
   fi
-fi
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
