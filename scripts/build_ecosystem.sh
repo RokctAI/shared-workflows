@@ -227,23 +227,18 @@ else
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
 
-    # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
+    # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
+    # We give absolute control to the current user and set global write bits to ensure 
+    # all build tools (git, pip, bench) can operate.
     CURRENT_USER=$(whoami)
-    echo "RokctAI: Hardening permissions for current user ($CURRENT_USER)..."
+    echo "RokctAI: Applying Nuclear Permissions for $CURRENT_USER..."
     sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
-    sudo chmod -R 777 /home/frappe/frappe-bench/env
-    sudo chmod -R 777 /home/frappe/frappe-bench/sites
-    sudo chmod -R 777 /home/frappe/frappe-bench/apps
-    sudo chmod -R 777 /home/frappe/frappe-bench/logs
+    sudo chmod -R 777 /home/frappe/frappe-bench
     
-    # Specifically target site-packages for poorly packaged apps like plaid-python
-    # Pre-create the directory that causes permission issues during install
-    S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
-    if [ -d "$S_PATH" ]; then
-       echo "RokctAI: Pre-patching site-packages for plaid-python..."
-       mkdir -p "$S_PATH/tests/integration" || true
-       sudo chmod -R 777 "$S_PATH"
-    fi
+    # Debug: Verify site structure
+    echo "RokctAI: Debugging site structure..."
+    ls -la /home/frappe/frappe-bench/sites || true
+    ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
   fi
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
