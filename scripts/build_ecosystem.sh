@@ -659,6 +659,30 @@ if [ -d "apps/rcore" ]; then
   )
 fi
 
+# 8C. Sync RPanel Version from versions.json
+if [ -f "apps/rpanel/rpanel/versions.json" ]; then
+  NEW_VER=$(python3 -c "import json; print(json.load(open('apps/rpanel/rpanel/versions.json'))['rpanel'])" 2>/dev/null || true)
+  INIT_PY="apps/rpanel/rpanel/__init__.py"
+  if [ -f "$INIT_PY" ] && [ -n "$NEW_VER" ]; then
+    echo "RokctAI: Syncing RPanel version $NEW_VER from versions.json..."
+    sed -i "s/__version__ = .*/__version__ = \"$NEW_VER\"/" "$INIT_PY"
+    
+    (
+      cd apps/rpanel
+      if [ -e ".git" ] && [ -n "$(git status --porcelain rpanel/__init__.py)" ]; then
+        echo "✅ Version mismatch detected. Committing sync update..."
+        git config user.email "bot@rokct.ai"
+        git config user.name "RokctAI Bot"
+        git add rpanel/__init__.py
+        git commit -m "chore(rpanel): sync __init__.py version with versions.json [skip ci]" || true
+        if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
+           git push origin HEAD || echo "Warning: Failed to push version sync."
+        fi
+      fi
+    )
+  fi
+fi
+
 if [ -n "$STACK_INSTALLER" ]; then
   echo "RokctAI: Generating Golden DB Seed..."
   bench --site $SITE_NAME backup
