@@ -304,7 +304,7 @@ PY
   # Ensure the current user owns the ROK directory for the build process
   sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
   chmod -R 777 "$ROK_DIR"
-  
+
   # Use the venv pip directly to avoid any bench-specific user-switching logic
   ./env/bin/pip install -e "$ROK_DIR"
 
