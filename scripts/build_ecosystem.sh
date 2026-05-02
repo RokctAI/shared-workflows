@@ -677,7 +677,7 @@ if [ -d "apps/rcore" ]; then
       echo "RokctAI: rcore is part of a monorepo. Syncing baked assets to monorepo root..."
       # Sync the baked assets back to the workspace directory
       cp -r rcore/platform/. "$GITHUB_WORKSPACE/rcore/rcore/platform/" || true
-      
+
       cd "$GITHUB_WORKSPACE"
       CHANGES=$(git status --porcelain rcore/rcore/platform | wc -l)
       if [ "$CHANGES" -gt 0 ]; then
