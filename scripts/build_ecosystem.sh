@@ -138,7 +138,7 @@ fi
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   echo "Starting PostgreSQL Service (CI Docker DB)..."
   if ! docker ps -a | grep -q db-service; then
-    docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+    docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres pgvector/pgvector:pg16
   fi
   timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
   docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
