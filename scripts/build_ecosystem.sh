@@ -673,27 +673,7 @@ if [ -d "apps/rcore" ]; then
   echo "RokctAI: Checking for baked asset changes in rcore..."
   (
     cd apps/rcore
-    if [ -e ".git" ]; then
-      # Identify changes specifically in the platform directory
-      # We check for both modified and untracked files
-      CHANGES=$(git status --porcelain rcore/platform | wc -l)
-      if [ "$CHANGES" -gt 0 ]; then
-        echo "✅ Detected $CHANGES changed assets in rcore/platform. Persisting..."
-        git config user.email "bot@rokct.ai"
-        git config user.name "RokctAI Bot"
-        git add rcore/platform
-        git commit -m "chore(rcore): auto-bake platform assets [skip ci]" || true
-
-        # Only push if we are in a CI environment with a token
-        if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
-          echo "Pushing baked assets to remote..."
-          # Use --force-with-lease to be safer, or just force if needed for detached HEAD
-          git push origin HEAD || echo "Warning: Failed to push baked assets. Check permissions/branch protection."
-        fi
-      else
-        echo "No asset changes detected in rcore/platform."
-      fi
-    elif [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then
+    if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then
       echo "RokctAI: rcore is part of a monorepo. Syncing baked assets to monorepo root..."
       # Sync the baked assets back to the workspace directory
       cp -r rcore/platform/. "$GITHUB_WORKSPACE/rcore/rcore/platform/" || true
