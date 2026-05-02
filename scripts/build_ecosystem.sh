@@ -222,6 +222,11 @@ else
     echo "❌ Critical Error: Failed to download install.sh from ${REPO_PATH}/${REF_PATH}"
     exit 1
   fi
+  
+  # PATCH: Debian 13 (Trixie) minimal images drop software-properties-common.
+  # We strip it from the installer to prevent apt-get failures.
+  sed -i 's/software-properties-common//g' install.sh
+  
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
