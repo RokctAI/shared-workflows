@@ -233,6 +233,7 @@ else
     sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
     sudo chmod -R 777 /home/frappe/frappe-bench/env
     sudo chmod -R 777 /home/frappe/frappe-bench/sites
+    sudo chmod -R 777 /home/frappe/frappe-bench/apps
     sudo chmod -R 777 /home/frappe/frappe-bench/logs
     
     # Specifically target site-packages for poorly packaged apps like plaid-python
