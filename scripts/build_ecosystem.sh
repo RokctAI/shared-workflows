@@ -140,7 +140,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   if ! docker ps -a | grep -q db-service; then
     # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
     DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-    if ! docker pull $DB_IMAGE > /dev/null 2>&1; then
+    if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
       echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
       DB_IMAGE="pgvector/pgvector:pg16"
     fi
@@ -227,23 +227,23 @@ else
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
 
-    # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
-    CURRENT_USER=$(whoami)
-    echo "RokctAI: Hardening permissions for current user ($CURRENT_USER)..."
-    sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
-    sudo chmod -R 777 /home/frappe/frappe-bench/env
-    sudo chmod -R 777 /home/frappe/frappe-bench/sites
-    sudo chmod -R 777 /home/frappe/frappe-bench/logs
-    
-    # Specifically target site-packages for poorly packaged apps like plaid-python
-    # Pre-create the directory that causes permission issues during install
-    S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
-    if [ -d "$S_PATH" ]; then
-       echo "RokctAI: Pre-patching site-packages for plaid-python..."
-       mkdir -p "$S_PATH/tests/integration" || true
-       sudo chmod -R 777 "$S_PATH"
-    fi
+  # AGGRESSIVE PERMISSION SYNC: Ensure the current user has absolute control over the bench
+  CURRENT_USER=$(whoami)
+  echo "RokctAI: Hardening permissions for current user ($CURRENT_USER)..."
+  sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
+  sudo chmod -R 777 /home/frappe/frappe-bench/env
+  sudo chmod -R 777 /home/frappe/frappe-bench/sites
+  sudo chmod -R 777 /home/frappe/frappe-bench/logs
+
+  # Specifically target site-packages for poorly packaged apps like plaid-python
+  # Pre-create the directory that causes permission issues during install
+  S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
+  if [ -d "$S_PATH" ]; then
+    echo "RokctAI: Pre-patching site-packages for plaid-python..."
+    mkdir -p "$S_PATH/tests/integration" || true
+    sudo chmod -R 777 "$S_PATH"
   fi
+fi
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -252,7 +252,10 @@ echo "RokctAI: Preparing Workspace & Fetching Apps..."
 export PATH="$HOME/.local/bin:$PATH"
 
 BENCH_DIR="/home/frappe/frappe-bench"
-cd "$BENCH_DIR" || { echo "❌ Error: Could not find bench at $BENCH_DIR"; exit 1; }
+cd "$BENCH_DIR" || {
+  echo "❌ Error: Could not find bench at $BENCH_DIR"
+  exit 1
+}
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
@@ -322,7 +325,7 @@ PY
   # Ensure the current user owns the ROK directory for the build process
   sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
   chmod -R 777 "$ROK_DIR"
-  
+
   # Use the venv pip directly to avoid any bench-specific user-switching logic
   ./env/bin/pip install -e "$ROK_DIR"
 
@@ -557,18 +560,18 @@ else
   ORIG_SITE=$(ls sites | grep .local | head -n 1 || true)
   SITE_NAME=${ORIG_SITE:-rpanel.local}
   echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
-  
+
   # SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
   if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
     echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
     # Ensure currentsite.txt is set
-    echo "$SITE_NAME" > sites/currentsite.txt
+    echo "$SITE_NAME" >sites/currentsite.txt
   fi
-  
+
   # Ensure the detected site name is available as a host
   echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
   echo "$SITE_NAME" >sites/currentsite.txt
-  
+
   # VERIFY SITE PATH: Fix for "IncorrectSitePath"
   if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
     echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..."
@@ -577,7 +580,7 @@ else
       cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
     fi
   fi
-  
+
   # Force bench to "use" this site to set the internal context
   bench --site "$SITE_NAME" set-config developer_mode 1 || true
 fi
@@ -648,7 +651,7 @@ if [ -d "apps/rcore" ]; then
         git config user.name "RokctAI Bot"
         git add rcore/platform
         git commit -m "chore(rcore): auto-bake platform assets [skip ci]" || true
-        
+
         # Only push if we are in a CI environment with a token
         if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
           echo "Pushing baked assets to remote..."
@@ -673,7 +676,7 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
   if [ -f "$INIT_PY" ] && [ -n "$NEW_VER" ]; then
     echo "RokctAI: Syncing RPanel version $NEW_VER from versions.json..."
     sed -i "s/__version__ = .*/__version__ = \"$NEW_VER\"/" "$INIT_PY"
-    
+
     (
       cd apps/rpanel
       if [ -e ".git" ] && [ -n "$(git status --porcelain rpanel/__init__.py)" ]; then
@@ -683,7 +686,7 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
         git add rpanel/__init__.py
         git commit -m "chore(rpanel): sync __init__.py version with versions.json [skip ci]" || true
         if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
-           git push origin HEAD || echo "Warning: Failed to push version sync."
+          git push origin HEAD || echo "Warning: Failed to push version sync."
         fi
       fi
     )
