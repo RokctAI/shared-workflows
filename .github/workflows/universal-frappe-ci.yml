@@ -24,7 +24,7 @@ on:
       postgres-version:
         required: false
         type: string
-        default: '15'
+        default: '16'
       db-type:
         required: false
         type: string
@@ -136,7 +136,7 @@ jobs:
           else
              echo "Starting PostgreSQL (pgvector/pgvector)..."
              # Standardized fleet database: pgvector/pgvector (Official)
-             docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg15
+             docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres pgvector/pgvector:pg16
              # Wait for health
              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
              
