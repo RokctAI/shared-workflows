@@ -54,7 +54,7 @@ jobs:
           echo "prev_version=$PREV_VERSION" >> "$GITHUB_OUTPUT"
           echo "🚀 Previous Version detected: $PREV_VERSION"
 
-      - name: 🔴 Phase 1: Deploy Legacy (Red)
+      - name: "🔴 Phase 1: Deploy Legacy (Red)"
         run: |
           echo "Deploying version ${{ steps.prev.outputs.prev_version }}..."
           
@@ -68,7 +68,7 @@ jobs:
           timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
           echo "✅ Legacy version is healthy."
 
-      - name: 🟢 Phase 2: Upgrade to Current (Green)
+      - name: "🟢 Phase 2: Upgrade to Current (Green)"
         run: |
           echo "Triggering SELF-UPGRADE from the Hub..."
           
@@ -86,7 +86,7 @@ jobs:
           timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
           echo "✅ Self-upgrade successful and healthy."
 
-      - name: 🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)
+      - name: "🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)"
         run: |
           echo "Testing REAL Tenant Provisioning via Control Hub..."
           
