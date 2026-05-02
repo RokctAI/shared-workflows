@@ -227,6 +227,9 @@ else
   # We strip it from the installer to prevent apt-get failures.
   sed -i 's/software-properties-common//g' install.sh
   
+  # PATCH: Force GPG to not require a TTY when overwriting keyring files.
+  sed -i 's/gpg --dearmor/gpg --dearmor --batch --yes/g' install.sh
+  
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
