@@ -413,14 +413,29 @@ else
 fi
 
 # 5. Monorepo Overrides Staging & Application
+# For each app already present in apps/, check if monorepo_overrides has a matching
+# folder and apply it. This way no non-app directories from the Monorepo are touched.
+OVERRIDES_DIR=""
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/monorepo_overrides" ]; then
-  echo "Applying Monorepo Overrides..."
-  # Control Overrides
-  if [ -d "$GITHUB_WORKSPACE/monorepo_overrides/control" ]; then
-    echo "Applying Control Overrides..."
-    cp -rf "$GITHUB_WORKSPACE/monorepo_overrides/control/." "apps/control/"
-  fi
+  OVERRIDES_DIR="$GITHUB_WORKSPACE/monorepo_overrides"
+elif [ -d "/home/frappe/monorepo_overrides" ]; then
+  OVERRIDES_DIR="/home/frappe/monorepo_overrides"
 fi
+
+if [ -n "$OVERRIDES_DIR" ]; then
+  echo "Applying Monorepo Overrides from $OVERRIDES_DIR..."
+  for app_dir in apps/*/; do
+    app=$(basename "$app_dir")
+    if [ -d "$OVERRIDES_DIR/$app" ]; then
+      echo "  Applying overrides for $app..."
+      cp -rf "$OVERRIDES_DIR/$app/." "apps/$app/"
+    fi
+  done
+  echo "✅ Monorepo overrides applied."
+else
+  echo "No monorepo_overrides directory found — skipping."
+fi
+
 
 # C. Stack Dependencies (Apps requested by install_stack.py)
 echo "RokctAI: Checking stack dependencies..."
