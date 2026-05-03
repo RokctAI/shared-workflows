@@ -29,6 +29,13 @@ PY_BIN=${PY_BIN:-python3}
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
+# Silence tqdm progress bars (e.g. "Updating DocTypes [===] 40%") in non-TTY environments.
+# Without a TTY, tqdm can't use \r to overwrite lines so it prints every % update as a new line.
+# TQDM_DISABLE=1 suppresses all tqdm output entirely.
+export TQDM_DISABLE=1
+export PYTHONUNBUFFERED=1
+
+
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
 if ! command -v python3.14 >/dev/null 2>&1; then
