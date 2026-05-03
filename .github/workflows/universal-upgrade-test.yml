@@ -126,27 +126,27 @@ jobs:
           # In the CI, we want to upgrade to the images we just built.
           # The images are already tagged as 'latest' on GHCR by the previous job.
           # We tell the Hub to perform an immediate upgrade.
-          docker compose exec -T app bench --site platform.rokct.ai update-ecosystem --immediate
+          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" update-ecosystem --immediate
           
           # Run Migrations (just in case, though the script should handle it)
           echo "Ensuring Migrations are complete..."
-          docker compose exec -T app bench --site platform.rokct.ai migrate
+          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" migrate
           
           # Wait for health
           echo "Waiting for upgraded app to boot..."
-          timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
+          timeout 120s bash -c 'until docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" db-ping; do sleep 5; done'
           echo "✅ Self-upgrade successful and healthy."
-
+ 
       - name: "🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)"
         run: |
           echo "Testing REAL Tenant Provisioning via Control Hub..."
           
           # Map the test domains to localhost
-          echo "127.0.0.1 platform.rokct.ai juvo.tenant.rokct.ai" | sudo tee -a /etc/hosts
+          echo "127.0.0.1 ${SITE_NAME:-platform.rokct.ai} juvo.tenant.rokct.ai" | sudo tee -a /etc/hosts
           
           # Run the debug provisioning script inside the Hub container
           # This script runs everything synchronously and prints tracebacks on failure
-          docker compose exec -T app bench --site platform.rokct.ai execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
+          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
           
           echo "✅ Real-world provisioning verified via Control Hub."
 
