@@ -609,7 +609,7 @@ for app_dir in apps/*; do
       LOAN_PY="apps/lending/lending/loan_management/doctype/loan/loan.py"
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
-        env/bin/python <<'PY'
+        env/bin/python << 'PY'
 import re, pathlib, sys
 
 p_str = "apps/lending/lending/loan_management/doctype/loan/loan.py"
@@ -634,9 +634,12 @@ guard = '''
 try:
     import erpnext
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_payment_entry
+    from erpnext.controllers.accounts_controller import AccountsController
 except (ImportError, ModuleNotFoundError):
     erpnext = None
     get_payment_entry = None  # RokctAI: erpnext not installed
+    from frappe.model.document import Document
+    AccountsController = Document
 '''
 
 # Insert before first frappe import or at top if no frappe import
@@ -783,13 +786,14 @@ sync_apps_txt
 # Final Migration & App Installation
 if [ -d "apps/lending" ]; then
   safe_install_app lending || true
-  bench --site "$SITE_NAME" list-apps | grep -q lending &&
-    echo "lending installed OK" ||
-    echo "WARNING: lending not installed on site"
+  # Verification check for lending installation
+  bench --site "$SITE_NAME" list-apps | grep -q lending \
+    && echo "lending installed OK" \
+    || echo "WARNING: lending not installed on site"
 fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
-echo "" >>"sites/$SITE_NAME/apps.txt" || true
+echo "" >> "sites/$SITE_NAME/apps.txt" || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
@@ -951,6 +955,7 @@ fi
 # 'rok tests' is not a valid command in the current version, use bench instead
 echo "RokctAI: Verifying final app list on site $SITE_NAME..."
 bench --site "$SITE_NAME" list-apps
+bench --site "$SITE_NAME" set-config allow_tests true || true
 bench --site "$SITE_NAME" run-tests --app rpanel 2>/dev/null || true
 
 echo "RokctAI: Final Workspace State..."
