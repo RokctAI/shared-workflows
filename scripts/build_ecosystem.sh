@@ -35,7 +35,6 @@ ROK_REF=${ROK_REF:-main}
 export TQDM_DISABLE=1
 export PYTHONUNBUFFERED=1
 
-
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
 if ! command -v python3.14 >/dev/null 2>&1; then
@@ -701,7 +700,7 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
       git config user.name "RokctAI Bot"
       git add rcore/rcore/platform
       git commit -m "chore(rcore): auto-bake platform assets [skip ci]"
-      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." || \
+      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." ||
         echo "Warning: Failed to push baked assets to Monorepo."
     else
       echo "No asset changes to persist."
