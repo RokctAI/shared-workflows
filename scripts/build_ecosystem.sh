@@ -38,6 +38,8 @@ export PYTHONUNBUFFERED=1
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
 mkdir -p /home/frappe/logs
+mkdir -p /home/frappe/frappe-bench/logs
+mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
 
 
 # --- 0. Bootstrap Python 3.14 (Universal) ---
@@ -289,14 +291,14 @@ PROGRESS_FILE="apps/frappe/frappe/utils/progress.py"
 if [ -f "$PROGRESS_FILE" ] && [ ! -t 1 ]; then
   echo "RokctAI: Patching Frappe progress bar for non-TTY output..."
   cat > "$PROGRESS_FILE" << 'EOF'
-# RokctAI: Patched — suppress progress bars in non-TTY/CI environments
+# RokctAI: Patched — suppress progress bars in non-TTY/CI
 import sys
 
 def update_progress_bar(title, doctype="", start=0, end=100, reload=False):
     if start == 0:
-        print(f"{title}: started", flush=True)
+        print(f"{title}: [started]", flush=True)
     elif end == 100 or start >= end:
-        print(f"{title}: done", flush=True)
+        print(f"{title}: [done]", flush=True)
 
 show_progress = update_progress_bar
 EOF
@@ -596,12 +598,39 @@ for app_dir in apps/*; do
 
       # Fix #2: Guard erpnext imports in loan.py to prevent ImportError during DocType sync.
       # The Loan doctype still has bare `import erpnext` / `from erpnext` calls.
-      LOAN_PY="apps/$this_app/lending/loan_management/doctype/loan/loan.py"
+      LOAN_PY="apps/lending/lending/loan_management/doctype/loan/loan.py"
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
-        # Wrap bare erpnext imports in a try/except so they silently fail if erpnext absent
-        sed -i 's/^import erpnext/try:\n    import erpnext\nexcept ImportError:\n    erpnext = None  # RokctAI: erpnext not installed/g' "$LOAN_PY" || true
-        sed -i 's/^from erpnext/try:\n    from erpnext/g' "$LOAN_PY" || true
+        env/bin/python << 'PY'
+import re, pathlib
+
+path = pathlib.Path("apps/lending/lending/loan_management/doctype/loan/loan.py")
+text = path.read_text()
+
+# Replace all erpnext import blocks with a single guarded block
+# First remove any already-partial patches
+text = re.sub(
+    r'try:\s*\n\s*import erpnext\s*\nexcept ImportError:[^\n]*\n[^\n]*\n',
+    '', text
+)
+text = re.sub(r'^import erpnext\s*$', '', text, flags=re.MULTILINE)
+text = re.sub(r'^from erpnext[^\n]*$', '', text, flags=re.MULTILINE)
+
+# Inject single clean guard after last stdlib import
+guard = '''
+try:
+    import erpnext
+    from erpnext.accounts.doctype.journal_entry.journal_entry import get_payment_entry
+except ImportError:
+    erpnext = None
+    get_payment_entry = None  # RokctAI: erpnext not installed
+'''
+
+# Insert before first frappe import
+text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+path.write_text(text)
+print("loan.py patched successfully")
+PY
       fi
     fi
     if [ "$this_app" = "rcore" ]; then
@@ -713,6 +742,9 @@ else
   # Force bench to "use" this site to set the internal context
   bench --site "$SITE_NAME" set-config developer_mode 1 || true
 fi
+
+# Ensure site-specific logs exist
+mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
