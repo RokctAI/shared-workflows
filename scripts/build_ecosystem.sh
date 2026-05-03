@@ -283,6 +283,25 @@ cd "$BENCH_DIR" || {
 }
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
+# --- 4A. Patch: Suppress Frappe Progress Bars (Non-TTY) ---
+# Suppress Frappe's built-in progress bar in non-TTY environments
+PROGRESS_FILE="apps/frappe/frappe/utils/progress.py"
+if [ -f "$PROGRESS_FILE" ] && [ ! -t 1 ]; then
+  echo "RokctAI: Patching Frappe progress bar for non-TTY output..."
+  cat > "$PROGRESS_FILE" << 'EOF'
+# RokctAI: Patched — suppress progress bars in non-TTY/CI environments
+import sys
+
+def update_progress_bar(title, doctype="", start=0, end=100, reload=False):
+    if start == 0:
+        print(f"{title}: started", flush=True)
+    elif end == 100 or start >= end:
+        print(f"{title}: done", flush=True)
+
+show_progress = update_progress_bar
+EOF
+fi
+
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
 # ROK is not a Frappe app; keep it out of apps/ and install as a Python tool.
 if [ "$INSTALL_ROK" = "true" ]; then
@@ -432,6 +451,50 @@ if [ -n "$OVERRIDES_DIR" ]; then
     fi
   done
   echo "✅ Monorepo overrides applied."
+
+  # 5A. Process Monorepo Blueprints (modules.txt and hooks.py)
+  # Uses .rokct/app_blueprints.json to dynamically register private modules and hooks.
+  BLUEPRINT_FILE="$OVERRIDES_DIR/.rokct/app_blueprints.json"
+  if [ -f "$BLUEPRINT_FILE" ]; then
+    echo "Applying Monorepo Blueprints from $BLUEPRINT_FILE..."
+    export OVERRIDES_DIR
+    python3 -c "
+import json, os
+blueprint_path = os.path.join(os.environ['OVERRIDES_DIR'], '.rokct', 'app_blueprints.json')
+if not os.path.exists(blueprint_path):
+    exit(0)
+with open(blueprint_path, 'r') as f:
+    blueprints = json.load(f)
+for app_name, config in blueprints.items():
+    app_pkg_path = os.path.join('apps', app_name, app_name)
+    if not os.path.isdir(app_pkg_path):
+        continue
+    # 1. Update modules.txt
+    modules_txt = os.path.join(app_pkg_path, 'modules.txt')
+    if os.path.exists(modules_txt):
+        with open(modules_txt, 'r') as f:
+            existing_modules = [l.strip() for l in f if l.strip()]
+        updated = False
+        for mod in config.get('modules', []):
+            if mod not in existing_modules:
+                existing_modules.append(mod)
+                updated = True
+        if updated:
+            with open(modules_txt, 'w') as f:
+                f.write('\\n'.join(existing_modules) + '\\n')
+            print(f'  - Updated modules.txt for {app_name}')
+    # 2. Update hooks.py
+    hooks_py = os.path.join(app_pkg_path, 'hooks.py')
+    if os.path.exists(hooks_py) and config.get('hooks'):
+        with open(hooks_py, 'r') as f:
+            content = f.read()
+        header = '# --- Private Monorepo Hooks ---'
+        if header not in content:
+            with open(hooks_py, 'a') as f:
+                f.write('\\n' + '\\n'.join(config['hooks']) + '\\n')
+            print(f'  - Injected monorepo hooks into {app_name}/hooks.py')
+" || echo "Warning: Failed to apply monorepo blueprints."
+  fi
 else
   echo "No monorepo_overrides directory found — skipping."
 fi
