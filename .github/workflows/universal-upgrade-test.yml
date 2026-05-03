@@ -73,9 +73,14 @@ jobs:
           
           docker compose up -d
           
-          # Wait for health
-          echo "Waiting for legacy app to boot..."
-          timeout 120s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai db-ping; do sleep 5; done'
+          # Phase 1a: Wait for the container to be in 'running' state (not just 'created')
+          echo "Waiting for app container to start..."
+          timeout 60s bash -c 'until [ "$(docker compose ps -q app | xargs docker inspect -f {{.State.Running}} 2>/dev/null)" = "true" ]; do sleep 2; done'
+
+          # Phase 1b: Wait for bench to be ready (site created + DB connected)
+          # 'bench list-apps' only succeeds once the site is fully set up
+          echo "Waiting for legacy app to finish site setup..."
+          timeout 300s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai list-apps > /dev/null 2>&1; do sleep 10; done'
           echo "✅ Legacy version is healthy."
 
       - name: "🟢 Phase 2: Upgrade to Current (Green)"
