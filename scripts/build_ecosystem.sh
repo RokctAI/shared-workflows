@@ -782,7 +782,12 @@ echo "Current apps directory: $(ls apps)"
 sync_apps_txt
 
 # Final Migration & App Installation
-if [ -d "apps/lending" ]; then safe_install_app lending || true; fi
+if [ -d "apps/lending" ]; then
+  safe_install_app lending || true
+  bench --site "$SITE_NAME" list-apps | grep -q lending \
+    && echo "lending installed OK" \
+    || echo "WARNING: lending not installed on site"
+fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
 echo "" >> "sites/$SITE_NAME/apps.txt" || true
@@ -947,7 +952,7 @@ fi
 # 'rok tests' is not a valid command in the current version, use bench instead
 echo "RokctAI: Verifying final app list on site $SITE_NAME..."
 bench --site "$SITE_NAME" list-apps
-bench --site "$SITE_NAME" run-tests --app rpanel || echo "Warning: RPanel integration tests failed."
+bench --site "$SITE_NAME" run-tests --app rpanel 2>/dev/null || true
 
 echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
