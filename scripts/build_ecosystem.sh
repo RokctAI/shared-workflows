@@ -694,7 +694,7 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
       git config user.name "RokctAI Bot"
       git add rcore/rcore/platform
       git commit -m "chore(rcore): auto-bake platform assets [skip ci]"
-      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." || \
+      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." ||
         echo "Warning: Failed to push baked assets to Monorepo."
     else
       echo "No asset changes to persist."
