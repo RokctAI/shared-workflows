@@ -35,13 +35,6 @@ ROK_REF=${ROK_REF:-main}
 export TQDM_DISABLE=1
 export PYTHONUNBUFFERED=1
 
-# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
-# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-mkdir -p /home/frappe/logs
-mkdir -p /home/frappe/frappe-bench/logs
-mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
-
-
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
 if ! command -v python3.14 >/dev/null 2>&1; then
@@ -250,7 +243,17 @@ else
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh || {
+    echo "=== install.sh failed — dumping rpanel_install.log ==="
+    cat /tmp/rpanel_install.log || true
+    echo "=== Continuing — rpanel will be re-installed by safe_install_app ==="
+  }
+
+  if [ ! -d "/home/frappe/frappe-bench" ]; then
+    echo "❌ frappe-bench missing after install.sh — cannot continue"
+    cat /tmp/rpanel_install.log || true
+    exit 1
+  fi
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -271,6 +274,12 @@ else
   ls -la /home/frappe/frappe-bench/sites || true
   ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
 fi
+
+# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
+# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
+mkdir -p /home/frappe/logs
+mkdir -p /home/frappe/frappe-bench/logs
+mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
