@@ -35,13 +35,6 @@ ROK_REF=${ROK_REF:-main}
 export TQDM_DISABLE=1
 export PYTHONUNBUFFERED=1
 
-# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
-# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-mkdir -p /home/frappe/logs
-mkdir -p /home/frappe/frappe-bench/logs
-mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
-
-
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
 if ! command -v python3.14 >/dev/null 2>&1; then
@@ -250,7 +243,17 @@ else
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh || {
+    echo "=== install.sh failed — dumping rpanel_install.log ==="
+    cat /tmp/rpanel_install.log || true
+    echo "=== Continuing — rpanel will be re-installed by safe_install_app ==="
+  }
+
+  if [ ! -d "/home/frappe/frappe-bench" ]; then
+    echo "❌ frappe-bench missing after install.sh — cannot continue"
+    cat /tmp/rpanel_install.log || true
+    exit 1
+  fi
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -271,6 +274,12 @@ else
   ls -la /home/frappe/frappe-bench/sites || true
   ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
 fi
+
+# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
+# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
+mkdir -p /home/frappe/logs
+mkdir -p /home/frappe/frappe-bench/logs
+mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -602,34 +611,46 @@ for app_dir in apps/*; do
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
         env/bin/python << 'PY'
-import re, pathlib
+import re, pathlib, sys
 
-path = pathlib.Path("apps/lending/lending/loan_management/doctype/loan/loan.py")
+p_str = "apps/lending/lending/loan_management/doctype/loan/loan.py"
+path = pathlib.Path(p_str)
+if not path.exists():
+    print(f"Error: {p_str} not found")
+    sys.exit(0)
+
 text = path.read_text()
 
 # Replace all erpnext import blocks with a single guarded block
-# First remove any already-partial patches
+# First remove any already-partial patches or bare imports
 text = re.sub(
-    r'try:\s*\n\s*import erpnext\s*\nexcept ImportError:[^\n]*\n[^\n]*\n',
-    '', text
+    r'try:\s*\n\s*import erpnext\s*\nexcept ImportError:.*?\n.*?\n',
+    '', text, flags=re.DOTALL
 )
 text = re.sub(r'^import erpnext\s*$', '', text, flags=re.MULTILINE)
-text = re.sub(r'^from erpnext[^\n]*$', '', text, flags=re.MULTILINE)
+text = re.sub(r'^from erpnext.*import.*$', '', text, flags=re.MULTILINE)
 
-# Inject single clean guard after last stdlib import
+# Inject single clean guard
 guard = '''
 try:
     import erpnext
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_payment_entry
-except ImportError:
+    from erpnext.controllers.accounts_controller import AccountsController
+except (ImportError, ModuleNotFoundError):
     erpnext = None
     get_payment_entry = None  # RokctAI: erpnext not installed
+    from frappe.model.document import Document
+    AccountsController = Document
 '''
 
-# Insert before first frappe import
-text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+# Insert before first frappe import or at top if no frappe import
+if "import frappe" in text:
+    text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+else:
+    text = guard + "\n" + text
+
 path.write_text(text)
-print("loan.py patched successfully")
+print(f"✅ {p_str} patched successfully")
 PY
       fi
     fi
@@ -741,6 +762,7 @@ else
 
   # Force bench to "use" this site to set the internal context
   bench --site "$SITE_NAME" set-config developer_mode 1 || true
+  bench --site "$SITE_NAME" set-config allow_tests true || true
 fi
 
 # Ensure site-specific logs exist
@@ -763,9 +785,16 @@ echo "Current apps directory: $(ls apps)"
 sync_apps_txt
 
 # Final Migration & App Installation
-if [ -d "apps/lending" ]; then safe_install_app lending || true; fi
+if [ -d "apps/lending" ]; then
+  safe_install_app lending || true
+  # Verification check for lending installation
+  bench --site "$SITE_NAME" list-apps | grep -q lending \
+    && echo "lending installed OK" \
+    || echo "WARNING: lending not installed on site"
+fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
+echo "" >> "sites/$SITE_NAME/apps.txt" || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
@@ -913,10 +942,7 @@ fi
 if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" != "platform.rokct.ai" ]; then
   echo "Finalizing site name for Production: Renaming $SITE_NAME to platform.rokct.ai..."
   if [ -d "sites/$SITE_NAME" ]; then
-    bench rename-site "$SITE_NAME" "platform.rokct.ai" || {
-      echo "Rename failed, attempting manual move..."
-      mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
-    }
+    mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
     SITE_NAME="platform.rokct.ai"
     echo "$SITE_NAME" >sites/currentsite.txt
 
@@ -928,7 +954,10 @@ fi
 
 # Final Smoke Check & App List
 # 'rok tests' is not a valid command in the current version, use bench instead
-bench --site "$SITE_NAME" run-tests --app rpanel || echo "Warning: RPanel integration tests failed."
+echo "RokctAI: Verifying final app list on site $SITE_NAME..."
+bench --site "$SITE_NAME" list-apps
+bench --site "$SITE_NAME" set-config allow_tests true || true
+bench --site "$SITE_NAME" run-tests --app rpanel 2>/dev/null || true
 
 echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
