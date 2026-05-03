@@ -80,8 +80,44 @@ jobs:
           # Phase 1b: Wait for bench to be ready (site created + DB connected)
           # 'bench list-apps' only succeeds once the site is fully set up
           echo "Waiting for legacy app to finish site setup..."
-          timeout 300s bash -c 'until docker compose exec -T app bench --site platform.rokct.ai list-apps > /dev/null 2>&1; do sleep 10; done'
-          echo "✅ Legacy version is healthy."
+          
+          # Wait with timeout AND stream logs simultaneously
+          APP_CONTAINER=$(docker compose ps -q app)
+          docker logs -f "$APP_CONTAINER" &
+          LOGS_PID=$!
+
+          # Wait for healthy with timeout
+          TIMEOUT=300
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            # Site name might be platform.rokct.ai or rpanel.local depending on build context
+            # Detect which one exists in the sites folder
+            DETECTED_SITE=$(docker compose exec -T app ls sites 2>/dev/null | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
+            
+            if docker compose exec -T app bench --site "$DETECTED_SITE" list-apps > /dev/null 2>&1; then
+              echo "✅ Legacy version is healthy on site: $DETECTED_SITE"
+              echo "SITE_NAME=$DETECTED_SITE" >> "$GITHUB_ENV"
+              break
+            fi
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
+          done
+
+          # Kill background log follower
+          kill $LOGS_PID 2>/dev/null || true
+
+          # Always dump last 200 lines regardless of outcome
+          echo "=== app final logs ==="
+          docker logs "$APP_CONTAINER" --tail 200
+
+          # Dump container state
+          echo "=== Container state ==="
+          docker inspect "$APP_CONTAINER" --format '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}'
+
+          if [ $ELAPSED -ge $TIMEOUT ]; then
+            echo "❌ Timeout: Legacy app never finished site setup."
+            exit 1
+          fi
 
       - name: "🟢 Phase 2: Upgrade to Current (Green)"
         run: |
