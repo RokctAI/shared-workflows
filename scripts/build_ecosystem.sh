@@ -39,7 +39,6 @@ export PYTHONUNBUFFERED=1
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
 mkdir -p /home/frappe/logs
 
-
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
 if ! command -v python3.14 >/dev/null 2>&1; then
@@ -436,7 +435,6 @@ else
   echo "No monorepo_overrides directory found — skipping."
 fi
 
-
 # C. Stack Dependencies (Apps requested by install_stack.py)
 echo "RokctAI: Checking stack dependencies..."
 # Only fetch the core apps that build_ecosystem.sh originally fetched.
@@ -677,7 +675,7 @@ bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero.
 # Prevents AppNotInstalledError when erpnext is intentionally skipped.
 if bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^erpnext$"; then
   echo "RokctAI: Seeding ERPNext default setup data..."
-  bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install || \
+  bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install ||
     echo "Warning: ERPNext fixture seeding failed."
 else
   echo "Skipping ERPNext seeder (erpnext not installed)."
@@ -745,7 +743,7 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
       git config user.name "RokctAI Bot"
       git add rcore/rcore/platform
       git commit -m "chore(rcore): auto-bake platform assets [skip ci]"
-      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." || \
+      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." ||
         echo "Warning: Failed to push baked assets to Monorepo."
     else
       echo "No asset changes to persist."
@@ -783,7 +781,7 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
         git commit -m "chore(rpanel): sync __init__.py version with versions.json [skip ci]" || true
         # Only push when NOT in a Docker BOOTSTRAP build (no remote origin exists in container)
         if [ "$BOOTSTRAP" != "true" ] && [ -n "$GITHUB_TOKEN" ]; then
-          git remote get-url origin > /dev/null 2>&1 && \
+          git remote get-url origin >/dev/null 2>&1 &&
             git push origin HEAD || echo "Warning: Failed to push version sync (no remote or permission error)."
         fi
       fi
