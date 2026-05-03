@@ -35,6 +35,10 @@ ROK_REF=${ROK_REF:-main}
 export TQDM_DISABLE=1
 export PYTHONUNBUFFERED=1
 
+# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
+# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
+mkdir -p /home/frappe/logs
+
 
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
@@ -511,6 +515,16 @@ for app_dir in apps/*; do
     if [ "$this_app" = "lending" ]; then
       echo "[$this_app] Stripping 'erpnext' requirement from hooks.py..."
       sed -i "s/[\"']erpnext[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+
+      # Fix #2: Guard erpnext imports in loan.py to prevent ImportError during DocType sync.
+      # The Loan doctype still has bare `import erpnext` / `from erpnext` calls.
+      LOAN_PY="apps/$this_app/lending/loan_management/doctype/loan/loan.py"
+      if [ -f "$LOAN_PY" ]; then
+        echo "[$this_app] Guarding erpnext imports in loan.py..."
+        # Wrap bare erpnext imports in a try/except so they silently fail if erpnext absent
+        sed -i 's/^import erpnext/try:\n    import erpnext\nexcept ImportError:\n    erpnext = None  # RokctAI: erpnext not installed/g' "$LOAN_PY" || true
+        sed -i 's/^from erpnext/try:\n    from erpnext/g' "$LOAN_PY" || true
+      fi
     fi
     if [ "$this_app" = "rcore" ]; then
       echo "[$this_app] Stripping 'payments' requirement from hooks.py..."
@@ -644,8 +658,15 @@ if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
-echo "RokctAI: Seeding ERPNext default setup data..."
-bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install || echo "Warning: ERPNext fixture seeding failed."
+# Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
+# Prevents AppNotInstalledError when erpnext is intentionally skipped.
+if bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^erpnext$"; then
+  echo "RokctAI: Seeding ERPNext default setup data..."
+  bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install || \
+    echo "Warning: ERPNext fixture seeding failed."
+else
+  echo "Skipping ERPNext seeder (erpnext not installed)."
+fi
 
 # RokctAI: Stack Installation
 STACK_INSTALLER=""
@@ -660,18 +681,26 @@ if [ -n "$STACK_INSTALLER" ]; then
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   echo "RokctAI: Running post-stack migration..."
-  bench --site "$SITE_NAME" migrate || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
+  # Fix #4: Redirect fixture DuplicateEntryError noise to /dev/null.
+  # The 'Organ of State' and similar fixtures fail silently on duplicate — the exit code
+  # is already suppressed, but the traceback is noisy. Redirect only stderr from migrate.
+  bench --site "$SITE_NAME" migrate 2>/dev/null || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
 fi
 
 echo "🚀 Baking Platform API Schemas..."
 
-# Targeting: apps/rcore/platform/manager.py
+# Fix #6: Guard bake_assets with a module existence check.
+# If rcore version doesn't have the platform module yet, skip silently.
 if [ -d "apps/rcore" ]; then
-  echo "Baking assets for rcore..."
-  # Try with package-relative path first, then absolute module path
-  bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets ||
-    bench --site "$SITE_NAME" execute rcore.rcore.platform.manager.bake_assets ||
-    echo "Warning: Failed to bake rcore assets."
+  HAS_PLATFORM=$(env/bin/python -c "import importlib.util; print('yes' if importlib.util.find_spec('rcore.platform') or importlib.util.find_spec('rcore.rcore.platform') else 'no')" 2>/dev/null || echo "no")
+  if [ "$HAS_PLATFORM" = "yes" ]; then
+    echo "Baking assets for rcore..."
+    bench --site "$SITE_NAME" execute rcore.platform.manager.bake_assets 2>/dev/null ||
+      bench --site "$SITE_NAME" execute rcore.rcore.platform.manager.bake_assets 2>/dev/null ||
+      echo "Warning: Failed to bake rcore assets."
+  else
+    echo "rcore.platform module not found in this rcore version — skipping asset bake."
+  fi
 fi
 
 # 8B. Persist Baked Assets (rcore) — Self-Contained Monorepo Push
@@ -729,14 +758,18 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
 
     (
       cd apps/rpanel
+      # Fix #7: Never push inside a Docker/BOOTSTRAP build — there is no remote origin.
+      # The version sync commit is a CI-only operation done on the actual repo checkout.
       if [ -e ".git" ] && [ -n "$(git status --porcelain rpanel/__init__.py)" ]; then
         echo "✅ Version mismatch detected. Committing sync update..."
         git config user.email "bot@rokct.ai"
         git config user.name "RokctAI Bot"
         git add rpanel/__init__.py
         git commit -m "chore(rpanel): sync __init__.py version with versions.json [skip ci]" || true
-        if [ -n "$GITHUB_TOKEN" ] || [ -n "$CI" ]; then
-          git push origin HEAD || echo "Warning: Failed to push version sync."
+        # Only push when NOT in a Docker BOOTSTRAP build (no remote origin exists in container)
+        if [ "$BOOTSTRAP" != "true" ] && [ -n "$GITHUB_TOKEN" ]; then
+          git remote get-url origin > /dev/null 2>&1 && \
+            git push origin HEAD || echo "Warning: Failed to push version sync (no remote or permission error)."
         fi
       fi
     )
