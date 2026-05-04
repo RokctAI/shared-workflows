@@ -7,16 +7,16 @@
 BASE_URL="https://raw.githubusercontent.com/RokctAI/shared-workflows/main"
 WORKFLOW_DIR="examples/workflows"
 VITAL_WORKFLOWS=(
-	"build.yml"
-	"release.yml"
-	"security.yml"
-	"linter.yml"
-	"merge.yml"
-	"assign.yml"
-	"labeler.yml"
-	"stale.yml"
-	"todo.yml"
-	"dependabot.yml"
+  "build.yml"
+  "release.yml"
+  "security.yml"
+  "linter.yml"
+  "merge.yml"
+  "assign.yml"
+  "labeler.yml"
+  "stale.yml"
+  "todo.yml"
+  "dependabot.yml"
 )
 
 # Default Values
@@ -33,92 +33,92 @@ GH_HANDLE="@RendaniSinyage"
 
 # Check for --local flag
 for arg in "$@"; do
-	if [ "$arg" == "--local" ]; then
-		LOCAL_MODE=true
-	fi
+  if [ "$arg" == "--local" ]; then
+    LOCAL_MODE=true
+  fi
 done
 
 echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
 if [ -t 0 ] || [ -n "$GITHUB_ACTIONS" ]; then
-	read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
+  read -p "Do you want to customize your workflow setup? (y/N - Press Enter for No): " CUSTOMIZE
 else
-	CUSTOMIZE="n"
+  CUSTOMIZE="n"
 fi
 
 if [ -z "$CUSTOMIZE" ] && [ -n "$GITHUB_ACTIONS" ]; then
-	CUSTOMIZE="n"
+  CUSTOMIZE="n"
 fi
 
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
-	echo -e "\n\033[0;33m🛠️ Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
+  echo -e "\n\033[0;33m🛠️ Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
 
-	# Project Type
-	echo "Select Project Type:"
-	echo "1. smart (Auto-detect Flutter/Node/Frappe)"
-	echo "2. flutter (Mobile/Desktop/Web)"
-	echo "3. frappe (ERPNext/Python)"
-	echo "4. node (Next.js/React/JS)"
-	read -p "Choice [1]: " CHOICE
-	case $CHOICE in
-	2) PROJECT_TYPE="flutter" ;;
-	3) PROJECT_TYPE="frappe" ;;
-	4) PROJECT_TYPE="node" ;;
-	*) PROJECT_TYPE="smart" ;;
-	esac
+  # Project Type
+  echo "Select Project Type:"
+  echo "1. smart (Auto-detect Flutter/Node/Frappe)"
+  echo "2. flutter (Mobile/Desktop/Web)"
+  echo "3. frappe (ERPNext/Python)"
+  echo "4. node (Next.js/React/JS)"
+  read -p "Choice [1]: " CHOICE
+  case $CHOICE in
+  2) PROJECT_TYPE="flutter" ;;
+  3) PROJECT_TYPE="frappe" ;;
+  4) PROJECT_TYPE="node" ;;
+  *) PROJECT_TYPE="smart" ;;
+  esac
 
-	# Versioning (Skip for Flutter)
-	if [ "$PROJECT_TYPE" != "flutter" ]; then
-		read -p "Starting version [$STARTING_VERSION]: " INPUT_VER
-		STARTING_VERSION=${INPUT_VER:-$STARTING_VERSION}
-	fi
+  # Versioning (Skip for Flutter)
+  if [ "$PROJECT_TYPE" != "flutter" ]; then
+    read -p "Starting version [$STARTING_VERSION]: " INPUT_VER
+    STARTING_VERSION=${INPUT_VER:-$STARTING_VERSION}
+  fi
 
-	# Release Strategy
-	echo -e "\nSelect Release Strategy:"
-	echo "1. immediate (Release on every push to main)"
-	echo "2. weekly (Promote Friday RCs to Stable)"
-	echo "3. weekly-rc (Pre-release RCs on every push to main)"
-	read -p "Choice [1]: " CHOICE_STRAT
-	case $CHOICE_STRAT in
-	2) RELEASE_STRATEGY="weekly" ;;
-	3) RELEASE_STRATEGY="weekly-rc" ;;
-	*) RELEASE_STRATEGY="immediate" ;;
-	esac
+  # Release Strategy
+  echo -e "\nSelect Release Strategy:"
+  echo "1. immediate (Release on every push to main)"
+  echo "2. weekly (Promote Friday RCs to Stable)"
+  echo "3. weekly-rc (Pre-release RCs on every push to main)"
+  read -p "Choice [1]: " CHOICE_STRAT
+  case $CHOICE_STRAT in
+  2) RELEASE_STRATEGY="weekly" ;;
+  3) RELEASE_STRATEGY="weekly-rc" ;;
+  *) RELEASE_STRATEGY="immediate" ;;
+  esac
 
-	# Cron Schedule (Only for weekly)
-	if [[ "$RELEASE_STRATEGY" == "weekly" || "$RELEASE_STRATEGY" == "weekly-rc" ]]; then
-		read -p "Cron schedule [$CRON_SCHEDULE] (e.g., '0 23 * * 5' for Friday 11PM): " INPUT_CRON
-		CRON_SCHEDULE=${INPUT_CRON:-$CRON_SCHEDULE}
-	fi
+  # Cron Schedule (Only for weekly)
+  if [[ "$RELEASE_STRATEGY" == "weekly" || "$RELEASE_STRATEGY" == "weekly-rc" ]]; then
+    read -p "Cron schedule [$CRON_SCHEDULE] (e.g., '0 23 * * 5' for Friday 11PM): " INPUT_CRON
+    CRON_SCHEDULE=${INPUT_CRON:-$CRON_SCHEDULE}
+  fi
 
-	# Dependency Versions
-	echo -e "\nDefault Dependency Versions:"
-	read -p "Node.js version [$NODE_VERSION]: " INPUT_NODE
-	NODE_VERSION=${INPUT_NODE:-$NODE_VERSION}
+  # Dependency Versions
+  echo -e "\nDefault Dependency Versions:"
+  read -p "Node.js version [$NODE_VERSION]: " INPUT_NODE
+  NODE_VERSION=${INPUT_NODE:-$NODE_VERSION}
 
-	read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
-	PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
+  read -p "Python version [$PYTHON_VERSION]: " INPUT_PYTHON
+  PYTHON_VERSION=${INPUT_PYTHON:-$PYTHON_VERSION}
 
-	read -p "Flutter version [$FLUTTER_VERSION]: " INPUT_FLUTTER
-	FLUTTER_VERSION=${INPUT_FLUTTER:-$FLUTTER_VERSION}
-	# CODEOWNERS Handle
-	read -p "GitHub handle for CODEOWNERS [$GH_HANDLE]: " INPUT_HANDLE
-	GH_HANDLE=${INPUT_HANDLE:-$GH_HANDLE}
+  read -p "Flutter version [$FLUTTER_VERSION]: " INPUT_FLUTTER
+  FLUTTER_VERSION=${INPUT_FLUTTER:-$FLUTTER_VERSION}
+  # CODEOWNERS Handle
+  read -p "GitHub handle for CODEOWNERS [$GH_HANDLE]: " INPUT_HANDLE
+  GH_HANDLE=${INPUT_HANDLE:-$GH_HANDLE}
 
-	# Dependabot Frequency
-	echo -e "\nSelect Dependabot Update Frequency:"
-	echo "1. monthly (Fleet standard - Recommended)"
-	echo "2. weekly"
-	echo "3. daily"
-	read -p "Choice [1]: " CHOICE_DEP
-	case $CHOICE_DEP in
-	2) DEPENDABOT_INTERVAL="weekly" ;;
-	3) DEPENDABOT_INTERVAL="daily" ;;
-	*) DEPENDABOT_INTERVAL="monthly" ;;
-	esac
+  # Dependabot Frequency
+  echo -e "\nSelect Dependabot Update Frequency:"
+  echo "1. monthly (Fleet standard - Recommended)"
+  echo "2. weekly"
+  echo "3. daily"
+  read -p "Choice [1]: " CHOICE_DEP
+  case $CHOICE_DEP in
+  2) DEPENDABOT_INTERVAL="weekly" ;;
+  3) DEPENDABOT_INTERVAL="daily" ;;
+  *) DEPENDABOT_INTERVAL="monthly" ;;
+  esac
 else
-	echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
+  echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
 fi
 
 run_step() {
