@@ -93,9 +93,9 @@ jobs:
           while [ $ELAPSED -lt $TIMEOUT ]; do
             # Site name might be platform.rokct.ai or rpanel.local depending on build context
             # Detect which one exists in the sites folder
-            DETECTED_SITE=$(docker compose exec -T app ls sites 2>/dev/null | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
+            DETECTED_SITE=$(docker compose exec -T app ls /home/frappe/frappe-bench/sites 2>/dev/null | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
             
-            if docker compose exec -T app bench --site "$DETECTED_SITE" list-apps > /dev/null 2>&1; then
+            if docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "$DETECTED_SITE" list-apps > /dev/null 2>&1; then
               echo "✅ Legacy version is healthy on site: $DETECTED_SITE"
               echo "SITE_NAME=$DETECTED_SITE" >> "$GITHUB_ENV"
               break
@@ -127,16 +127,16 @@ jobs:
           # In the CI, we want to upgrade to the images we just built.
           # The images are already tagged as 'latest' on GHCR by the previous job.
           # We tell the Hub to perform an immediate upgrade.
-          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" update-ecosystem --immediate
+          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" update-ecosystem --immediate
           
           # Run Migrations (just in case, though the script should handle it)
           echo "Ensuring Migrations are complete..."
-          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" migrate
+          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" migrate
           
           # Wait for health
           echo "Waiting for upgraded app to boot..."
           # shellcheck disable=SC2016
-          timeout 120s bash -c 'until docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" db-ping; do sleep 5; done'
+          timeout 120s bash -c 'until docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" db-ping; do sleep 5; done'
           echo "✅ Self-upgrade successful and healthy."
  
       - name: "🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)"
@@ -148,7 +148,7 @@ jobs:
           
           # Run the debug provisioning script inside the Hub container
           # This script runs everything synchronously and prints tracebacks on failure
-          docker compose exec -T app bench --site "${SITE_NAME:-platform.rokct.ai}" execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
+          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
           
           echo "✅ Real-world provisioning verified via Control Hub."
 

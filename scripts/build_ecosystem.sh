@@ -1016,14 +1016,67 @@ fi
 
 echo "✅ Platform API Manifest Created."
 
-# 9. Full-Stack Ecosystem Verification (Un-Mocked)
-echo "RokctAI: Triggering Full-Stack Integration Verification..."
-bench --site "$SITE_NAME" run-tests --app control --module control.control.tests.test_ecosystem_integration --skip-before-tests || true
+# ==============================================================================
+# ROKCTAI: POST-GOLDEN-BUILD VERIFICATION PHASE (DYNAMIC)
+# ==============================================================================
+bench --site "$SITE_NAME" execute "
+import frappe, importlib, sys
+
+print('🔍 RokctAI: Starting Dynamic Verification Phase...')
+
+installed_apps = frappe.get_installed_apps()
+print(f'Detected installed apps: {installed_apps}')
+
+all_doctypes = frappe.get_all('DocType', fields=['name', 'issingle'])
+
+missing_tables = []
+
+for dt in all_doctypes:
+    try:
+        meta = frappe.get_meta(dt.name)
+        app = getattr(meta, 'app', None)
+
+        if app in installed_apps:
+            if not dt.issingle:
+                table = 'tab' + dt.name
+                if not frappe.db.table_exists(table):
+                    missing_tables.append(dt.name)
+
+    except Exception as e:
+        print(f'⚠️ Load fail: {dt.name} -> {e}')
+
+if missing_tables:
+    print(f'❌ Missing tables: {missing_tables}')
+    sys.exit(1)
+
+print('✅ Schema OK')
+
+# Patch check
+if frappe.db.table_exists('tabPatch Log'):
+    failed = frappe.get_all('Patch Log', filters={'status': 'Failed'})
+    if failed:
+        print(f'❌ Failed patches: {failed}')
+        sys.exit(1)
+    print('✅ Patch state OK')
+else:
+    print('⚠️ Patch Log missing, skipping')
+
+# Import validation
+for app in installed_apps:
+    try:
+        importlib.import_module(app)
+        print(f'OK: {app}')
+    except Exception as e:
+        print(f'❌ IMPORT FAIL: {app} -> {e}')
+        sys.exit(1)
+
+print('🚀 RokctAI: Dynamic Verification PASSED')
+"
 
 # Run Standard App Tests if explicitly requested (usually CI only)
 if [ "$RUN_TESTS" = "true" ]; then
   echo "RokctAI: Running Tests for $APP_NAME..."
-  bench --site $SITE_NAME run-tests --app $APP_NAME
+  bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
 fi
 
 # --- 10. Finalize Site Name (Non-Docker Production Only) ---
@@ -1039,13 +1092,6 @@ if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" !=
     bench setup supervisor || true
   fi
 fi
-
-# Final Smoke Check & App List
-# 'rok tests' is not a valid command in the current version, use bench instead
-echo "RokctAI: Verifying final app list on site $SITE_NAME..."
-bench --site "$SITE_NAME" list-apps
-bench --site "$SITE_NAME" set-config allow_tests true || true
-bench --site "$SITE_NAME" run-tests --app rpanel 2>/dev/null || true
 
 echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
