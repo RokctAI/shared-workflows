@@ -39,20 +39,34 @@ jobs:
 
       - name: Detect Previous Version
         id: prev
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
-          # Fetch tags from GitHub Container Registry (GHCR)
-          REPO_LOWER=$(echo "${{ github.repository_owner }}/monorepo/${{ inputs.app_name }}-control" | tr '[:upper:]' '[:lower:]')
+          # Fetch tags from GitHub Container Registry (GHCR) using GH CLI
+          # The package name in GHCR for our monorepo artifacts
+          PKG_NAME="${{ inputs.app_name }}-control"
+          ORG_NAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           
-          # Authenticate and get token
-          TOKEN=$(curl -s -u "${{ github.actor }}:${{ secrets.MONOREPO_PAT || github.token }}" "https://ghcr.io/token?scope=repository:${REPO_LOWER}:pull" | jq -r .token)
+          echo "Fetching tags for package: $ORG_NAME/monorepo/$PKG_NAME"
           
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-             echo "Failed to authenticate with GHCR or repo not found. Falling back to latest."
+          # Use GH API to fetch versions for the container package
+          # Note: We use the 'orgs' or 'users' endpoint based on owner type.
+          # For RokctAI it is an org.
+          TAGS=$(gh api -H "Accept: application/vnd.github+json" \
+            "/orgs/$ORG_NAME/packages/container/monorepo%2F$PKG_NAME/versions" \
+            --jq '.[] | .metadata.container.tags[]' 2>/dev/null | grep -v 'latest' | sort -V -r || echo "")
+
+          if [ -z "$TAGS" ]; then
+             echo "No tags found via GH API, trying fallback user endpoint..."
+             TAGS=$(gh api -H "Accept: application/vnd.github+json" \
+               "/users/$ORG_NAME/packages/container/monorepo%2F$PKG_NAME/versions" \
+               --jq '.[] | .metadata.container.tags[]' 2>/dev/null | grep -v 'latest' | sort -V -r || echo "")
+          fi
+
+          if [ -z "$TAGS" ]; then
+             echo "Failed to fetch tags from GHCR. Falling back to latest."
              PREV_VERSION="latest"
           else
-             # Fetch all tags, remove 'latest', sort by version descending
-             TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/${REPO_LOWER}/tags/list" | jq -r '.tags[]?' | grep -v 'latest' | sort -V -r || echo "")
-             
              # Find the highest version that is NOT the current version we just built
              PREV_VERSION=$(echo "$TAGS" | grep -v "^${{ inputs.current_version }}$" | head -n 1)
              
