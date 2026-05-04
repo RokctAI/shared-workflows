@@ -92,27 +92,40 @@ def fix_workflow_inputs(content):
                 )
 
     # 1. workflow_dispatch inputs (additive only)
-    if (
-        "workflow_dispatch:" in content
-        and "backfill_ai_notes_cutoff_version:" not in content
-    ):
-        input_block = """      backfill_ai_notes_cutoff_version:
+    if "workflow_dispatch:" in content:
+        # backfill_ai_notes_cutoff_version
+        if "backfill_ai_notes_cutoff_version:" not in content:
+            input_block = """      backfill_ai_notes_cutoff_version:
         type: string
         default: ""
         description: "Regenerate AI release notes starting from this version (use 'all' for full history)"
 """
-        # More robust regex to find the inputs: line under workflow_dispatch
-        match = re.search(r"(workflow_dispatch:.*?\n\s+inputs:)", content, re.DOTALL)
-        if match:
-            content = content.replace(match.group(1), match.group(1) + "\n" + input_block)
-        else:
-            # Fallback for when inputs: is missing
-            content = content.replace(
-                "workflow_dispatch:", "workflow_dispatch:\n    inputs:\n" + input_block
-            )
+            match = re.search(r"(workflow_dispatch:.*?\n\s+inputs:)", content, re.DOTALL)
+            if match:
+                content = content.replace(match.group(1), match.group(1) + "\n" + input_block)
+            else:
+                content = content.replace(
+                    "workflow_dispatch:", "workflow_dispatch:\n    inputs:\n" + input_block
+                )
+
+        # run_verify
+        if "run_verify:" not in content:
+            input_block = """      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator"
+"""
+            match = re.search(r"(workflow_dispatch:.*?\n\s+inputs:)", content, re.DOTALL)
+            if match:
+                content = content.replace(match.group(1), match.group(1) + "\n" + input_block)
+            else:
+                content = content.replace(
+                    "workflow_dispatch:", "workflow_dispatch:\n    inputs:\n" + input_block
+                )
 
     # 2. universal-pipeline mapping (additive only)
     if "uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml" in content:
+        # backfill_ai_notes_cutoff_version
         if (
             "backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}"
             not in content
@@ -125,6 +138,17 @@ def fix_workflow_inputs(content):
                     match.group(1),
                     match.group(1)
                     + "\n      backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}",
+                )
+
+        # run_verify
+        if "run_verify: ${{ inputs.run_verify" not in content:
+            pattern = r"(uses: RokctAI/shared-workflows/\.github/workflows/universal-pipeline\.yml.*?with:)"
+            match = re.search(pattern, content, re.DOTALL)
+            if match:
+                content = content.replace(
+                    match.group(1),
+                    match.group(1)
+                    + "\n      run_verify: ${{ inputs.run_verify != false }}",
                 )
 
     return content
