@@ -189,11 +189,11 @@ fi
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   echo "Starting PostgreSQL Service (CI Docker DB)..."
   if ! docker ps -a | grep -q db-service; then
-    # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
+    # Force use of the custom rpanel-db image from GHCR
     DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-    if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
-      echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
-      DB_IMAGE="pgvector/pgvector:pg16"
+    if ! docker pull $DB_IMAGE; then
+      echo "❌ Critical Error: Failed to pull authenticated image $DB_IMAGE"
+      exit 1
     fi
     docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
   fi
