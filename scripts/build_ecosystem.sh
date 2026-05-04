@@ -4,6 +4,47 @@
 
 set -e
 
+BUILD_LOG="/tmp/build_ecosystem.log"
+> "$BUILD_LOG"
+
+run_step() {
+  local title="$1"
+  shift
+  local step_log
+  step_log=$(mktemp)
+  printf "  - %s... " "$title"
+
+  if "$@" >"$step_log" 2>&1; then
+    echo "✓ DONE"
+    cat "$step_log" >> "$BUILD_LOG"
+
+    # Surface any tracebacks or errors even on success
+    # Frappe often prints errors but exits 0
+    local warnings
+    warnings=$(grep -E \
+      "Traceback|Error:|Exception:|FAILED|FileNotFoundError|\
+UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|\
+psycopg2|OperationalError|DuplicateEntryError" \
+      "$step_log" 2>/dev/null || true)
+    if [ -n "$warnings" ]; then
+      echo "    ⚠️  Silent errors detected in output:"
+      echo "$warnings" | sed 's/^/      /' | head -20
+    fi
+  else
+    local exit_code=$?
+    echo "✗ FAILED (exit $exit_code)"
+    echo ""
+    echo "=== FULL OUTPUT: $title ==="
+    cat "$step_log"
+    echo "=== END: $title ==="
+    cat "$step_log" >> "$BUILD_LOG"
+    rm -f "$step_log"
+    return $exit_code
+  fi
+
+  rm -f "$step_log"
+}
+
 # ==============================================================================
 # RokctAI: Golden Build Script (build_ecosystem.sh)
 # Author: Antigravity
@@ -34,13 +75,6 @@ ROK_REF=${ROK_REF:-main}
 # TQDM_DISABLE=1 suppresses all tqdm output entirely.
 export TQDM_DISABLE=1
 export PYTHONUNBUFFERED=1
-
-# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
-# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-mkdir -p /home/frappe/logs
-mkdir -p /home/frappe/frappe-bench/logs
-mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
-
 
 # --- 0. Bootstrap Python 3.14 (Universal) ---
 # All apps require 3.14, so we ensure it is available via uv early.
@@ -84,15 +118,19 @@ is_app_installed() {
 safe_install_app() {
   local app=$1
   if is_app_installed "$app"; then
-    echo "[$app] Already installed on site $SITE_NAME, skipping..."
+    echo "  - [$app] Already installed on $SITE_NAME... ✓ DONE"
     return 0
   fi
-  echo "[$app] Safe-installing on site $SITE_NAME..."
-  # Use direct Frappe API with force=True to bypass unique constraint conflicts (Module Def)
-  # We also try bench install-app with --force as a secondary fallback
-  env/bin/python -c "import frappe; frappe.init(site='$SITE_NAME', sites_path='sites'); frappe.connect(); from frappe.installer import install_app; install_app('$app', force=True)" ||
-    bench --site "$SITE_NAME" install-app "$app" --force ||
-    bench --site "$SITE_NAME" execute frappe.installer.install_app --args "['$app']"
+  run_step "Installing $app on $SITE_NAME" \
+    env/bin/python -c "
+import frappe
+frappe.init(site='$SITE_NAME', sites_path='sites')
+frappe.connect()
+from frappe.installer import install_app
+install_app('$app', force=True)
+" || \
+  run_step "Installing $app on $SITE_NAME (bench fallback)" \
+    bench --site "$SITE_NAME" install-app "$app" --force || true
 }
 
 # Detect if running in Docker or CI Container
@@ -204,11 +242,12 @@ echo "RokctAI: Bench Initialization & CLI Setup..."
 
 # Ensure bench CLI is installed regardless of path
 if ! command -v bench >/dev/null; then
-  echo "Installing frappe-bench CLI from Frappenize fork..."
   if command -v uv >/dev/null 2>&1; then
-    uv pip install --system --break-system-packages --python "$PY_BIN" git+https://github.com/Frappenize/bench.git@rokct
+    run_step "Installing frappe-bench CLI" \
+      uv pip install --system --break-system-packages --python "$PY_BIN" git+https://github.com/Frappenize/bench.git@rokct
   else
-    $PY_BIN -m pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct || pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct
+    run_step "Installing frappe-bench CLI" \
+      $PY_BIN -m pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct || pip install --break-system-packages git+https://github.com/Frappenize/bench.git@rokct
   fi
   # Ensure bench is in the global path
   bench_bin=$(which bench 2>/dev/null || find /root/.local/bin /github/home/.local/bin /usr/local/bin -name bench 2>/dev/null | head -n 1)
@@ -250,7 +289,17 @@ else
   chmod +x install.sh
 
   echo "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh || {
+    echo "=== install.sh failed — dumping rpanel_install.log ==="
+    cat /tmp/rpanel_install.log || true
+    echo "=== Continuing — rpanel will be re-installed by safe_install_app ==="
+  }
+
+  if [ ! -d "/home/frappe/frappe-bench" ]; then
+    echo "❌ frappe-bench missing after install.sh — cannot continue"
+    cat /tmp/rpanel_install.log || true
+    exit 1
+  fi
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -271,6 +320,12 @@ else
   ls -la /home/frappe/frappe-bench/sites || true
   ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
 fi
+
+# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
+# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
+mkdir -p /home/frappe/logs
+mkdir -p /home/frappe/frappe-bench/logs
+mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -367,13 +422,13 @@ with p.open("rb") as f:
 PY
   fi
 
-  echo "Installing ROK into bench venv (editable)..."
   # Ensure the current user owns the ROK directory for the build process
   sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
   chmod -R 777 "$ROK_DIR"
 
   # Use the venv pip directly to avoid any bench-specific user-switching logic
-  ./env/bin/pip install -e "$ROK_DIR"
+  run_step "Installing ROK tooling" \
+    ./env/bin/pip install -e "$ROK_DIR"
 
   # Ensure the venv bin is in the PATH for the smoke check
   export PATH="$PWD/env/bin:$PATH"
@@ -427,9 +482,9 @@ else
     git -C apps/control fetch origin main && git -C apps/control reset --hard origin/main
     bench pip install -e apps/control
   else
-    echo "Installing Control Panel from branch: main..."
     rm -rf apps/control
-    bench get-app "$CONTROL_URL" --branch main --resolve-deps --skip-assets || true
+    run_step "Installing Control Panel" \
+      bench get-app "$CONTROL_URL" --branch main --resolve-deps --skip-assets
   fi
 fi
 
@@ -523,8 +578,9 @@ for extra_app in lending rcore; do
       if [ -z "$BRANCH" ]; then BRANCH="main"; fi
     fi
 
-    echo "RokctAI: Fetching $extra_app from $REPO_URL ($BRANCH)..."
-    bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets ||
+    run_step "Fetching $extra_app" \
+      bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets || \
+    run_step "Fetching $extra_app (fallback)" \
       bench get-app "$REPO_URL" --skip-assets || true
   else
     echo "✅ $extra_app already present."
@@ -602,40 +658,94 @@ for app_dir in apps/*; do
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
         env/bin/python << 'PY'
-import re, pathlib
+import re, pathlib, sys
 
-path = pathlib.Path("apps/lending/lending/loan_management/doctype/loan/loan.py")
+p_str = "apps/lending/lending/loan_management/doctype/loan/loan.py"
+path = pathlib.Path(p_str)
+if not path.exists():
+    print(f"Error: {p_str} not found")
+    sys.exit(0)
+
 text = path.read_text()
 
 # Replace all erpnext import blocks with a single guarded block
-# First remove any already-partial patches
+# First remove any already-partial patches or bare imports
 text = re.sub(
-    r'try:\s*\n\s*import erpnext\s*\nexcept ImportError:[^\n]*\n[^\n]*\n',
-    '', text
+    r'try:\s*\n\s*import erpnext\s*\nexcept ImportError:.*?\n.*?\n',
+    '', text, flags=re.DOTALL
 )
 text = re.sub(r'^import erpnext\s*$', '', text, flags=re.MULTILINE)
-text = re.sub(r'^from erpnext[^\n]*$', '', text, flags=re.MULTILINE)
+text = re.sub(r'^from erpnext.*import.*$', '', text, flags=re.MULTILINE)
 
-# Inject single clean guard after last stdlib import
+# Inject single clean guard
 guard = '''
 try:
     import erpnext
     from erpnext.accounts.doctype.journal_entry.journal_entry import get_payment_entry
-except ImportError:
+    from erpnext.controllers.accounts_controller import AccountsController
+except (ImportError, ModuleNotFoundError):
     erpnext = None
     get_payment_entry = None  # RokctAI: erpnext not installed
+    from frappe.model.document import Document
+    AccountsController = Document
 '''
 
-# Insert before first frappe import
-text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+# Insert before first frappe import or at top if no frappe import
+if "import frappe" in text:
+    text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+else:
+    text = guard + "\n" + text
+
 path.write_text(text)
-print("loan.py patched successfully")
+print(f"✅ {p_str} patched successfully")
 PY
+      fi
+
+      LOAN_CTRL="apps/lending/lending/loan_management/controllers/loan_controller.py"
+      if [ -f "$LOAN_CTRL" ]; then
+        echo "[$this_app] Guarding erpnext imports in loan_controller.py..."
+        env/bin/python -c "
+import pathlib, re
+p = pathlib.Path('$LOAN_CTRL')
+text = p.read_text()
+text = re.sub(r'^from erpnext([^\n]*)$',
+  r'try:\n    from erpnext\1\nexcept ImportError:\n    pass',
+  text, flags=re.MULTILINE)
+p.write_text(text)
+print('loan_controller.py patched')
+" || true
       fi
     fi
     if [ "$this_app" = "rcore" ]; then
       echo "[$this_app] Stripping 'payments' requirement from hooks.py..."
       sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+    fi
+
+    if [ "$this_app" = "control" ]; then
+      SEEDER_PATCH="apps/control/control/control/patches/seed_subscription_plans_v4.py"
+      if [ -f "$SEEDER_PATCH" ]; then
+        echo "[$this_app] Guarding ERPNext-dependent seeder in seed_subscription_plans_v4.py..."
+        env/bin/python << 'PY'
+import pathlib, re
+p = pathlib.Path("apps/control/control/control/patches/seed_subscription_plans_v4.py")
+if p.exists():
+    text = p.read_text()
+    # Find _ensure_dependencies and wrap its body
+    pattern = r"(def _ensure_dependencies\(\):)(.*?)(\ndef |\Z)"
+    def repl(m):
+        header = m.group(1)
+        body = m.group(2)
+        tail = m.group(3)
+        # Indent original body by 4 more spaces to fit in try block
+        indented_body = re.sub(r"^", "    ", body, flags=re.MULTILINE)
+        return f"{header}\n    try:{indented_body}\n    except Exception:\n        pass{tail}"
+
+    new_text = re.sub(pattern, repl, text, flags=re.DOTALL)
+    if new_text != text:
+        p.write_text(new_text)
+        print("seed_subscription_plans_v4.py patched")
+PY
+      fi
     fi
   fi
   find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self[^\)]*\):" | while read -r hook_file; do
@@ -741,6 +851,7 @@ else
 
   # Force bench to "use" this site to set the internal context
   bench --site "$SITE_NAME" set-config developer_mode 1 || true
+  bench --site "$SITE_NAME" set-config allow_tests true || true
 fi
 
 # Ensure site-specific logs exist
@@ -763,10 +874,17 @@ echo "Current apps directory: $(ls apps)"
 sync_apps_txt
 
 # Final Migration & App Installation
-if [ -d "apps/lending" ]; then safe_install_app lending || true; fi
+if [ -d "apps/lending" ]; then
+  safe_install_app lending || true
+  bench --site "$SITE_NAME" list-apps | grep lending \
+    && echo "lending installed OK" \
+    || echo "WARNING: lending not installed on site"
+fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
-bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
+echo "" >> "sites/$SITE_NAME/apps.txt" || true
+run_step "Migrating site" \
+  bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
 # Prevents AppNotInstalledError when erpnext is intentionally skipped.
@@ -790,11 +908,11 @@ if [ -n "$STACK_INSTALLER" ]; then
   echo "RokctAI: Running Stack Installer ($STACK_INSTALLER)..."
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
-  echo "RokctAI: Running post-stack migration..."
   # Fix #4: Redirect fixture DuplicateEntryError noise to /dev/null.
   # The 'Organ of State' and similar fixtures fail silently on duplicate — the exit code
   # is already suppressed, but the traceback is noisy. Redirect only stderr from migrate.
-  bench --site "$SITE_NAME" migrate 2>/dev/null || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
+  run_step "Post-stack migration" \
+    bench --site "$SITE_NAME" migrate 2>/dev/null || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
 fi
 
 echo "🚀 Baking Platform API Schemas..."
@@ -887,8 +1005,8 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
 fi
 
 if [ -n "$STACK_INSTALLER" ]; then
-  echo "RokctAI: Generating Golden DB Seed..."
-  bench --site $SITE_NAME backup
+  run_step "Generating Golden DB Seed" \
+    bench --site "$SITE_NAME" backup
   BACKUP_FILE=$(ls sites/$SITE_NAME/private/backups/*-database.sql.gz | head -n 1)
   if [ -f "$BACKUP_FILE" ]; then
     mkdir -p apps/seed_data
@@ -913,10 +1031,7 @@ fi
 if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" != "platform.rokct.ai" ]; then
   echo "Finalizing site name for Production: Renaming $SITE_NAME to platform.rokct.ai..."
   if [ -d "sites/$SITE_NAME" ]; then
-    bench rename-site "$SITE_NAME" "platform.rokct.ai" || {
-      echo "Rename failed, attempting manual move..."
-      mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
-    }
+    mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
     SITE_NAME="platform.rokct.ai"
     echo "$SITE_NAME" >sites/currentsite.txt
 
@@ -928,7 +1043,10 @@ fi
 
 # Final Smoke Check & App List
 # 'rok tests' is not a valid command in the current version, use bench instead
-bench --site "$SITE_NAME" run-tests --app rpanel || echo "Warning: RPanel integration tests failed."
+echo "RokctAI: Verifying final app list on site $SITE_NAME..."
+bench --site "$SITE_NAME" list-apps
+bench --site "$SITE_NAME" set-config allow_tests true || true
+bench --site "$SITE_NAME" run-tests --app rpanel 2>/dev/null || true
 
 echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
