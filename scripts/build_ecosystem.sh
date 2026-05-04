@@ -609,7 +609,7 @@ for app_dir in apps/*; do
       LOAN_PY="apps/lending/lending/loan_management/doctype/loan/loan.py"
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
-        env/bin/python << 'PY'
+        env/bin/python <<'PY'
 import re, pathlib, sys
 
 p_str = "apps/lending/lending/loan_management/doctype/loan/loan.py"
@@ -787,13 +787,13 @@ sync_apps_txt
 if [ -d "apps/lending" ]; then
   safe_install_app lending || true
   # Verification check for lending installation
-  bench --site "$SITE_NAME" list-apps | grep -q lending \
-    && echo "lending installed OK" \
-    || echo "WARNING: lending not installed on site"
+  bench --site "$SITE_NAME" list-apps | grep -q lending &&
+    echo "lending installed OK" ||
+    echo "WARNING: lending not installed on site"
 fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
-echo "" >> "sites/$SITE_NAME/apps.txt" || true
+echo "" >>"sites/$SITE_NAME/apps.txt" || true
 bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
