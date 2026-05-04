@@ -699,10 +699,52 @@ path.write_text(text)
 print(f"✅ {p_str} patched successfully")
 PY
       fi
+
+      LOAN_CTRL="apps/lending/lending/loan_management/controllers/loan_controller.py"
+      if [ -f "$LOAN_CTRL" ]; then
+        echo "[$this_app] Guarding erpnext imports in loan_controller.py..."
+        env/bin/python -c "
+import pathlib, re
+p = pathlib.Path('$LOAN_CTRL')
+text = p.read_text()
+text = re.sub(r'^from erpnext([^\n]*)$',
+  r'try:\n    from erpnext\1\nexcept ImportError:\n    pass',
+  text, flags=re.MULTILINE)
+p.write_text(text)
+print('loan_controller.py patched')
+" || true
+      fi
     fi
     if [ "$this_app" = "rcore" ]; then
       echo "[$this_app] Stripping 'payments' requirement from hooks.py..."
       sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+    fi
+
+    if [ "$this_app" = "control" ]; then
+      SEEDER_PATCH="apps/control/control/control/patches/seed_subscription_plans_v4.py"
+      if [ -f "$SEEDER_PATCH" ]; then
+        echo "[$this_app] Guarding ERPNext-dependent seeder in seed_subscription_plans_v4.py..."
+        env/bin/python << 'PY'
+import pathlib, re
+p = pathlib.Path("apps/control/control/control/patches/seed_subscription_plans_v4.py")
+if p.exists():
+    text = p.read_text()
+    # Find _ensure_dependencies and wrap its body
+    pattern = r"(def _ensure_dependencies\(\):)(.*?)(\ndef |\Z)"
+    def repl(m):
+        header = m.group(1)
+        body = m.group(2)
+        tail = m.group(3)
+        # Indent original body by 4 more spaces to fit in try block
+        indented_body = re.sub(r"^", "    ", body, flags=re.MULTILINE)
+        return f"{header}\n    try:{indented_body}\n    except Exception:\n        pass{tail}"
+
+    new_text = re.sub(pattern, repl, text, flags=re.DOTALL)
+    if new_text != text:
+        p.write_text(new_text)
+        print("seed_subscription_plans_v4.py patched")
+PY
+      fi
     fi
   fi
   find "apps/$this_app" -name "*.py" | xargs -r grep -lE "^[[:space:]]+def (on_update|after_insert)\(self[^\)]*\):" | while read -r hook_file; do
