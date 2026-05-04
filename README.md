@@ -22,6 +22,39 @@ Designed for **pnpm** (preferred), **Flutter**, **Node.js**, **Frappe**, and **D
 *   **🤫 Silent Transformation**: Perfroms all renames and package updates without exposing original vendor names in the CI logs.
 *   **🧠 AI Release Notes**: Diff-aware release notes using Brain API or Groq AI (`groq/compound` → `llama-3.3-70b`), reading actual code changes to produce professional feature summaries — not file name lists.
 *   **⏳ Historical Backfill**: Ability to retrospectively regenerate AI release notes for all past stable releases via a single workflow input (`backfill_ai_notes_cutoff_version`).
+*   **🔍 Continuous Verification**: Automatically boot a headless Android emulator, install the app, and capture a "Deterministic UI" screenshot and runtime logs on every push.
+
+---
+
+## 🔍 Continuous Verification (Flutter)
+
+The CI system now supports automated runtime verification to eliminate manual APK testing during development.
+
+### 1. How it works
+On every push (if `run_verify` is enabled), the CI will:
+- Boot a headless Android emulator.
+- Install the **Debug** APK.
+- Launch the app using the `monkey` tool for maximum compatibility.
+- Wait for the UI to stabilize (using a retry loop) and capture a screenshot (`verification.png`).
+- Capture `logcat` logs (`logs.txt`) including API activity.
+- Upload results as a `verification-results` artifact.
+
+### 2. Implementation in Flutter
+To benefit from this, your app should support a deterministic verification mode that bypasses login and loading states.
+
+**Example (Flutter/Dart):**
+```dart
+const isVerifyMode = bool.fromEnvironment('VERIFY_MODE', defaultValue: false);
+
+if (isVerifyMode) {
+  // 1. Bypass Login / Intro
+  // 2. Mock API data or use stable test accounts
+  // 3. Navigate directly to the screen you want verified
+}
+```
+
+> [!TIP]
+> Since the CI launches the app via the `monkey` tool, it is recommended to bake the `VERIFY_MODE` flag into the debug build itself (e.g., using `--dart-define=VERIFY_MODE=true` during the build step if desired, though the default is to capture the initial app state).
 
 ---
 

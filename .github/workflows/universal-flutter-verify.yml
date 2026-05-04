@@ -1,0 +1,115 @@
+# Copyright 2024 RokctAI
+
+name: Universal Flutter Verify
+
+permissions: write-all
+
+on:
+  workflow_call:
+    inputs:
+      package_name:
+        required: true
+        type: string
+        description: "The Android package name (applicationId)"
+
+jobs:
+  verify:
+    name: 🔍 Verify App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Download Debug APK
+        uses: actions/download-artifact@v6
+        with:
+          name: flutter-apks
+          path: build/app/outputs/flutter-apk/
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Run Emulator and Verify
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            DEBUG_APK="build/app/outputs/flutter-apk/app-debug.apk"
+            RELEASE_APK="build/app/outputs/flutter-apk/app-release.apk"
+            APK_PATH=""
+
+            if [ -f "$DEBUG_APK" ]; then
+              echo "✅ Using Debug APK: $DEBUG_APK"
+              APK_PATH="$DEBUG_APK"
+            elif [ -f "$RELEASE_APK" ]; then
+              echo "⚠️ Debug APK missing, using Release APK: $RELEASE_APK"
+              APK_PATH="$RELEASE_APK"
+            else
+              echo "❌ ERROR: No APK found at $DEBUG_APK or $RELEASE_APK"
+              exit 1
+            fi
+
+            echo "🚀 Installing APK: $APK_PATH"
+            adb install "$APK_PATH"
+
+            echo "🧹 Clearing logs..."
+            adb logcat -c
+
+            echo "🎬 Launching App..."
+            adb shell monkey -p ${{ inputs.package_name }} -c android.intent.category.LAUNCHER 1
+
+            echo "⏳ Waiting for UI to render (Retry Loop)..."
+            ATTEMPT=1
+            MAX_ATTEMPTS=5
+            SUCCESS=false
+
+            while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+              echo "📸 Capture Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+              adb shell screencap -p /sdcard/verification.png
+              adb pull /sdcard/verification.png verification.png
+
+              if [ -s verification.png ]; then
+                echo "✅ Screenshot captured successfully."
+                SUCCESS=true
+                break
+              fi
+
+              echo "⏳ Empty screenshot, waiting 5s before retry..."
+              sleep 5
+              ATTEMPT=$((ATTEMPT + 1))
+            done
+
+            if [ "$SUCCESS" = false ]; then
+              echo "❌ Failed to capture a valid screenshot after $MAX_ATTEMPTS attempts."
+              exit 1
+            fi
+
+            echo "📜 Capturing Logs..."
+            adb logcat -d > logs.txt
+
+            echo "🏁 Checking if app is still running..."
+            if adb shell pidof ${{ inputs.package_name }} > /dev/null; then
+              echo "✅ App is running."
+            else
+              echo "❌ App is NOT running. It might have crashed."
+              exit 1
+            fi
+
+            echo "✅ Verification complete."
+
+      - name: Upload Verification Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: verification-results
+          path: |
+            verification.png
+            logs.txt

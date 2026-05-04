@@ -35,6 +35,10 @@ on:
         type: string
         default: '##.##.##'
         description: "Format for version bumping (e.g. ##.##.## or ##.##.#)"
+      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator"
       backfill_ai_notes_cutoff_version:
         type: string
         default: ""
@@ -76,6 +80,7 @@ jobs:
     with:
       project_type: ${{ needs.detect.outputs.type }}
       run_ci: ${{ needs.detect.outputs.type != 'none' }}
+      run_verify: ${{ inputs.run_verify != false }}
       # Dogfooding: Use the new Weekly Strategy
       release_strategy: 'weekly'
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
