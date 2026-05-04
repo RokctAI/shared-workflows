@@ -27,6 +27,10 @@ on:
       run_ci:
         type: boolean
         default: true
+      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator (Flutter only)"
       run_import_healer:
         type: boolean
         default: false
@@ -286,16 +290,28 @@ jobs:
       app-type: ${{ inputs.app-type }}
     secrets: inherit
 
+  verify-flutter:
+    needs: ci-flutter
+    if: |
+      inputs.run_verify &&
+      inputs.project_type == 'flutter' &&
+      needs.ci-flutter.result == 'success'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-verify.yml@main
+    with:
+      package_name: ${{ needs.ci-flutter.outputs.package_name }}
+    secrets: inherit
+
   # 5. RELEASE
   release:
-    needs: [detect-changes, ci-frappe, ci-node, ci-flutter]
+    needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter]
     if: |
       always() && 
       needs.detect-changes.outputs.trivial != 'true' &&
       (github.ref_name == 'develop' || (
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
-        (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped')
+        (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped') &&
+        (needs.verify-flutter.result == 'success' || needs.verify-flutter.result == 'skipped')
       )) &&
       (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main

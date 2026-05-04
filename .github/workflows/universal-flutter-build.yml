@@ -9,6 +9,10 @@ env:
 
 on:
   workflow_call:
+    outputs:
+      package_name:
+        description: "The Android package name (applicationId)"
+        value: ${{ jobs.build-android.outputs.package_name }}
     inputs:
       build-type:
         required: false
@@ -84,6 +88,8 @@ jobs:
     name: 🤖 Android Build
     runs-on: ubuntu-latest
     permissions: write-all
+    outputs:
+      package_name: ${{ steps.package.outputs.package_name }}
     env:
       KEY_JKS: ${{ secrets.KEY_JKS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -476,6 +482,16 @@ jobs:
               flutter build apk --debug
             fi
 
+      - name: Extract Package Name
+        id: package
+        run: |
+          GRADLE_FILE="android/app/build.gradle"
+          if [ -f "$GRADLE_FILE" ]; then
+            PACKAGE=$(grep 'applicationId' "$GRADLE_FILE" | head -n 1 | sed "s/.*applicationId *['\" ]*\([^'\" ]*\)['\" ]*.*/\1/")
+            echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
+            echo "Detected Package Name: $PACKAGE"
+          fi
+
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle'
         run: |
@@ -489,7 +505,7 @@ jobs:
         if: inputs.upload-artifact == true && inputs.build-type == 'apk'
         uses: actions/upload-artifact@v6
         with:
-          name: app-release-apk
+          name: flutter-apks
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/flutter-apk/app-debug.apk
