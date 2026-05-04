@@ -69,7 +69,7 @@ wait_step() {
 #              app synchronization, and ecosystem compilation.
 # ==============================================================================
 
-echo "🚀 RokctAI: Starting Golden Build Process..."
+run_step "Starting build process" echo "🚀 RokctAI: Starting Golden Build Process..."
 
 # --- 1. Environment Detection & Variable Setup ---
 # Required Variables (should be provided by CI or Docker):
@@ -109,20 +109,20 @@ command -v "$PY_BIN" >/dev/null || PY_BIN=python3
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
-  echo "RokctAI: Synchronizing sites/apps.txt..."
+  echo "RokctAI: Synchronizing sites/apps.txt..." >>"$BUILD_LOG" 2>&1
   APPS_TXT="sites/apps.txt"
   run_step "Creating sites directory" mkdir -p sites
-  echo "frappe" >"$APPS_TXT"
+  echo "frappe" >"$APPS_TXT" >>"$BUILD_LOG" 2>&1
   # Ensure all directories in apps/ are registered, excluding frappe itself
   for app_dir in apps/*; do
     [ -d "$app_dir" ] || continue
     this_name=$(basename "$app_dir")
     [ "$this_name" = "frappe" ] && continue
     if ! grep -q "^$this_name$" "$APPS_TXT"; then
-      echo "$this_name" >>"$APPS_TXT"
+      echo "$this_name" >>"$APPS_TXT" >>"$BUILD_LOG" 2>&1
     fi
   done
-  echo "✅ apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")"
+  echo "✅ apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")" >>"$BUILD_LOG" 2>&1
 }
 
 is_app_installed() {
@@ -152,14 +152,14 @@ install_app('$app', force=True)
 # Detect if running in Docker or CI Container
 if [ -f /.dockerenv ] || [ -n "$CI" ]; then
   IS_DOCKER=true
-  echo "📦 Environment: Docker/CI Container detected."
+  echo "📦 Environment: Docker/CI Container detected." >>"$BUILD_LOG" 2>&1
 else
   IS_DOCKER=false
-  echo "☁️ Environment: Host detected."
+  echo "☁️ Environment: Host detected." >>"$BUILD_LOG" 2>&1
 fi
 
 # --- 2. Identity & Services ---
-echo "RokctAI: Setting up Identity & Services..."
+run_step "Identity echo  Services" echo "RokctAI: Setting up Identity & Services..."
 
 # Determine the working site name: In Docker/CI, we use rpanel.local to avoid rename issues.
 if [ "${DOCKER_BUILD}" = "true" ] || [ "${CI}" = "true" ]; then
@@ -171,14 +171,14 @@ SITE_NAME="${SITE_NAME:-$WORKING_SITE}"
 
 # git setup (CI only, Docker usually has its own or doesn't need tokens)
 if [ "$IS_DOCKER" = "false" ] && [ -n "$GITHUB_TOKEN" ]; then
-  run_step "Configuring Git for private repos" bash -c "
+  run_step "Configuring Git for private repos" bash -c " >> "$BUILD_LOG" 2>&1
     git config --global url.https://x-access-token:${GITHUB_TOKEN}@github.com/.insteadOf git@github.com:
     git config --global url.https://x-access-token:${GITHUB_TOKEN}@github.com/.insteadOf https://github.com/"
 fi
 
 # Redis Startup
 if [ "$IS_DOCKER" = "false" ]; then
-  echo "Starting Redis instances (Host)..."
+  echo "Starting Redis instances (Host)..." >>"$BUILD_LOG" 2>&1
   if ! command -v redis-server >/dev/null; then
     run_step "Installing redis-server" sudo bash -c "apt-get update -qq && apt-get install -y -qq redis-server"
   fi
@@ -187,17 +187,17 @@ if [ "$IS_DOCKER" = "false" ]; then
   run_step "Starting Redis (13000)" sudo redis-server --port 13000 --daemonize yes
   for port in 11000 12000 13000; do
     wait_step "Waiting for Redis on $port" bash -c "
-      if command -v nc >/dev/null; then
+      if command -v nc >/dev/null; then >> "$BUILD_LOG" 2>&1
         while ! nc -z localhost $port; do sleep 1; done
       else
-        sleep 2
+        sleep 2 >> "$BUILD_LOG" 2>&1
       fi"
   done
 else
   echo "Starting Redis Service (Container)..."
   # In CI we usually have services: redis, but we might need local ones for ports
   if [ -n "$CI" ]; then
-    echo "CI environment: Ensuring local Redis for manual ports if needed..."
+    echo "CI environment: Ensuring local Redis for manual ports if needed..." >>"$BUILD_LOG" 2>&1
     if ! command -v redis-server >/dev/null; then
       run_step "Installing local redis-server" bash -c "apt-get update -qq && apt-get install -y -qq redis-server"
     fi
@@ -205,24 +205,25 @@ else
     run_step "Starting Redis (12000)" bash -c "redis-server --port 12000 --daemonize yes || true"
     run_step "Starting Redis (13000)" bash -c "redis-server --port 13000 --daemonize yes || true"
   else
+    >>"$BUILD_LOG" 2>&1
     run_step "Starting redis-server service" sudo service redis-server start || true
   fi
 fi
 
 # PostgreSQL Startup
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-  echo "Starting PostgreSQL Service (CI Docker DB)..."
+  echo "Starting PostgreSQL Service (CI Docker DB)..." >>"$BUILD_LOG" 2>&1
   if ! docker ps -a | grep -q db-service; then
     DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
     run_step "Pulling DB image $DB_IMAGE" docker pull "$DB_IMAGE"
-    run_step "Starting db-service container" docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
+    run_step "Starting db-service container" docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE" >>"$BUILD_LOG" 2>&1
   fi
   wait_step "Waiting for PostgreSQL" timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
   run_step "Enabling pgvector extension" docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
   run_step "Enabling cube extension" docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
   run_step "Enabling earthdistance extension" docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
 elif [ "$IS_DOCKER" = "true" ]; then
-  echo "Starting PostgreSQL Service (Docker Native)..."
+  echo "Starting PostgreSQL Service (Docker Native)..." >>"$BUILD_LOG" 2>&1
   if ! command -v service >/dev/null 2>&1 || ! service --status-all | grep -q postgresql; then
     if [ -f /etc/debian_version ]; then
       run_step "Installing PostgreSQL" bash -c "apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib"
@@ -248,7 +249,7 @@ elif [ "$IS_DOCKER" = "true" ]; then
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
-echo "RokctAI: Bench Initialization & CLI Setup..."
+run_step "Bench echo  CLI Setup" echo "RokctAI: Bench Initialization & CLI Setup..."
 
 # Ensure bench CLI is installed regardless of path
 if ! command -v bench >/dev/null; then
@@ -267,7 +268,7 @@ if ! command -v bench >/dev/null; then
   export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 fi
 command -v bench >/dev/null || {
-  echo "bench missing"
+  echo "bench missing" >>"$BUILD_LOG" 2>&1
   exit 1
 }
 
@@ -280,7 +281,7 @@ else
   REPO_PATH=${GITHUB_REPOSITORY:-"RokctAI/rpanel"}
   REF_PATH=${GITHUB_REF_NAME:-"main"}
 
-  echo "RokctAI: Ensuring clean install.sh from GitHub (${REPO_PATH}/${REF_PATH})..."
+  echo "RokctAI: Ensuring clean install.sh from GitHub (${REPO_PATH}/${REF_PATH})..." >>"$BUILD_LOG" 2>&1
   run_step "Downloading installer" wget -q https://raw.githubusercontent.com/"${REPO_PATH}/${REF_PATH}"/install.sh
 
   if [ ! -f "install.sh" ]; then
@@ -317,18 +318,18 @@ else
   # We give absolute control to the current user and set global write bits to ensure
   # all build tools (git, pip, bench) can operate.
   CURRENT_USER=$(whoami)
-  echo "RokctAI: Applying Nuclear Permissions for $CURRENT_USER..."
+  echo "RokctAI: Applying Nuclear Permissions for $CURRENT_USER..." >>"$BUILD_LOG" 2>&1
   run_step "Taking ownership of bench" sudo chown -R "$CURRENT_USER:$CURRENT_USER" /home/frappe/frappe-bench
   run_step "Setting global write bits on bench" sudo chmod -R 777 /home/frappe/frappe-bench
 
   # Pre-create the directory that causes permission issues during plaid-python install
   S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
-  echo "RokctAI: Pre-patching site-packages for plaid-python..."
+  echo "RokctAI: Pre-patching site-packages for plaid-python..." >>"$BUILD_LOG" 2>&1
   run_step "Creating site-packages tests dir" sudo mkdir -p "$S_PATH/tests/integration"
   run_step "Fixing site-packages permissions" sudo chmod -R 777 "$S_PATH"
 
   # Debug: Verify site structure
-  echo "RokctAI: Debugging site structure..."
+  echo "RokctAI: Debugging site structure..." >>"$BUILD_LOG" 2>&1
   ls -la /home/frappe/frappe-bench/sites || true
   ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
 fi
@@ -340,14 +341,14 @@ run_step "Creating bench logs directory" mkdir -p /home/frappe/frappe-bench/logs
 run_step "Creating site logs directory" mkdir -p "/home/frappe/frappe-bench/sites/$SITE_NAME/logs"
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
-echo "RokctAI: Preparing Workspace & Fetching Apps..."
+run_step "Workspace Sync echo  Fetching" echo "RokctAI: Preparing Workspace & Fetching Apps..."
 
 # Ensure path is updated for current shell
 export PATH="$HOME/.local/bin:$PATH"
 
 BENCH_DIR="/home/frappe/frappe-bench"
 cd "$BENCH_DIR" || {
-  echo "❌ Error: Could not find bench at $BENCH_DIR"
+  echo "❌ Error: Could not find bench at $BENCH_DIR" >>"$BUILD_LOG" 2>&1
   exit 1
 }
 export PATH="$BENCH_DIR/env/bin:$PATH"
@@ -369,7 +370,7 @@ def update_progress_bar(title, doctype='', start=0, end=100, reload=False):
 
 show_progress = update_progress_bar
 EOF"
-fi
+fi >>"$BUILD_LOG" 2>&1
 
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
 # ROK is not a Frappe app; keep it out of apps/ and install as a Python tool.
@@ -430,7 +431,7 @@ p.write_text("".join(out), encoding="utf-8")'
 
   # Ensure the venv bin is in the PATH for the smoke check
   export PATH="$PWD/env/bin:$PATH"
-  echo "ROK smoke check..."
+  echo "ROK smoke check..." >>"$BUILD_LOG" 2>&1
   if ! command -v rok >/dev/null 2>&1; then
     echo "❌ ROK install failed: 'rok' executable not found in PATH"
     exit 1
@@ -447,18 +448,18 @@ if [ -z "$APP_NAME" ]; then
 fi
 
 export APP_NAME
-echo "Target App Detected: $APP_NAME"
+echo "Target App Detected: $APP_NAME" >>"$BUILD_LOG" 2>&1
 
 # A. Standard Dependencies (ERPNext, Payments)
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
-  echo "Fetching Payments..."
+  echo "Fetching Payments..." >>"$BUILD_LOG" 2>&1
   if [ ! -d "apps/payments" ]; then
     run_step "Fetching Payments" bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets || true
   fi
 fi
 
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
-  echo "Fetching ERPNext..."
+  echo "Fetching ERPNext..." >>"$BUILD_LOG" 2>&1
   if [ ! -d "apps/erpnext" ]; then
     run_step "Fetching ERPNext" bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets || true
   fi
@@ -468,7 +469,7 @@ sync_apps_txt
 
 # 4. Control App Installation (The Installer)
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
-  echo "🔥 Using LOCAL Control Panel from workspace..."
+  echo "🔥 Using LOCAL Control Panel from workspace..." >>"$BUILD_LOG" 2>&1
   run_step "Creating control app directory" mkdir -p apps/control
   run_step "Copying local control app" cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
   run_step "Installing control app" bench pip install -e apps/control
@@ -498,7 +499,7 @@ elif [ -d "/home/frappe/monorepo_overrides" ]; then
 fi
 
 if [ -n "$OVERRIDES_DIR" ]; then
-  echo "Applying Monorepo Overrides from $OVERRIDES_DIR..."
+  echo "Applying Monorepo Overrides from $OVERRIDES_DIR..." >>"$BUILD_LOG" 2>&1
   for app_dir in apps/*/; do
     app=$(basename "$app_dir")
     if [ -d "$OVERRIDES_DIR/$app" ]; then
@@ -512,7 +513,7 @@ if [ -n "$OVERRIDES_DIR" ]; then
   # Uses .rokct/app_blueprints.json to dynamically register private modules and hooks.
   BLUEPRINT_FILE="$OVERRIDES_DIR/.rokct/app_blueprints.json"
   if [ -f "$BLUEPRINT_FILE" ]; then
-    echo "Applying Monorepo Blueprints from $BLUEPRINT_FILE..."
+    echo "Applying Monorepo Blueprints from $BLUEPRINT_FILE..." >>"$BUILD_LOG" 2>&1
     export OVERRIDES_DIR
     python3 -c "
 import json, os
@@ -552,15 +553,15 @@ for app_name, config in blueprints.items():
 " || echo "Warning: Failed to apply monorepo blueprints."
   fi
 else
-  echo "No monorepo_overrides directory found — skipping."
+  echo "No monorepo_overrides directory found — skipping." >>"$BUILD_LOG" 2>&1
 fi
 
 # C. Stack Dependencies (Apps requested by install_stack.py)
-echo "RokctAI: Checking stack dependencies..."
+echo "RokctAI: Checking stack dependencies..." >>"$BUILD_LOG" 2>&1
 # Only fetch the core apps that build_ecosystem.sh originally fetched.
 # Others are expected to be present or handled by install_stack.py.
 for extra_app in lending rcore; do
-  echo "Checking for $extra_app..."
+  echo "Checking for $extra_app..." >>"$BUILD_LOG" 2>&1
   if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/$extra_app" ]; then
     echo "🔥 Using LOCAL $extra_app from workspace..."
     run_step "Creating $extra_app directory" mkdir -p "apps/$extra_app"
@@ -568,7 +569,7 @@ for extra_app in lending rcore; do
   elif [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
     if [ "$extra_app" = "lending" ]; then
       REPO_URL="https://github.com/Frappenize/lending.git"
-      BRANCH="rokct"
+      BRANCH="rokct" >>"$BUILD_LOG" 2>&1
     else
       REPO_URL="https://github.com/RokctAI/${extra_app}.git"
       if [ -n "$GITHUB_TOKEN" ]; then REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/${extra_app}.git"; fi
@@ -590,7 +591,7 @@ sync_apps_txt
 # --- 5. Global Ecosystem Hacks (Post-Fetch) ---
 run_step "Cleaning empty JSON files" bash -c 'find apps -name "*.json" -size 0 -delete'
 
-echo "RokctAI: Applying Global Ecosystem Hacks..."
+run_step "Ecosystem Hacks" echo "RokctAI: Applying Global Ecosystem Hacks..." >>"$BUILD_LOG" 2>&1
 
 PY_VER=$(env/bin/python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 S_PACKAGES="env/lib/python${PY_VER}/site-packages"
@@ -600,7 +601,7 @@ for app_dir in apps/*; do
   this_app=$(basename "$app_dir")
   [ "$this_app" = "frappe" ] && continue
 
-  echo "Applying Hacks for: $this_app"
+  echo "Applying Hacks for: $this_app" >>"$BUILD_LOG" 2>&1
 
   # A. Nuclear Aliasing
   if [ -d "apps/$this_app/$this_app" ]; then
@@ -625,14 +626,14 @@ for app_dir in apps/*; do
     if [ -d "apps/$this_app/platform" ] && [ ! -d "apps/$this_app/$this_app/platform" ]; then
       echo "[$this_app] Linking platform module into package..."
       ln -sf "../platform" "apps/$this_app/$this_app/platform"
-    fi
+    fi >>"$BUILD_LOG" 2>&1
   fi
 
   # D. Namespace Package Fix
   if [ -d "apps/$this_app/$this_app" ]; then
     run_step "[$this_app] Fixing namespace packages" bash -c "find apps/$this_app/$this_app -type d | while read dir; do [ -f \"\$dir/__init__.py\" ] || touch \"\$dir/__init__.py\"; done"
   fi
-
+  >>"$BUILD_LOG" 2>&1
   # E. API Deprecation Patch
   run_step "[$this_app] Patching update_site_config" bash -c "grep -r 'frappe.utils.update_site_config' 'apps/$this_app' | cut -d: -f1 | sort | uniq | xargs -r sed -i 's/frappe.utils.update_site_config/frappe.installer.update_site_config/g'" || true
 
@@ -644,7 +645,7 @@ for app_dir in apps/*; do
   # G. Dynamic App Dependency Stripping
   if [ -f "apps/$this_app/$this_app/hooks.py" ]; then
     if [ "$this_app" = "lending" ]; then
-      echo "[$this_app] Stripping 'erpnext' requirement from hooks.py..."
+      echo "[$this_app] Stripping 'erpnext' requirement from hooks.py..." >>"$BUILD_LOG" 2>&1
       sed -i "s/[\"']erpnext[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
 
       # Fix #2: Guard erpnext imports in loan.py to prevent ImportError during DocType sync.
@@ -655,7 +656,7 @@ for app_dir in apps/*; do
 import re, pathlib
 p = pathlib.Path("apps/lending/lending/loan_management/doctype/loan/loan.py")
 text = p.read_text()
-text = re.sub(r"try:\s*\n\s*import erpnext\s*\nexcept ImportError:.*?\n.*?\n", "", text, flags=re.DOTALL)
+text = re.sub(r"try:\s*\n\s*import erpnext\s*\nexcept ImportError:.*?\n.*?\n", "", text, flags=re.DOTALL) >> "$BUILD_LOG" 2>&1
 text = re.sub(r"^import erpnext\s*$", "", text, flags=re.MULTILINE)
 text = re.sub(r"^from erpnext.*import.*$", "", text, flags=re.MULTILINE)
 guard = "\ntry:\n    import erpnext\n    from erpnext.accounts.doctype.journal_entry.journal_entry import get_payment_entry\n    from erpnext.controllers.accounts_controller import AccountsController\nexcept (ImportError, ModuleNotFoundError):\n    erpnext = None\n    get_payment_entry = None\n    from frappe.model.document import Document\n    AccountsController = Document\n"
@@ -677,7 +678,7 @@ p.write_text(text)" || true
       fi
     fi
     if [ "$this_app" = "rcore" ]; then
-      echo "[$this_app] Stripping 'payments' requirement from hooks.py..."
+      echo "[$this_app] Stripping 'payments' requirement from hooks.py..." >>"$BUILD_LOG" 2>&1
       sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
     fi
 
@@ -709,7 +710,7 @@ path = os.environ.get(\"HOOK_FILE\")
 with open(path, \"r\") as f: content = f.read()
 pattern = r\"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):\"
 def repl(m):
-    indent = m.group(1)
+    indent = m.group(1) >> "$BUILD_LOG" 2>&1
     full_match = m.group(0)
     pre_content = content[:m.start()]
     lines = pre_content.splitlines()
@@ -723,9 +724,9 @@ def repl(m):
 new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
 with open(path, \"w\") as f: f.write(new_content)'" || true
   done
-
+  >>"$BUILD_LOG" 2>&1
   # G. Forced Registration (Editable Mode)
-  echo "[$this_app] Registering in editable mode..."
+  echo "[$this_app] Registering in editable mode..." >>"$BUILD_LOG" 2>&1
   run_step "Registering $this_app" bench pip install -e "apps/$this_app" || true
 
   # H. Surgical Ecosystem Hotfixes
@@ -739,7 +740,7 @@ with open(path, \"w\") as f: f.write(new_content)'" || true
 done
 
 # --- 6. Ecosystem Compilation & Site Setup ---
-echo "RokctAI: Compiling Ecosystem..."
+run_step "Ecosystem Compilation" echo "RokctAI: Compiling Ecosystem..."
 
 # Map platform hosts
 run_step "Mapping platform hosts" bash -c "echo '127.0.0.1 platform.rokct.ai' | sudo tee -a /etc/hosts && echo '127.0.0.1 rpanel.local' | sudo tee -a /etc/hosts" || echo "Skipped: /etc/hosts is read-only"
@@ -759,11 +760,11 @@ else
   # Bootstrap path: identify the site created by install.sh
   ORIG_SITE=$(find sites -maxdepth 1 -type d -name "*.local" -printf "%f\n" | head -n1)
   SITE_NAME=${ORIG_SITE:-rpanel.local}
-  echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
+  echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)" >>"$BUILD_LOG" 2>&1
 
   # SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
   if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
-    echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
+    echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..." >>"$BUILD_LOG" 2>&1
     run_step "Fixing site symlink" bash -c "echo $SITE_NAME >sites/currentsite.txt"
   fi
 
@@ -772,7 +773,7 @@ else
 
   # VERIFY SITE PATH: Fix for "IncorrectSitePath"
   if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
-    echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..."
+    echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..." >>"$BUILD_LOG" 2>&1
     if [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
       run_step "Restoring site from symlink" cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
     fi
@@ -798,7 +799,7 @@ fi
 # Install the Target App
 safe_install_app "$APP_NAME" || true
 
-echo "Current apps directory: $(ls apps)"
+echo "Current apps directory: $(ls apps)" >>"$BUILD_LOG" 2>&1
 
 sync_apps_txt
 
@@ -815,7 +816,7 @@ run_step "Migrating site" bench --site "$SITE_NAME" migrate
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
 # Prevents AppNotInstalledError when erpnext is intentionally skipped.
 if bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^erpnext$"; then
-  echo "RokctAI: Seeding ERPNext default setup data..."
+  echo "RokctAI: Seeding ERPNext default setup data..." >>"$BUILD_LOG" 2>&1
   run_step "Seeding ERPNext fixtures" bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install ||
     echo "Warning: ERPNext fixture seeding failed."
 else
@@ -831,7 +832,7 @@ elif [ -f "apps/control/install_stack.py" ]; then
 fi
 
 if [ -n "$STACK_INSTALLER" ]; then
-  echo "RokctAI: Running Stack Installer ($STACK_INSTALLER)..."
+  echo "RokctAI: Running Stack Installer ($STACK_INSTALLER)..." >>"$BUILD_LOG" 2>&1
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   # Fix #4: Redirect fixture DuplicateEntryError noise to /dev/null.
@@ -840,18 +841,18 @@ if [ -n "$STACK_INSTALLER" ]; then
   run_step "Post-stack migration" bench --site "$SITE_NAME" migrate
 fi
 
-echo "🚀 Baking Platform API Schemas..."
+run_step "Platform API Schemas" echo "🚀 Baking Platform API Schemas..."
 
 # Fix #6: Guard bake_assets with a module existence check.
 # If rcore version doesn't have the platform module yet, skip silently.
 if [ -d "apps/rcore" ]; then
   HAS_PLATFORM=$(env/bin/python -c "import importlib.util; print('yes' if importlib.util.find_spec('rcore.platform') or importlib.util.find_spec('rcore.rcore.platform') else 'no')" 2>/dev/null || echo "no")
   if [ "$HAS_PLATFORM" = "yes" ]; then
-    echo "Baking assets for rcore..."
+    echo "Baking assets for rcore..." >>"$BUILD_LOG" 2>&1
     run_step "Baking rcore assets" bash -c "bench --site $SITE_NAME execute rcore.platform.manager.bake_assets || bench --site $SITE_NAME execute rcore.rcore.platform.manager.bake_assets" ||
       echo "Warning: Failed to bake rcore assets."
   else
-    echo "rcore.platform module not found in this rcore version — skipping asset bake."
+    echo "rcore.platform module not found in this rcore version — skipping asset bake." >>"$BUILD_LOG" 2>&1
   fi
 fi
 
@@ -859,7 +860,7 @@ fi
 # Clone Monorepo fresh inside container, copy baked assets in, commit, push, then delete.
 # This avoids relying on a .git folder being present in the Docker context.
 if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
-  echo "RokctAI: Persisting baked rcore assets to Monorepo..."
+  echo "RokctAI: Persisting baked rcore assets to Monorepo..." >>"$BUILD_LOG" 2>&1
   MONOREPO_TMP="/tmp/monorepo-bake-push"
   rm -rf "$MONOREPO_TMP"
 
@@ -877,7 +878,7 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
     cd "$MONOREPO_TMP"
     CHANGES=$(git status --porcelain rcore/rcore/platform | wc -l)
     if [ "$CHANGES" -gt 0 ]; then
-      echo "✅ Detected $CHANGES changed baked assets. Committing to Monorepo..."
+      echo "✅ Detected $CHANGES changed baked assets. Committing to Monorepo..." >>"$BUILD_LOG" 2>&1
       git config user.email "bot@rokct.ai"
       git config user.name "RokctAI Bot"
       git add rcore/rcore/platform
@@ -892,12 +893,12 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
     cd /
     rm -rf "$MONOREPO_TMP"
   else
-    echo "Warning: Could not clone Monorepo. Skipping asset persistence."
+    echo "Warning: Could not clone Monorepo. Skipping asset persistence." >>"$BUILD_LOG" 2>&1
   fi
 elif [ ! -d "apps/rcore/rcore/platform" ]; then
-  echo "No rcore platform assets found — bake may have been skipped."
+  echo "No rcore platform assets found — bake may have been skipped." >>"$BUILD_LOG" 2>&1
 else
-  echo "No GITHUB_TOKEN available — skipping Monorepo asset persistence."
+  echo "No GITHUB_TOKEN available — skipping Monorepo asset persistence." >>"$BUILD_LOG" 2>&1
 fi
 
 # 8C. Sync RPanel Version from versions.json
@@ -936,7 +937,7 @@ if [ -n "$STACK_INSTALLER" ]; then
   fi
 fi
 
-echo "✅ Platform API Manifest Created."
+run_step "API Manifest" echo "✅ Platform API Manifest Created."
 
 # ==============================================================================
 # ROKCTAI: POST-GOLDEN-BUILD VERIFICATION PHASE (DYNAMIC)
@@ -985,7 +986,7 @@ print(f'Import failures summary: {import_failures}')
 print(f'Meta load failures summary: {meta_load_failures}')
 print(f'Failed patches summary: {failed_patches}')
 
-if any([missing_tables, import_failures, meta_load_failures, failed_patches]):
+if any([missing_tables, import_failures, meta_load_failures, failed_patches]): >> "$BUILD_LOG" 2>&1
     print('Schema FAIL')
     sys.exit(1)
 
@@ -993,7 +994,7 @@ print('Schema OK')
 print('🚀 STRICT VERIFICATION PASSED')
 "
 
-# Run Standard App Tests if explicitly requested (usually CI only)
+# Run Standard App Tests if explicitly requested (usually CI only) >> "$BUILD_LOG" 2>&1
 if [ "$RUN_TESTS" = "true" ]; then
   echo "RokctAI: Running Tests for $APP_NAME..."
   run_step "Running app tests" bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
@@ -1013,14 +1014,14 @@ if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" !=
   fi
 fi
 
-echo "RokctAI: Final Workspace State..."
+run_step "Final Workspace State" echo "RokctAI: Final Workspace State..."
 if [ -f "sites/apps.txt" ]; then
-  echo "--- Global apps.txt ---"
-  cat sites/apps.txt
+  echo "--- Global apps.txt ---" >>"$BUILD_LOG" 2>&1
+  cat sites/apps.txt >>"$BUILD_LOG" 2>&1
 fi
 if [ -f "sites/$SITE_NAME/apps.txt" ]; then
-  echo "--- Site-specific apps.txt ($SITE_NAME) ---"
-  cat "sites/$SITE_NAME/apps.txt"
+  echo "--- Site-specific apps.txt ($SITE_NAME) ---" >>"$BUILD_LOG" 2>&1
+  cat "sites/$SITE_NAME/apps.txt" >>"$BUILD_LOG" 2>&1
 fi
 
 echo "✅ RokctAI: Golden Build Complete!"
