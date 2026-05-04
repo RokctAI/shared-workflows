@@ -187,21 +187,21 @@ fi
 
 # PostgreSQL Startup
 if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-	echo "Starting PostgreSQL Service (CI Docker DB)..."
-	if ! docker ps -a | grep -q db-service; then
-		# Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
-		DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-		if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
-			echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
-			DB_IMAGE="pgvector/pgvector:pg16"
-		fi
-		docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
-	fi
-	timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
-	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
-	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
-	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
-	echo "✅ PostgreSQL ready."
+  echo "Starting PostgreSQL Service (CI Docker DB)..."
+  if ! docker ps -a | grep -q db-service; then
+    # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
+    DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+    if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
+      echo "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
+      DB_IMAGE="pgvector/pgvector:pg16"
+    fi
+    docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
+  fi
+  timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
+  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
+  echo "✅ PostgreSQL ready."
 elif [ "$IS_DOCKER" = "true" ]; then
   echo "Starting PostgreSQL Service (Docker Native)..."
   # Check if postgresql service exists, if not try to install it
@@ -256,7 +256,10 @@ if ! command -v bench >/dev/null; then
   fi
   export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 fi
-command -v bench >/dev/null || { echo "bench missing"; exit 1; }
+command -v bench >/dev/null || {
+  echo "bench missing"
+  exit 1
+}
 
 if [ "$BOOTSTRAP" = "false" ]; then
   if [ ! -d "frappe-bench" ]; then
@@ -422,24 +425,24 @@ if new_text != text:
 with p.open("rb") as f:
     tomllib.load(f)
 PY
-	fi
+  fi
 
-	# Ensure the current user owns the ROK directory for the build process
-	sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
-	chmod -R u+rwX,go+rX "$ROK_DIR"
+  # Ensure the current user owns the ROK directory for the build process
+  sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
+  chmod -R u+rwX,go+rX "$ROK_DIR"
 
-	# Use the venv pip directly to avoid any bench-specific user-switching logic
-	run_step "Installing ROK tooling" \
-		./env/bin/pip install -e "$ROK_DIR"
+  # Use the venv pip directly to avoid any bench-specific user-switching logic
+  run_step "Installing ROK tooling" \
+    ./env/bin/pip install -e "$ROK_DIR"
 
-	# Ensure the venv bin is in the PATH for the smoke check
-	export PATH="$PWD/env/bin:$PATH"
-	echo "ROK smoke check..."
-	if ! command -v rok >/dev/null 2>&1; then
-		echo "❌ ROK install failed: 'rok' executable not found in PATH"
-		exit 1
-	fi
-	rok --help >/dev/null
+  # Ensure the venv bin is in the PATH for the smoke check
+  export PATH="$PWD/env/bin:$PATH"
+  echo "ROK smoke check..."
+  if ! command -v rok >/dev/null 2>&1; then
+    echo "❌ ROK install failed: 'rok' executable not found in PATH"
+    exit 1
+  fi
+  rok --help >/dev/null
 fi
 
 # Detect App Name if not provided
@@ -826,34 +829,34 @@ if [ "$BOOTSTRAP" = "false" ]; then
   # Ensure apps.txt is synced before we start installing apps on site
   sync_apps_txt
 else
-	# Bootstrap path: identify the site created by install.sh
-	ORIG_SITE=$(find sites -maxdepth 1 -type d -name "*.local" -printf "%f\n" | head -n1)
-	SITE_NAME=${ORIG_SITE:-rpanel.local}
-	echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
+  # Bootstrap path: identify the site created by install.sh
+  ORIG_SITE=$(find sites -maxdepth 1 -type d -name "*.local" -printf "%f\n" | head -n1)
+  SITE_NAME=${ORIG_SITE:-rpanel.local}
+  echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
 
-	# SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
-	if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
-		echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
-		# Ensure currentsite.txt is set
-		echo "$SITE_NAME" >sites/currentsite.txt
-	fi
+  # SITE RECOVERY: If the site exists but bench doesn't find it, force mapping
+  if [ ! -d "sites/$SITE_NAME" ] && [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
+    echo "RokctAI: Site found in absolute path but not relative, fixing symlink visibility..."
+    # Ensure currentsite.txt is set
+    echo "$SITE_NAME" >sites/currentsite.txt
+  fi
 
-	# Ensure the detected site name is available as a host
-	echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
-	echo "$SITE_NAME" >sites/currentsite.txt
+  # Ensure the detected site name is available as a host
+  echo "127.0.0.1 $SITE_NAME" | sudo tee -a /etc/hosts || true
+  echo "$SITE_NAME" >sites/currentsite.txt
 
-	# VERIFY SITE PATH: Fix for "IncorrectSitePath"
-	if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
-		echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..."
-		# If the directory is empty or missing, try to restore from symlink
-		if [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
-			cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
-		fi
-	fi
+  # VERIFY SITE PATH: Fix for "IncorrectSitePath"
+  if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
+    echo "RokctAI: site_config.json missing for $SITE_NAME, attempting to locate site root..."
+    # If the directory is empty or missing, try to restore from symlink
+    if [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
+      cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
+    fi
+  fi
 
-	# Force bench to "use" this site to set the internal context
-	bench --site "$SITE_NAME" set-config developer_mode 1 || true
-	bench --site "$SITE_NAME" set-config allow_tests true || true
+  # Force bench to "use" this site to set the internal context
+  bench --site "$SITE_NAME" set-config developer_mode 1 || true
+  bench --site "$SITE_NAME" set-config allow_tests true || true
 fi
 
 # Ensure site-specific logs exist
