@@ -5,7 +5,7 @@
 set -e
 
 BUILD_LOG="/tmp/build_ecosystem.log"
-> "$BUILD_LOG"
+>"$BUILD_LOG"
 
 run_step() {
   local title="$1"
@@ -16,7 +16,7 @@ run_step() {
 
   if "$@" >"$step_log" 2>&1; then
     echo "✓ DONE"
-    cat "$step_log" >> "$BUILD_LOG"
+    cat "$step_log" >>"$BUILD_LOG"
 
     # Surface any tracebacks or errors even on success
     # Frappe often prints errors but exits 0
@@ -37,7 +37,7 @@ psycopg2|OperationalError|DuplicateEntryError" \
     echo "=== FULL OUTPUT: $title ==="
     cat "$step_log"
     echo "=== END: $title ==="
-    cat "$step_log" >> "$BUILD_LOG"
+    cat "$step_log" >>"$BUILD_LOG"
     rm -f "$step_log"
     return $exit_code
   fi
@@ -128,9 +128,9 @@ frappe.init(site='$SITE_NAME', sites_path='sites')
 frappe.connect()
 from frappe.installer import install_app
 install_app('$app', force=True)
-" || \
-  run_step "Installing $app on $SITE_NAME (bench fallback)" \
-    bench --site "$SITE_NAME" install-app "$app" --force || true
+" ||
+    run_step "Installing $app on $SITE_NAME (bench fallback)" \
+      bench --site "$SITE_NAME" install-app "$app" --force || true
 }
 
 # Detect if running in Docker or CI Container
@@ -578,9 +578,9 @@ for extra_app in lending rcore; do
     fi
 
     run_step "Fetching $extra_app" \
-      bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets || \
-    run_step "Fetching $extra_app (fallback)" \
-      bench get-app "$REPO_URL" --skip-assets || true
+      bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets ||
+      run_step "Fetching $extra_app (fallback)" \
+        bench get-app "$REPO_URL" --skip-assets || true
   else
     echo "✅ $extra_app already present."
   fi
@@ -656,7 +656,7 @@ for app_dir in apps/*; do
       LOAN_PY="apps/lending/lending/loan_management/doctype/loan/loan.py"
       if [ -f "$LOAN_PY" ]; then
         echo "[$this_app] Guarding erpnext imports in loan.py..."
-        env/bin/python << 'PY'
+        env/bin/python <<'PY'
 import re, pathlib, sys
 
 p_str = "apps/lending/lending/loan_management/doctype/loan/loan.py"
@@ -724,7 +724,7 @@ print('loan_controller.py patched')
       SEEDER_PATCH="apps/control/control/control/patches/seed_subscription_plans_v4.py"
       if [ -f "$SEEDER_PATCH" ]; then
         echo "[$this_app] Guarding ERPNext-dependent seeder in seed_subscription_plans_v4.py..."
-        env/bin/python << 'PY'
+        env/bin/python <<'PY'
 import pathlib, re
 p = pathlib.Path("apps/control/control/control/patches/seed_subscription_plans_v4.py")
 if p.exists():
@@ -875,13 +875,13 @@ sync_apps_txt
 # Final Migration & App Installation
 if [ -d "apps/lending" ]; then
   safe_install_app lending || true
-  bench --site "$SITE_NAME" list-apps | grep lending \
-    && echo "lending installed OK" \
-    || echo "WARNING: lending not installed on site"
+  bench --site "$SITE_NAME" list-apps | grep lending &&
+    echo "lending installed OK" ||
+    echo "WARNING: lending not installed on site"
 fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
-echo "" >> "sites/$SITE_NAME/apps.txt" || true
+echo "" >>"sites/$SITE_NAME/apps.txt" || true
 run_step "Migrating site" \
   bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
