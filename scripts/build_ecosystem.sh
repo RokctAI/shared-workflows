@@ -66,7 +66,7 @@ BOOTSTRAP=${BOOTSTRAP:-false}
 DB_TYPE=${DB_TYPE:-postgres}
 DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
-PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null || PY_BIN=python3
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
@@ -89,7 +89,7 @@ if ! command -v python3.14 >/dev/null 2>&1; then
 		PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
 	fi
 fi
-PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null || PY_BIN=python3
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
@@ -197,7 +197,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
 		fi
 		docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
 	fi
-	timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
+	timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
 	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
 	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
 	docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
@@ -256,6 +256,7 @@ if ! command -v bench >/dev/null; then
 	fi
 	export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 fi
+command -v bench >/dev/null || { echo "bench missing"; exit 1; }
 
 if [ "$BOOTSTRAP" = "false" ]; then
 	if [ ! -d "frappe-bench" ]; then
@@ -325,7 +326,7 @@ fi
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
 mkdir -p /home/frappe/logs
 mkdir -p /home/frappe/frappe-bench/logs
-mkdir -p /home/frappe/frappe-bench/rpanel.local/logs
+mkdir -p "/home/frappe/frappe-bench/sites/$SITE_NAME/logs"
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 echo "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -338,6 +339,7 @@ cd "$BENCH_DIR" || {
 	echo "❌ Error: Could not find bench at $BENCH_DIR"
 	exit 1
 }
+export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
 # --- 4A. Patch: Suppress Frappe Progress Bars (Non-TTY) ---
@@ -424,7 +426,7 @@ PY
 
 	# Ensure the current user owns the ROK directory for the build process
 	sudo chown -R $(id -u):$(id -g) "$ROK_DIR"
-	chmod -R 777 "$ROK_DIR"
+	chmod -R u+rwX,go+rX "$ROK_DIR"
 
 	# Use the venv pip directly to avoid any bench-specific user-switching logic
 	run_step "Installing ROK tooling" \
@@ -806,6 +808,7 @@ if [ "${DOCKER_BUILD}" = "true" ] || [ "${CI}" = "true" ]; then
 else
 	WORKING_SITE="platform.rokct.ai"
 fi
+SITE_NAME="${SITE_NAME:-$WORKING_SITE}"
 
 # Map platform hosts
 echo "127.0.0.1 platform.rokct.ai" | sudo tee -a /etc/hosts || echo "Skipped: /etc/hosts is read-only"
@@ -824,7 +827,7 @@ if [ "$BOOTSTRAP" = "false" ]; then
 	sync_apps_txt
 else
 	# Bootstrap path: identify the site created by install.sh
-	ORIG_SITE=$(ls sites | grep .local | head -n 1 || true)
+	ORIG_SITE=$(find sites -maxdepth 1 -type d -name "*.local" -printf "%f\n" | head -n1)
 	SITE_NAME=${ORIG_SITE:-rpanel.local}
 	echo "RokctAI: Using site $SITE_NAME (Found: $ORIG_SITE)"
 
@@ -881,9 +884,8 @@ if [ -d "apps/lending" ]; then
 fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
 safe_install_app control || true
-echo "" >>"sites/$SITE_NAME/apps.txt" || true
-run_step "Migrating site" \
-	bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
+[ -f "sites/$SITE_NAME/apps.txt" ] || cp sites/apps.txt "sites/$SITE_NAME/apps.txt"
+run_step "Migrating site" bench --site "$SITE_NAME" migrate
 
 # Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
 # Prevents AppNotInstalledError when erpnext is intentionally skipped.
@@ -1020,57 +1022,55 @@ echo "✅ Platform API Manifest Created."
 # ROKCTAI: POST-GOLDEN-BUILD VERIFICATION PHASE (DYNAMIC)
 # ==============================================================================
 bench --site "$SITE_NAME" execute "
-import frappe, importlib, sys
+import frappe, sys
 
-print('🔍 RokctAI: Starting Dynamic Verification Phase...')
+print('🔍 RokctAI: Starting Compliance Verification Phase...')
 
+# 1. Get installed apps
 installed_apps = frappe.get_installed_apps()
 print(f'Detected installed apps: {installed_apps}')
 
+# 2. Validate database integrity (Strict Compliance)
 all_doctypes = frappe.get_all('DocType', fields=['name', 'issingle'])
-
 missing_tables = []
+meta_load_failures = []
 
 for dt in all_doctypes:
     try:
         meta = frappe.get_meta(dt.name)
-        app = getattr(meta, 'app', None)
-
-        if app in installed_apps:
+        # Derive app ONLY from installed_apps context via metadata
+        if getattr(meta, 'app', None) in installed_apps:
             if not dt.issingle:
-                table = 'tab' + dt.name
-                if not frappe.db.table_exists(table):
+                if not frappe.db.table_exists('tab' + dt.name):
                     missing_tables.append(dt.name)
+    except Exception:
+        meta_load_failures.append(dt.name)
 
-    except Exception as e:
-        print(f'⚠️ Load fail: {dt.name} -> {e}')
-
-if missing_tables:
-    print(f'❌ Missing tables: {missing_tables}')
-    sys.exit(1)
-
-print('✅ Schema OK')
-
-# Patch check
+# 4. Patch safety check
+failed_patches = []
 if frappe.db.table_exists('tabPatch Log'):
-    failed = frappe.get_all('Patch Log', filters={'status': 'Failed'})
-    if failed:
-        print(f'❌ Failed patches: {failed}')
-        sys.exit(1)
-    print('✅ Patch state OK')
-else:
-    print('⚠️ Patch Log missing, skipping')
+    failed_patches = [p.name for p in frappe.get_all('Patch Log', filters={'status': 'Failed'})]
 
-# Import validation
+# 5. Import validation (STRICT)
+import_failures = []
 for app in installed_apps:
     try:
-        importlib.import_module(app)
-        print(f'OK: {app}')
+        __import__(app)
     except Exception as e:
-        print(f'❌ IMPORT FAIL: {app} -> {e}')
-        sys.exit(1)
+        import_failures.append(f'{app}: {e}')
 
-print('🚀 RokctAI: Dynamic Verification PASSED')
+# Final Reporting
+print(f'Missing tables summary: {missing_tables}')
+print(f'Import failures summary: {import_failures}')
+print(f'Meta load failures summary: {meta_load_failures}')
+print(f'Failed patches summary: {failed_patches}')
+
+if any([missing_tables, import_failures, meta_load_failures, failed_patches]):
+    print('Schema FAIL')
+    sys.exit(1)
+
+print('Schema OK')
+print('🚀 STRICT VERIFICATION PASSED')
 "
 
 # Run Standard App Tests if explicitly requested (usually CI only)
