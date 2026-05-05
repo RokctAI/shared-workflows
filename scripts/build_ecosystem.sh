@@ -20,10 +20,10 @@ run_step() {
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
-    echo "✓ DONE"
+    echo "    DONE"
     cat "$step_log" >>"$BUILD_LOG"
   else
-    echo "❌ FAILED"
+    echo "    FAILED"
     [ -n "$errors" ] && echo "    (Silent errors detected - see log)"
     echo "    ---- LOG START ----"
     cat "$step_log"
@@ -50,10 +50,10 @@ bench_step() {
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
-    echo "✓ DONE"
+    echo "    DONE"
     cat "$step_log" >>"$BUILD_LOG"
   else
-    echo "❌ FAILED"
+    echo "    FAILED"
     [ -n "$errors" ] && echo "    (Silent errors detected - see log)"
     echo "    ---- LOG START ----"
     cat "$step_log"
@@ -74,10 +74,10 @@ wait_step() {
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   if [ $exit_code -eq 0 ]; then
-    echo "✓ READY"
+    echo "    READY"
     cat "$step_log" >>"$BUILD_LOG"
   else
-    echo "❌ FAILED"
+    echo "    FAILED"
     echo "    ---- LOG START ----"
     cat "$step_log"
     echo "    ---- LOG END ----"
@@ -94,7 +94,7 @@ wait_step() {
 # Description: Authoritative script for Frappe platform initialization,
 #              app synchronization, and ecosystem compilation.
 # ==============================================================================
-_log "🚀 RokctAI: Starting Golden Build Process..."
+_log "     RokctAI: Starting Golden Build Process..."
 
 # --- 1. Environment Detection & Variable Setup ---
 # Required Variables (should be provided by CI or Docker):
@@ -156,7 +156,7 @@ sync_apps_txt() {
       echo "$this_name" >>"$APPS_TXT"
     fi
   done
-  _log "✅ apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")"
+  _log "    apps.txt updated: $(tr '\n' ' ' <"$APPS_TXT")"
 }
 
 is_app_installed() {
@@ -168,7 +168,7 @@ is_app_installed() {
 safe_install_app() {
   local app=$1
   if is_app_installed "$app"; then
-    echo "  - [$app] Already installed on $SITE_NAME... ✓ DONE"
+    echo "  - [$app] Already installed on $SITE_NAME...     DONE"
     return 0
   fi
   run_step "Installing $app on $SITE_NAME" \
@@ -186,10 +186,10 @@ install_app('$app', force=True)
 # Detect if running in Docker or CI Container
 if [ -f /.dockerenv ] || [ -n "$CI" ]; then
   IS_DOCKER=true
-  _log "📦 Environment: Docker/CI Container detected."
+  _log "     Environment: Docker/CI Container detected."
 else
   IS_DOCKER=false
-  _log "☁️ Environment: Host detected."
+  _log "       Environment: Host detected."
 fi
 
 # --- 2. Identity & Services ---
@@ -199,7 +199,7 @@ _log "RokctAI: Setting up Identity & Services..."
 if [ "$IS_DOCKER" = "false" ] && [ -n "$GITHUB_TOKEN" ]; then
   git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
   git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-  _log "✅ Global Git config updated with token."
+  _log "    Global Git config updated with token."
 fi
 
 # Redis Startup
@@ -218,7 +218,7 @@ if [ "$IS_DOCKER" = "false" ]; then
       sleep 2
     fi
   done
-  _log "✅ Redis instances ready."
+  _log "    Redis instances ready."
 else
   _log "Starting Redis Service (Container)..."
   # In CI we usually have services: redis, but we might need local ones for ports
@@ -242,7 +242,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
     # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
     DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
     if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
-      _log "⚠️ Custom image $DB_IMAGE not found, falling back to official pg16"
+      _log "       Custom image $DB_IMAGE not found, falling back to official pg16"
       DB_IMAGE="pgvector/pgvector:pg16"
     fi
     docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
@@ -251,7 +251,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
   docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
   docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
-  _log "✅ PostgreSQL ready."
+  _log "    PostgreSQL ready."
 elif [ "$IS_DOCKER" = "true" ]; then
   _log "Starting PostgreSQL Service (Docker Native)..."
   # Check if postgresql service exists, if not try to install it
@@ -319,7 +319,7 @@ else
   wget -q https://raw.githubusercontent.com/${REPO_PATH}/${REF_PATH}/install.sh
 
   if [ ! -f "install.sh" ]; then
-    echo "❌ Critical Error: Failed to download install.sh from ${REPO_PATH}/${REF_PATH}"
+    echo "    Critical Error: Failed to download install.sh from ${REPO_PATH}/${REF_PATH}"
     exit 1
   fi
 
@@ -337,13 +337,13 @@ else
   chmod +x install.sh
   _log "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh || {
-    _log "=== install.sh failed — dumping rpanel_install.log ==="
+    _log "=== install.sh failed - dumping rpanel_install.log ==="
     cat /tmp/rpanel_install.log || true
-    _log "=== Continuing — rpanel will be re-installed by safe_install_app ==="
+    _log "=== Continuing - rpanel will be re-installed by safe_install_app ==="
   }
 
   if [ ! -d "/home/frappe/frappe-bench" ]; then
-    echo "❌ frappe-bench missing after install.sh — cannot continue"
+    echo "    frappe-bench missing after install.sh - cannot continue"
     cat /tmp/rpanel_install.log || true
     exit 1
   fi
@@ -382,7 +382,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 BENCH_DIR="/home/frappe/frappe-bench"
 cd "$BENCH_DIR" || {
-  echo "❌ Error: Could not find bench at $BENCH_DIR"
+  echo "    Error: Could not find bench at $BENCH_DIR"
   exit 1
 }
 export PATH="$BENCH_DIR/env/bin:$PATH"
@@ -394,18 +394,18 @@ PROGRESS_FILE="apps/frappe/frappe/utils/progress.py"
 if [ -f "$PROGRESS_FILE" ] && [ ! -t 1 ]; then
   _log "RokctAI: Patching Frappe progress bar for non-TTY output..."
   cat >"$PROGRESS_FILE" <<'EOF'
-# RokctAI: Patched — suppress progress bars in non-TTY/CI
+# RokctAI: Patched - suppress progress bars in non-TTY/CI
 import sys
 
-def update_progress_bar(title, doctype='', start=0, end=100, reload=False):
+def update_progress_bar(title, doctype="", start=0, end=100, reload=False):
     if start == 0:
-        print(f'{title}: [started]', flush=True)
+        print(f"{title}: [started]", flush=True)
     elif end == 100 or start >= end:
-        print(f'{title}: [done]', flush=True)
+        print(f"{title}: [done]", flush=True)
 
 show_progress = update_progress_bar
-EOF"
-fi >>"$BUILD_LOG" 2>&1
+EOF
+fi
 
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
 # ROK is not a Frappe app; keep it out of apps/ and install as a Python tool.
@@ -424,7 +424,7 @@ if [ "$INSTALL_ROK" = "true" ]; then
     rm -rf "$ROK_DIR" || true
     git clone --depth 1 --branch "$ROK_REF" "$ROK_REPO_URL" "$ROK_DIR" || git clone "$ROK_REPO_URL" "$ROK_DIR"
   else
-    _log "✅ ROK repo already present at $ROK_DIR"
+    _log "    ROK repo already present at $ROK_DIR"
   fi
 
   # Upstream ROK may ship a duplicate `rok` key under [project.scripts], which
@@ -436,7 +436,12 @@ if [ "$INSTALL_ROK" = "true" ]; then
     env/bin/python <<'PY'
 import pathlib
 import re
+import tomllib
+
 p = pathlib.Path("tools/rok/pyproject.toml")
+if not p.exists():
+    raise SystemExit("ROK: missing tools/rok/pyproject.toml")
+
 text = p.read_text(encoding="utf-8")
 lines = text.splitlines(keepends=True)
 out = []
@@ -477,7 +482,7 @@ PY
   export PATH="$PWD/env/bin:$PATH"
   _log "ROK smoke check..."
   if ! command -v rok >/dev/null 2>&1; then
-    echo "❌ ROK install failed: 'rok' executable not found in PATH"
+    echo "    ROK install failed: 'rok' executable not found in PATH"
     exit 1
   fi
   rok --help >/dev/null
@@ -513,15 +518,15 @@ sync_apps_txt
 
 # 4. Control App Installation (The Installer)
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
-  _log "🔥 Using LOCAL Control Panel from workspace..."
+  _log "     Using LOCAL Control Panel from workspace..."
   mkdir -p apps/control
   cp -r "$GITHUB_WORKSPACE/control/." "apps/control/"
   bench pip install -e apps/control
 else
-  # Control is always fetched from main branch — it is rapidly developed and tags lag behind.
+  # Control is always fetched from main branch - it is rapidly developed and tags lag behind.
   CONTROL_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/control.git"
   if [ -d "apps/control/.git" ]; then
-    _log "🔄 Refreshing Control Panel from branch: main..."
+    _log "     Refreshing Control Panel from branch: main..."
     git -C apps/control fetch origin main && git -C apps/control reset --hard origin/main
     bench pip install -e apps/control
   else
@@ -550,7 +555,7 @@ if [ -n "$OVERRIDES_DIR" ]; then
       cp -rf "$OVERRIDES_DIR/$app/." "apps/$app/"
     fi
   done
-  _log "✅ Monorepo overrides applied."
+  _log "    Monorepo overrides applied."
 
   # 5A. Process Monorepo Blueprints (modules.txt and hooks.py)
   # Uses .rokct/app_blueprints.json to dynamically register private modules and hooks.
@@ -596,7 +601,7 @@ for app_name, config in blueprints.items():
 " || echo "Warning: Failed to apply monorepo blueprints."
   fi
 else
-  _log "No monorepo_overrides directory found — skipping."
+  _log "No monorepo_overrides directory found - skipping."
 fi
 
 # C. Stack Dependencies (Apps requested by install_stack.py)
@@ -606,7 +611,7 @@ _log "RokctAI: Checking stack dependencies..."
 for extra_app in lending rcore; do
   _log "Checking for $extra_app..."
   if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/$extra_app" ]; then
-    _log "🔥 Using LOCAL $extra_app from workspace..."
+    _log "     Using LOCAL $extra_app from workspace..."
     mkdir -p "apps/$extra_app"
     cp -r "$GITHUB_WORKSPACE/$extra_app/." "apps/$extra_app/"
   elif [ ! -d "apps/$extra_app" ] || [ -z "$(ls -A apps/$extra_app 2>/dev/null || true)" ]; then
@@ -625,7 +630,7 @@ for extra_app in lending rcore; do
       bench_step "Fetching $extra_app (fallback)" \
         bench get-app "$REPO_URL" --skip-assets || true
   else
-    _log "✅ $extra_app already present."
+    _log "    $extra_app already present."
   fi
 done
 
@@ -732,14 +737,12 @@ except (ImportError, ModuleNotFoundError):
 
 # Insert before first frappe import or at top if no frappe import
 if "import frappe" in text:
-    text = re.sub(r"(^import frappe)", guard + r"\1", text, count=1, flags=re.MULTILINE)
+    text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
 else:
     text = guard + "\n" + text
-p.write_text(text)'
-      fi
 
 path.write_text(text)
-print(f"✅ {p_str} patched successfully")
+print(f"    {p_str} patched successfully")
 PY
       fi
 
@@ -772,13 +775,16 @@ import pathlib, re
 p = pathlib.Path("apps/control/control/control/patches/seed_subscription_plans_v4.py")
 if p.exists():
     text = p.read_text()
+    # Find _ensure_dependencies and wrap its body
     pattern = r"(def _ensure_dependencies\(\):)(.*?)(\ndef |\Z)"
     def repl(m):
         header = m.group(1)
         body = m.group(2)
         tail = m.group(3)
+        # Indent original body by 4 more spaces to fit in try block
         indented_body = re.sub(r"^", "    ", body, flags=re.MULTILINE)
         return f"{header}\n    try:{indented_body}\n    except Exception:\n        pass{tail}"
+
     new_text = re.sub(pattern, repl, text, flags=re.DOTALL)
     if new_text != text:
         p.write_text(new_text)
@@ -798,21 +804,22 @@ PY
     # We pass the hook file path via env to avoid shell quoting issues with '#' and quotes
     HOOK_FILE="$hook_file" env/bin/python -c '
 import os, sys, re
-path = os.environ.get(\"HOOK_FILE\")
-with open(path, \"r\") as f: content = f.read()
-pattern = r\"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):\"
+path = os.environ.get("HOOK_FILE")
+if not path or not os.path.exists(path): sys.exit(0)
+with open(path, "r") as f: content = f.read()
+pattern = r"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):"
 def repl(m):
-    indent = m.group(1) >> "$BUILD_LOG" 2>&1
+    indent = m.group(1)
     full_match = m.group(0)
     pre_content = content[:m.start()]
     lines = pre_content.splitlines()
-    if lines and \"# rokct-no-guard\" in lines[-1]: return full_match
-    guard_str = \"if frappe.flags.in_install or frappe.flags.in_migrate: return\"
-    next_lines = content[m.end():].split(\"\n\", 4)
+    if lines and "# rokct-no-guard" in lines[-1]: return full_match
+    guard_str = "if frappe.flags.in_install or frappe.flags.in_migrate: return"
+    next_lines = content[m.end():].split("\n", 4)
     for line in next_lines:
         if guard_str in line: return full_match
-        if line.strip() and not line.strip().startswith(\"\\\"\\\"\\\"\") and not line.strip().startswith(\"#\"): break
-    return f\"{full_match}\n{indent}{indent}{guard_str}\"
+        if line.strip() and not line.strip().startswith("\"\"\"") and not line.strip().startswith("#"): break
+    return f"{full_match}\n{indent}{indent}{guard_str}"
 new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
 with open(path, "w") as f: f.write(new_content)
 ' || true
@@ -892,7 +899,7 @@ else
 fi
 
 # Ensure site-specific logs exist
-run_step "Creating site logs directory" mkdir -p "sites/$SITE_NAME/logs"
+mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
@@ -913,7 +920,7 @@ sync_apps_txt
 if [ -d "apps/lending" ]; then
   safe_install_app lending || true
   bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q lending &&
-    echo "  - lending installed OK... ✓ DONE" ||
+    echo "  - lending installed OK...     DONE" ||
     _log "WARNING: lending not installed on site"
 fi
 if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
@@ -922,7 +929,7 @@ safe_install_app control || true
 bench_step "Migrating site" \
   bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
-# Fix #5: Guard ERPNext seeder — only run if erpnext is actually installed.
+# Fix #5: Guard ERPNext seeder - only run if erpnext is actually installed.
 # Prevents AppNotInstalledError when erpnext is intentionally skipped.
 if bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^erpnext$"; then
   _log "RokctAI: Seeding ERPNext default setup data..."
@@ -945,12 +952,12 @@ if [ -n "$STACK_INSTALLER" ]; then
   python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   # Fix #4: Redirect fixture DuplicateEntryError noise to /dev/null.
-  # The 'Organ of State' and similar fixtures fail silently on duplicate — the exit code
+  # The 'Organ of State' and similar fixtures fail silently on duplicate - the exit code
   # is already suppressed, but the traceback is noisy. Redirect only stderr from migrate.
   bench_step "Post-stack migration" \
     bench --site "$SITE_NAME" migrate 2>/dev/null || echo "Warning: Post-stack migration returned non-zero. Suppressing Frappe fixture conflicts."
 fi
-_log "🚀 Baking Platform API Schemas..."
+_log "     Baking Platform API Schemas..."
 
 # Fix #6: Guard bake_assets with a module existence check.
 # If rcore version doesn't have the platform module yet, skip silently.
@@ -962,11 +969,11 @@ if [ -d "apps/rcore" ]; then
       bench --site "$SITE_NAME" execute rcore.rcore.platform.manager.bake_assets 2>/dev/null ||
       _log "Warning: Failed to bake rcore assets."
   else
-    _log "rcore.platform module not found in this rcore version — skipping asset bake."
+    _log "rcore.platform module not found in this rcore version - skipping asset bake."
   fi
 fi
 
-# 8B. Persist Baked Assets (rcore) — Self-Contained Monorepo Push
+# 8B. Persist Baked Assets (rcore) - Self-Contained Monorepo Push
 # Clone Monorepo fresh inside container, copy baked assets in, commit, push, then delete.
 # This avoids relying on a .git folder being present in the Docker context.
 if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
@@ -988,12 +995,12 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
     cd "$MONOREPO_TMP"
     CHANGES=$(git status --porcelain rcore/rcore/platform | wc -l)
     if [ "$CHANGES" -gt 0 ]; then
-      _log "✅ Detected $CHANGES changed baked assets. Committing to Monorepo..."
+      _log "    Detected $CHANGES changed baked assets. Committing to Monorepo..."
       git config user.email "bot@rokct.ai"
       git config user.name "RokctAI Bot"
       git add rcore/rcore/platform
       git commit -m "chore(rcore): auto-bake platform assets [skip ci]"
-      git push origin HEAD && echo "✅ Baked assets pushed to Monorepo." ||
+      git push origin HEAD && echo "    Baked assets pushed to Monorepo." ||
         _log "Warning: Failed to push baked assets to Monorepo."
     else
       _log "No asset changes to persist."
@@ -1006,9 +1013,9 @@ if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
     _log "Warning: Could not clone Monorepo. Skipping asset persistence."
   fi
 elif [ ! -d "apps/rcore/rcore/platform" ]; then
-  _log "No rcore platform assets found — bake may have been skipped."
+  _log "No rcore platform assets found - bake may have been skipped."
 else
-  _log "No GITHUB_TOKEN available — skipping Monorepo asset persistence."
+  _log "No GITHUB_TOKEN available - skipping Monorepo asset persistence."
 fi
 
 # 8C. Sync RPanel Version from versions.json
@@ -1021,10 +1028,10 @@ if [ -f "apps/rpanel/rpanel/versions.json" ]; then
 
     (
       cd apps/rpanel
-      # Fix #7: Never push inside a Docker/BOOTSTRAP build — there is no remote origin.
+      # Fix #7: Never push inside a Docker/BOOTSTRAP build - there is no remote origin.
       # The version sync commit is a CI-only operation done on the actual repo checkout.
       if [ -e ".git" ] && [ -n "$(git status --porcelain rpanel/__init__.py)" ]; then
-        _log "✅ Version mismatch detected. Committing sync update..."
+        _log "    Version mismatch detected. Committing sync update..."
         git config user.email "bot@rokct.ai"
         git config user.name "RokctAI Bot"
         git add rpanel/__init__.py
@@ -1046,17 +1053,17 @@ if [ -n "$STACK_INSTALLER" ]; then
   if [ -f "$BACKUP_FILE" ]; then
     mkdir -p apps/seed_data
     cp "$BACKUP_FILE" "apps/seed_data/seed.sql.gz"
-    _log "✅ Golden Seed created at apps/seed_data/seed.sql.gz"
+    _log "    Golden Seed created at apps/seed_data/seed.sql.gz"
   fi
 fi
-_log "✅ Platform API Manifest Created."
+_log "    Platform API Manifest Created."
 
 # ==============================================================================
 # ROKCTAI: POST-GOLDEN-BUILD VERIFICATION PHASE (DYNAMIC)
 # ==============================================================================
 bench_step "Post-build compliance verification" bench --site "$SITE_NAME" execute "
 import frappe, sys
-print('🔍 RokctAI: Starting Compliance Verification Phase...')
+print('     RokctAI: Starting Compliance Verification Phase...')
 installed_apps = frappe.get_installed_apps()
 print(f'Detected installed apps: {installed_apps}')
 all_doctypes = frappe.get_all('DocType', fields=['name', 'issingle'])
@@ -1088,10 +1095,10 @@ if any([missing_tables, import_failures, meta_load_failures, failed_patches]):
     print('Schema FAIL')
     sys.exit(1)
 print('Schema OK')
-print('🚀 STRICT VERIFICATION PASSED')
+print('     STRICT VERIFICATION PASSED')
 "
 
-# Run Standard App Tests if explicitly requested (usually CI only) >> "$BUILD_LOG" 2>&1
+# Run Standard App Tests if explicitly requested (usually CI only)
 if [ "$RUN_TESTS" = "true" ]; then
   _log "RokctAI: Running Tests for $APP_NAME..."
   bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
@@ -1118,4 +1125,4 @@ if [ -f "sites/$SITE_NAME/apps.txt" ]; then
   _log "--- Site-specific apps.txt ($SITE_NAME) ---"
   cat "sites/$SITE_NAME/apps.txt" >>"$BUILD_LOG"
 fi
-_log "✅ RokctAI: Golden Build Complete!"
+_log "    RokctAI: Golden Build Complete!"

@@ -16,9 +16,9 @@ run_step() {
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
-    echo "✓ DONE"
+    echo "    DONE"
   else
-    echo "❌ FAILED"
+    echo "    FAILED"
     echo "    ---- LOG START ----"
     cat "$step_log"
     echo "    ---- LOG END ----"
@@ -63,7 +63,7 @@ for arg in "$@"; do
   fi
 done
 
-echo -e "\n\033[1;36m🚀 RokctAI Shared Workflows Installer\033[0m\n"
+echo -e "\n\033[1;36m     RokctAI Shared Workflows Installer\033[0m\n"
 
 # --- 1. Interaction ---
 if [ -t 0 ] || [ -n "$GITHUB_ACTIONS" ]; then
@@ -77,7 +77,7 @@ if [ -z "$CUSTOMIZE" ] && [ -n "$GITHUB_ACTIONS" ]; then
 fi
 
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
-  echo -e "\n\033[0;33m🛠️ Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
+  echo -e "\n\033[0;33m        Customizing Setup... (Press Enter to keep the [default] value)\033[0m\n"
 
   # Project Type
   echo "Select Project Type:"
@@ -143,13 +143,13 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]]; then
   *) DEPENDABOT_INTERVAL="monthly" ;;
   esac
 else
-  echo -e "\n\033[0;90m⏩ Using standard fleet defaults (Quick Install).\033[0m"
+  echo -e "\n\033[0;90m    Using standard fleet defaults (Quick Install).\033[0m"
 fi
 
 # --- 2. Preparing Files ---
 TARGET_PATH=".github/workflows"
 if [ ! -d "$TARGET_PATH" ]; then
-  echo -e "\n📁 Creating $TARGET_PATH..."
+  echo -e "\n     Creating $TARGET_PATH..."
   run_step "Creating workflow directory" mkdir -p "$TARGET_PATH"
 fi
 
@@ -175,7 +175,7 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
     else
       URL="$BASE_URL/$WORKFLOW_DIR/$wf"
     fi
-    _log "📥 Fetching and Patching $wf..."
+    _log "     Fetching and Patching $wf..."
     run_step "Downloading $wf" curl -sSL "$URL" -o "$DEST_FINAL.tmp"
   fi
 
@@ -189,7 +189,7 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
 
     # Cron Exclusion for Flutter
     if [[ "$wf" == "release.yml" && "$PROJECT_TYPE" == "flutter" ]]; then
-      _log "\033[0;33m🛡️ Removing Friday Cron for Flutter project...\033[0m"
+      _log "\033[0;33m        Removing Friday Cron for Flutter project...\033[0m"
       # Remove schedule: line and the next line (cron)
       sed -i '/schedule:/,+1d' "$DEST_FINAL.tmp"
     else
@@ -211,7 +211,7 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
   # Dependabot Interval Patching
   if [ "$wf" == "dependabot.yml" ]; then
     if [ "$DEPENDABOT_INTERVAL" != "monthly" ]; then
-      _log "\033[0;33m🛡️ Applying custom Dependabot frequency ($DEPENDABOT_INTERVAL) with safeguard...\033[0m"
+      _log "\033[0;33m        Applying custom Dependabot frequency ($DEPENDABOT_INTERVAL) with safeguard...\033[0m"
       sed -i "s/interval: \"monthly\"/interval: \"$DEPENDABOT_INTERVAL\" # rokct-keep/g" "$DEST_FINAL.tmp"
     fi
   fi
@@ -228,14 +228,14 @@ done
 # 4. Handle version.json (Skip for Flutter)
 if [ "$PROJECT_TYPE" != "flutter" ]; then
   if [ ! -f "version.json" ]; then
-    _log "\n\033[0;33m📝 Creating version.json ($STARTING_VERSION)...\033[0m"
+    _log "\n\033[0;33m     Creating version.json ($STARTING_VERSION)...\033[0m"
     echo -e "{\n  \"version\": \"$STARTING_VERSION\"\n}" >version.json
   fi
 fi
 
 # 5. Handle CODEOWNERS (Governance - Custom Setup Only)
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
-  _log "\n\033[0;33m🛡️ Fetching and Patching .github/CODEOWNERS..."
+  _log "\n\033[0;33m        Fetching and Patching .github/CODEOWNERS..."
   run_step "Creating .github directory" mkdir -p ".github"
   if [ "$LOCAL_MODE" = true ]; then
     run_step "Staging CODEOWNERS" cp "../examples/CODEOWNERS" ".github/CODEOWNERS"
@@ -245,9 +245,9 @@ if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
   sed -i "s/{{HANDLE}}/$GH_HANDLE/g" ".github/CODEOWNERS"
 fi
 
-echo -e "\n\033[0;32m✅ Installation Complete!\033[0m\n"
+echo -e "\n\033[0;32m    Installation Complete!\033[0m\n"
 
-echo -e "\033[1;33m⚠️  IMPORTANT: GITHUB APP PERMISSIONS\033[0m"
+echo -e "\033[1;33m        IMPORTANT: GITHUB APP PERMISSIONS\033[0m"
 echo -e "To allow the Fleet Standardizer to auto-fix and update your workflows, your GitHub App MUST have:"
 echo -e "  - \033[1mWorkflows: Read & Write\033[0m"
 echo -e "Otherwise, maintenance PRs will fail to push. Update this in your App Settings > Permissions & events.\n"
