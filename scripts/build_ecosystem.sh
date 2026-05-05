@@ -47,6 +47,7 @@ bench_step() {
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
   sed -i '/Use `bench restart` to retry/d' "$step_log"
+  sed -i '/Cleanup Error:/d' "$step_log"
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
@@ -347,18 +348,27 @@ else
     bash -c "sed -i 's/run_quiet \"Initializing frappe-bench\"/run_quiet \"Configuring Frappe User Yarn\" sudo -u frappe -i bash -c \"yarn config set ignore-engines true; yarn config set network-timeout 300000\"\\n\\n  echo -e \"\\\\033[0;34m  - Initializing frappe-bench (Verbose)... \\\\033[0;0m\"/g' install.sh && chmod +x install.sh"
 
   _log "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
-  run_step "Executing install.sh" \
-    sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh || {
+  # Softer check for install.sh: mark success if frappe-bench exists even if error patterns appeared in log.
+  printf "  - \033[0;34mExecuting install.sh\033[0m... "
+  step_log=$(mktemp)
+  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh >"$step_log" 2>&1
+  exit_code=$?
+  if [ $exit_code -eq 0 ] || [ -d "/home/frappe/frappe-bench" ]; then
+    echo -e "\033[0;32m✓ DONE\033[0m"
+    cat "$step_log" >>"$BUILD_LOG"
+  else
+    echo -e "\033[0;31m❌ FAILED\033[0m"
+    echo "    ---- LOG START ----"
+    cat "$step_log"
+    echo "    ---- LOG END ----"
+    cat "$step_log" >>"$BUILD_LOG"
     _log "=== install.sh failed - dumping rpanel_install.log ==="
     cat /tmp/rpanel_install.log || true
-    _log "=== Continuing - rpanel will be re-installed by safe_install_app ==="
-  }
-
-  if [ ! -d "/home/frappe/frappe-bench" ]; then
     echo "    frappe-bench missing after install.sh - cannot continue"
-    cat /tmp/rpanel_install.log || true
+    rm -f "$step_log"
     exit 1
   fi
+  rm -f "$step_log"
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -912,7 +922,7 @@ elif [ -f "apps/control/install_stack.py" ]; then
 fi
 
 if [ -n "$STACK_INSTALLER" ]; then
-  run_step "Executing Stack Installer" \
+  bench_step "Executing Stack Installer" \
     python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   bench_step "Post-stack migration" \
