@@ -10,15 +10,15 @@ run_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - %s... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
-    echo "    DONE"
+    echo -e "\033[0;32m✓ DONE\033[0m"
   else
-    echo "    FAILED"
+    echo -e "\033[0;31m❌ FAILED\033[0m"
     echo "    ---- LOG START ----"
     cat "$step_log"
     echo "    ---- LOG END ----"
@@ -180,69 +180,70 @@ for wf in "${VITAL_WORKFLOWS[@]}"; do
   fi
 
   if [[ "$wf" == "build.yml" || "$wf" == "release.yml" ]]; then
-    # Project Type - using a more specific regex to preserve comments
-    if [ "$PROJECT_TYPE" != "smart" ]; then
-      sed -i "s/project_type: '[^']*'/project_type: '$PROJECT_TYPE'/g" "$DEST_FINAL.tmp"
-    fi
-    # Strategy
-    sed -i "s/release_strategy: '[^']*'/release_strategy: '$RELEASE_STRATEGY'/g" "$DEST_FINAL.tmp"
+    run_step "Patching $wf" bash -c "
+      # Project Type - using a more specific regex to preserve comments
+      if [ \"$PROJECT_TYPE\" != \"smart\" ]; then
+        sed -i \"s/project_type: '[^']*'/project_type: '$PROJECT_TYPE'/g\" \"$DEST_FINAL.tmp\"
+      fi
+      # Strategy
+      sed -i \"s/release_strategy: '[^']*'/release_strategy: '$RELEASE_STRATEGY'/g\" \"$DEST_FINAL.tmp\"
 
-    # Cron Exclusion for Flutter
-    if [[ "$wf" == "release.yml" && "$PROJECT_TYPE" == "flutter" ]]; then
-      _log "\033[0;33m        Removing Friday Cron for Flutter project...\033[0m"
-      # Remove schedule: line and the next line (cron)
-      sed -i '/schedule:/,+1d' "$DEST_FINAL.tmp"
-    else
-      # Patch Cron Schedule
-      sed -i "s/cron: '[^']*'/cron: '$CRON_SCHEDULE'/g" "$DEST_FINAL.tmp"
-    fi
+      # Cron Exclusion for Flutter
+      if [[ \"$wf\" == \"release.yml\" && \"$PROJECT_TYPE\" == \"flutter\" ]]; then
+        # Remove schedule: line and the next line (cron)
+        sed -i '/schedule:/,+1d' \"$DEST_FINAL.tmp\"
+      else
+        # Patch Cron Schedule
+        sed -i \"s/cron: '[^']*'/cron: '$CRON_SCHEDULE'/g\" \"$DEST_FINAL.tmp\"
+      fi
 
-    # Cron Schedule
-    # Node (Multi-line aware sed)
-    sed -i "/node-version:/,/default:/s/default: '[^']*'/default: '$NODE_VERSION'/" "$DEST_FINAL.tmp"
-    # Python
-    sed -i "/python-version:/,/default:/s/default: '[^']*'/default: '$PYTHON_VERSION'/" "$DEST_FINAL.tmp"
-    # Flutter
-    sed -i "/flutter-version:/,/default:/s/default: '[^']*'/default: '$FLUTTER_VERSION'/" "$DEST_FINAL.tmp"
-    # Smart Flutter Pin replacement
-    sed -i "s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g" "$DEST_FINAL.tmp"
+      # Cron Schedule
+      # Node (Multi-line aware sed)
+      sed -i \"/node-version:/,/default:/s/default: '[^']*'/default: '$NODE_VERSION'/\" \"$DEST_FINAL.tmp\"
+      # Python
+      sed -i \"/python-version:/,/default:/s/default: '[^']*'/default: '$PYTHON_VERSION'/\" \"$DEST_FINAL.tmp\"
+      # Flutter
+      sed -i \"/flutter-version:/,/default:/s/default: '[^']*'/default: '$FLUTTER_VERSION'/\" \"$DEST_FINAL.tmp\"
+      # Smart Flutter Pin replacement
+      sed -i \"s/flutter-version: '[^']*'/flutter-version: '$FLUTTER_VERSION'/g\" \"$DEST_FINAL.tmp\"
+    "
   fi
 
   # Dependabot Interval Patching
   if [ "$wf" == "dependabot.yml" ]; then
     if [ "$DEPENDABOT_INTERVAL" != "monthly" ]; then
-      _log "\033[0;33m        Applying custom Dependabot frequency ($DEPENDABOT_INTERVAL) with safeguard...\033[0m"
-      sed -i "s/interval: \"monthly\"/interval: \"$DEPENDABOT_INTERVAL\" # rokct-keep/g" "$DEST_FINAL.tmp"
+      run_step "Patching dependabot frequency" \
+        sed -i "s/interval: \"monthly\"/interval: \"$DEPENDABOT_INTERVAL\" # rokct-keep/g" "$DEST_FINAL.tmp"
     fi
   fi
 
   # Final normalization for 100% Parity (BOM-less UTF-8, LF, Full Trim)
-  sed -i 's/\r//g' "$DEST_FINAL.tmp"
-  # Strip UTF-8 BOM if present, then trim all leading/trailing whitespace
-  perl -0777 -pi -e 's/^\xEF\xBB\xBF//; s/^\s+//; s/\s+\z//' "$DEST_FINAL.tmp"
-  # Ensure exactly one trailing newline
-  printf "\n" >>"$DEST_FINAL.tmp"
+  run_step "Normalizing $wf" bash -c "
+    sed -i 's/\r//g' \"$DEST_FINAL.tmp\"
+    # Strip UTF-8 BOM if present, then trim all leading/trailing whitespace
+    perl -0777 -pi -e 's/^\xEF\xBB\xBF//; s/^\s+//; s/\s+\z//' \"$DEST_FINAL.tmp\"
+    # Ensure exactly one trailing newline
+    printf \"\n\" >>\"$DEST_FINAL.tmp\"
+  "
   run_step "Finalizing $wf" mv "$DEST_FINAL.tmp" "$DEST_FINAL"
 done
 
 # 4. Handle version.json (Skip for Flutter)
 if [ "$PROJECT_TYPE" != "flutter" ]; then
   if [ ! -f "version.json" ]; then
-    _log "\n\033[0;33m     Creating version.json ($STARTING_VERSION)...\033[0m"
-    echo -e "{\n  \"version\": \"$STARTING_VERSION\"\n}" >version.json
+    run_step "Creating version.json" bash -c "echo -e \"{\\n  \\\"version\\\": \\\"$STARTING_VERSION\\\"\\n}\" >version.json"
   fi
 fi
 
 # 5. Handle CODEOWNERS (Governance - Custom Setup Only)
 if [[ "$CUSTOMIZE" =~ ^[Yy]$ ]] && [ ! -f ".github/CODEOWNERS" ]; then
-  _log "\n\033[0;33m        Fetching and Patching .github/CODEOWNERS..."
   run_step "Creating .github directory" mkdir -p ".github"
   if [ "$LOCAL_MODE" = true ]; then
     run_step "Staging CODEOWNERS" cp "../examples/CODEOWNERS" ".github/CODEOWNERS"
   else
     run_step "Downloading CODEOWNERS" curl -sSL "$BASE_URL/examples/CODEOWNERS" -o ".github/CODEOWNERS"
   fi
-  sed -i "s/{{HANDLE}}/$GH_HANDLE/g" ".github/CODEOWNERS"
+  run_step "Patching CODEOWNERS" sed -i "s/{{HANDLE}}/$GH_HANDLE/g" ".github/CODEOWNERS"
 fi
 
 echo -e "\n\033[0;32m    Installation Complete!\033[0m\n"
