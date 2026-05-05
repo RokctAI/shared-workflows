@@ -397,15 +397,15 @@ if [ -f "$PROGRESS_FILE" ] && [ ! -t 1 ]; then
 # RokctAI: Patched — suppress progress bars in non-TTY/CI
 import sys
 
-def update_progress_bar(title, doctype="", start=0, end=100, reload=False):
+def update_progress_bar(title, doctype='', start=0, end=100, reload=False):
     if start == 0:
-        print(f"{title}: [started]", flush=True)
+        print(f'{title}: [started]', flush=True)
     elif end == 100 or start >= end:
-        print(f"{title}: [done]", flush=True)
+        print(f'{title}: [done]', flush=True)
 
 show_progress = update_progress_bar
-EOF
-fi
+EOF"
+fi >>"$BUILD_LOG" 2>&1
 
 # --- 4B. Tooling: Install ROK agent (Hermes-agent rebrand) ---
 # ROK is not a Frappe app; keep it out of apps/ and install as a Python tool.
@@ -436,12 +436,7 @@ if [ "$INSTALL_ROK" = "true" ]; then
     env/bin/python <<'PY'
 import pathlib
 import re
-import tomllib
-
 p = pathlib.Path("tools/rok/pyproject.toml")
-if not p.exists():
-    raise SystemExit("ROK: missing tools/rok/pyproject.toml")
-
 text = p.read_text(encoding="utf-8")
 lines = text.splitlines(keepends=True)
 out = []
@@ -737,9 +732,11 @@ except (ImportError, ModuleNotFoundError):
 
 # Insert before first frappe import or at top if no frappe import
 if "import frappe" in text:
-    text = re.sub(r'(^import frappe)', guard + r'\1', text, count=1, flags=re.MULTILINE)
+    text = re.sub(r"(^import frappe)", guard + r"\1", text, count=1, flags=re.MULTILINE)
 else:
     text = guard + "\n" + text
+p.write_text(text)'
+      fi
 
 path.write_text(text)
 print(f"✅ {p_str} patched successfully")
@@ -775,16 +772,13 @@ import pathlib, re
 p = pathlib.Path("apps/control/control/control/patches/seed_subscription_plans_v4.py")
 if p.exists():
     text = p.read_text()
-    # Find _ensure_dependencies and wrap its body
     pattern = r"(def _ensure_dependencies\(\):)(.*?)(\ndef |\Z)"
     def repl(m):
         header = m.group(1)
         body = m.group(2)
         tail = m.group(3)
-        # Indent original body by 4 more spaces to fit in try block
         indented_body = re.sub(r"^", "    ", body, flags=re.MULTILINE)
         return f"{header}\n    try:{indented_body}\n    except Exception:\n        pass{tail}"
-
     new_text = re.sub(pattern, repl, text, flags=re.DOTALL)
     if new_text != text:
         p.write_text(new_text)
@@ -804,22 +798,21 @@ PY
     # We pass the hook file path via env to avoid shell quoting issues with '#' and quotes
     HOOK_FILE="$hook_file" env/bin/python -c '
 import os, sys, re
-path = os.environ.get("HOOK_FILE")
-if not path or not os.path.exists(path): sys.exit(0)
-with open(path, "r") as f: content = f.read()
-pattern = r"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):"
+path = os.environ.get(\"HOOK_FILE\")
+with open(path, \"r\") as f: content = f.read()
+pattern = r\"^([ \t]+)def (on_update|after_insert)\(self[^\)]*\):\"
 def repl(m):
-    indent = m.group(1)
+    indent = m.group(1) >> "$BUILD_LOG" 2>&1
     full_match = m.group(0)
     pre_content = content[:m.start()]
     lines = pre_content.splitlines()
-    if lines and "# rokct-no-guard" in lines[-1]: return full_match
-    guard_str = "if frappe.flags.in_install or frappe.flags.in_migrate: return"
-    next_lines = content[m.end():].split("\n", 4)
+    if lines and \"# rokct-no-guard\" in lines[-1]: return full_match
+    guard_str = \"if frappe.flags.in_install or frappe.flags.in_migrate: return\"
+    next_lines = content[m.end():].split(\"\n\", 4)
     for line in next_lines:
         if guard_str in line: return full_match
-        if line.strip() and not line.strip().startswith("\"\"\"") and not line.strip().startswith("#"): break
-    return f"{full_match}\n{indent}{indent}{guard_str}"
+        if line.strip() and not line.strip().startswith(\"\\\"\\\"\\\"\") and not line.strip().startswith(\"#\"): break
+    return f\"{full_match}\n{indent}{indent}{guard_str}\"
 new_content = re.sub(pattern, repl, content, flags=re.MULTILINE)
 with open(path, "w") as f: f.write(new_content)
 ' || true
@@ -899,7 +892,7 @@ else
 fi
 
 # Ensure site-specific logs exist
-mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
+run_step "Creating site logs directory" mkdir -p "sites/$SITE_NAME/logs"
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
@@ -1098,7 +1091,7 @@ print('Schema OK')
 print('🚀 STRICT VERIFICATION PASSED')
 "
 
-# Run Standard App Tests if explicitly requested (usually CI only)
+# Run Standard App Tests if explicitly requested (usually CI only) >> "$BUILD_LOG" 2>&1
 if [ "$RUN_TESTS" = "true" ]; then
   _log "RokctAI: Running Tests for $APP_NAME..."
   bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
