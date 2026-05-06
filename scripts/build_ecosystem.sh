@@ -409,7 +409,7 @@ fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\""
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\" && mkdir -p \"/home/frappe/frappe-bench/$SITE_NAME/logs\""
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
