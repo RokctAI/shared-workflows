@@ -5,9 +5,10 @@
 set -e
 
 BUILD_LOG="/tmp/build_ecosystem.log"
->"$BUILD_LOG"
+touch "$BUILD_LOG" 2>/dev/null || true
+> "$BUILD_LOG" 2>/dev/null || true
 
-_log() { echo "$*" >>"$BUILD_LOG"; }
+_log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
 
 run_step() {
   local title="$1"
@@ -15,8 +16,10 @@ run_step() {
   local step_log
   step_log=$(mktemp)
   printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
@@ -41,8 +44,10 @@ bench_step() {
   local step_log
   step_log=$(mktemp)
   printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   # Filter supervisor noise and known-harmless DB conflicts
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
@@ -75,8 +80,10 @@ wait_step() {
   local step_log
   step_log=$(mktemp)
   printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   if [ $exit_code -eq 0 ]; then
     echo -e "\033[0;32m✓ READY\033[0m"
     cat "$step_log" >>"$BUILD_LOG"
@@ -112,7 +119,8 @@ BOOTSTRAP=${BOOTSTRAP:-false}
 DB_TYPE=${DB_TYPE:-postgres}
 DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
@@ -143,7 +151,8 @@ if ! command -v python3.14 >/dev/null 2>&1; then
     PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
   fi
 fi
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
@@ -400,7 +409,7 @@ fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\""
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\" && mkdir -p \"/home/frappe/frappe-bench/$SITE_NAME/logs\""
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
