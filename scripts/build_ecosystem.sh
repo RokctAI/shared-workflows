@@ -6,7 +6,7 @@ set -e
 
 BUILD_LOG="/tmp/build_ecosystem.log"
 touch "$BUILD_LOG" 2>/dev/null || true
-> "$BUILD_LOG" 2>/dev/null || true
+>"$BUILD_LOG" 2>/dev/null || true
 
 _log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
 
