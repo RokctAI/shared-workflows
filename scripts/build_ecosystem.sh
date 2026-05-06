@@ -14,7 +14,7 @@ run_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   local errors
@@ -40,13 +40,16 @@ bench_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
-  # Filter supervisor noise
+  # Filter supervisor noise and known-harmless DB conflicts
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
   sed -i '/Use `bench restart` to retry/d' "$step_log"
+  sed -i '/Cleanup Error:/d' "$step_log"
+  sed -i '/UniqueViolation/d' "$step_log"
+  sed -i '/DuplicateEntryError/d' "$step_log"
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
@@ -70,7 +73,7 @@ wait_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   if [ $exit_code -eq 0 ]; then
@@ -171,6 +174,8 @@ safe_install_app() {
     echo "  - [$app] Already installed on $SITE_NAME...     DONE"
     return 0
   fi
+
+  # Attempt internal install first
   run_step "Installing $app on $SITE_NAME" \
     env/bin/python -c "
 import frappe
@@ -178,9 +183,13 @@ frappe.init(site='$SITE_NAME', sites_path='sites')
 frappe.connect()
 from frappe.installer import install_app
 install_app('$app', force=True)
-" ||
+"
+  RET=$?
+  if [ $RET -ne 0 ]; then
+    # Fallback to bench install if internal fails
     bench_step "Installing $app on $SITE_NAME (bench fallback)" \
       bench --site "$SITE_NAME" install-app "$app" --force || true
+  fi
 }
 
 # Detect if running in Docker or CI Container
@@ -431,9 +440,12 @@ if [ "$INSTALL_ROK" = "true" ]; then
   if [ ! -d "$ROK_DIR/.git" ]; then
     rm -rf "$ROK_DIR" || true
     run_step "Cloning ROK into $ROK_DIR (ref: $ROK_REF)" \
-      git clone --depth 1 --branch "$ROK_REF" "$ROK_REPO_URL" "$ROK_DIR" ||
+      git clone --depth 1 --branch "$ROK_REF" "$ROK_REPO_URL" "$ROK_DIR"
+    RET=$?
+    if [ $RET -ne 0 ]; then
       run_step "Cloning ROK (fallback)" \
         git clone "$ROK_REPO_URL" "$ROK_DIR"
+    fi
   else
     _log "    ROK repo already present at $ROK_DIR"
   fi
@@ -639,9 +651,12 @@ for extra_app in lending rcore; do
     fi
 
     bench_step "Fetching $extra_app" \
-      bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets ||
+      bench get-app "$REPO_URL" --branch "$BRANCH" --skip-assets
+    RET=$?
+    if [ $RET -ne 0 ]; then
       bench_step "Fetching $extra_app (fallback)" \
         bench get-app "$REPO_URL" --skip-assets || true
+    fi
   else
     _log "    $extra_app already present."
   fi
@@ -834,7 +849,7 @@ else
 fi
 
 # Map platform hosts
-run_step "Mapping platform hosts" bash -c "echo \"127.0.0.1 platform.rokct.ai\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\" && echo \"127.0.0.1 rpanel.local\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\"" || _log "Skipped: /etc/hosts is read-only"
+_log "Skipping /etc/hosts mapping (Docker build — not needed)"
 
 # Site Initialization
 if [ "$BOOTSTRAP" = "false" ]; then
@@ -857,7 +872,7 @@ else
     echo "$SITE_NAME" >sites/currentsite.txt
   fi
 
-  run_step "Mapping site host" bash -c "echo \"127.0.0.1 $SITE_NAME\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\"" || true
+  _log "Skipping /etc/hosts mapping (Docker build — not needed)"
   echo "$SITE_NAME" >sites/currentsite.txt
 
   if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
@@ -873,34 +888,38 @@ mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
-  safe_install_app payments || true
+  safe_install_app payments
 fi
 
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
-  safe_install_app erpnext || true
+  safe_install_app erpnext
 fi
 
 # Install the Target App
-safe_install_app "$APP_NAME" || true
+safe_install_app "$APP_NAME"
 _log "Current apps directory: $(ls apps)"
 
 sync_apps_txt
 
 # Final Migration & App Installation
 if [ -d "apps/lending" ]; then
-  safe_install_app lending || true
+  safe_install_app lending
   bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q lending &&
     echo "  - lending installed OK...     DONE" ||
     _log "WARNING: lending not installed on site"
 fi
-if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
-safe_install_app control || true
+if [ -d "apps/rcore" ]; then safe_install_app rcore; fi
+safe_install_app control
 run_step "Initializing site apps.txt" bash -c "[ -f \"sites/$SITE_NAME/apps.txt\" ] || cp sites/apps.txt \"sites/$SITE_NAME/apps.txt\""
 bench_step "Migrating site" \
   bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
 
 if bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^erpnext$"; then
-  run_step "Seeding ERPNext defaults" bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install || _log "Warning: ERPNext fixture seeding failed."
+  run_step "Seeding ERPNext defaults" bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install
+  RET=$?
+  if [ $RET -ne 0 ]; then
+    _log "Warning: ERPNext fixture seeding failed."
+  fi
 fi
 
 # RokctAI: Stack Installation
@@ -922,7 +941,11 @@ fi
 if [ -d "apps/rcore" ]; then
   HAS_PLATFORM=$(env/bin/python -c "import importlib.util; print('yes' if importlib.util.find_spec('rcore.platform') or importlib.util.find_spec('rcore.rcore.platform') else 'no')" 2>/dev/null || echo "no")
   if [ "$HAS_PLATFORM" = "yes" ]; then
-    run_step "Baking rcore assets" bash -c "bench --site \"$SITE_NAME\" execute rcore.platform.manager.bake_assets 2>/dev/null || bench --site \"$SITE_NAME\" execute rcore.rcore.platform.manager.bake_assets 2>/dev/null" || _log "Warning: Failed to bake rcore assets."
+    run_step "Baking rcore assets" bash -c "bench --site \"$SITE_NAME\" execute rcore.platform.manager.bake_assets 2>/dev/null || bench --site \"$SITE_NAME\" execute rcore.rcore.platform.manager.bake_assets 2>/dev/null"
+    RET=$?
+    if [ $RET -ne 0 ]; then
+      _log "Warning: Failed to bake rcore assets."
+    fi
   fi
 fi
 
@@ -930,10 +953,14 @@ fi
 if [ -d "apps/rcore/rcore/platform" ] && [ -n "$GITHUB_TOKEN" ]; then
   _log "RokctAI: Persisting baked rcore assets to Monorepo..."
   MONOREPO_TMP="/tmp/monorepo-bake-push"
-  run_step "Cloning Monorepo for persistence" bash -c "rm -rf \"$MONOREPO_TMP\" && git clone --depth 1 \"https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/Monorepo.git\" \"$MONOREPO_TMP\" 2>&1 | grep -v \"^remote:\"" && {
+  run_step "Cloning Monorepo for persistence" bash -c "rm -rf \"$MONOREPO_TMP\" && git clone --depth 1 \"https://x-access-token:${GITHUB_TOKEN}@github.com/RokctAI/Monorepo.git\" \"$MONOREPO_TMP\" 2>&1 | grep -v \"^remote:\""
+  RET=$?
+  if [ $RET -eq 0 ]; then
     run_step "Committing baked assets" bash -c "mkdir -p \"$MONOREPO_TMP/rcore/rcore/platform\" && cp -r apps/rcore/rcore/platform/. \"$MONOREPO_TMP/rcore/rcore/platform/\" && cd \"$MONOREPO_TMP\" && CHANGES=\$(git status --porcelain rcore/rcore/platform | wc -l) && if [ \"\$CHANGES\" -gt 0 ]; then git config user.email \"bot@rokct.ai\" && git config user.name \"RokctAI Bot\" && git add rcore/rcore/platform && git commit -m \"chore(rcore): auto-bake platform assets [skip ci]\" && git push origin HEAD; fi"
     rm -rf "$MONOREPO_TMP"
-  } || _log "Warning: Asset persistence failed."
+  else
+    _log "Warning: Asset persistence failed."
+  fi
 fi
 
 # 8C. Sync RPanel Version
