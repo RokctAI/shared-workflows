@@ -422,6 +422,13 @@ cd "$BENCH_DIR" || {
   echo "    Error: Could not find bench at $BENCH_DIR"
   exit 1
 }
+
+# CRITICAL: Pre-create log directories BEFORE any frappe.init()
+mkdir -p /home/frappe/logs
+mkdir -p /home/frappe/frappe-bench/logs
+mkdir -p "sites/$SITE_NAME/logs"
+mkdir -p "/home/frappe/frappe-bench/$SITE_NAME/logs"
+
 export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
