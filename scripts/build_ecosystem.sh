@@ -49,6 +49,7 @@ bench_step() {
   sed -i '/Use `bench restart` to retry/d' "$step_log"
   sed -i '/Cleanup Error:/d' "$step_log"
   sed -i '/UniqueViolation/d' "$step_log"
+  sed -i '/psycopg2/d' "$step_log"
   sed -i '/DuplicateEntryError/d' "$step_log"
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
@@ -134,11 +135,11 @@ export PYTHONUNBUFFERED=1
 if ! command -v python3.14 >/dev/null 2>&1; then
   _log "RokctAI: Bootstrapping Python 3.14 via uv..."
   if ! command -v uv >/dev/null 2>&1; then
-    run_step "Installing uv" bash -c "curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh" || true
+    run_step "Installing uv" bash -c "curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh"
   fi
   if command -v uv >/dev/null 2>&1; then
     export PATH="/usr/local/bin:$PATH"
-    run_step "Installing Python 3.14" uv python install 3.14 || true
+    run_step "Installing Python 3.14" uv python install 3.14
     PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
   fi
 fi
@@ -188,7 +189,7 @@ install_app('$app', force=True)
   if [ $RET -ne 0 ]; then
     # Fallback to bench install if internal fails
     bench_step "Installing $app on $SITE_NAME (bench fallback)" \
-      bench --site "$SITE_NAME" install-app "$app" --force || true
+      bench --site "$SITE_NAME" install-app "$app" --force
   fi
 }
 
@@ -236,11 +237,11 @@ else
     if ! command -v redis-server >/dev/null; then
       run_step "Installing redis-server (CI)" bash -c "apt-get update -qq && apt-get install -y -qq redis-server"
     fi
-    run_step "Starting Redis (11000)" redis-server --port 11000 --daemonize yes || true
-    run_step "Starting Redis (12000)" redis-server --port 12000 --daemonize yes || true
-    run_step "Starting Redis (13000)" redis-server --port 13000 --daemonize yes || true
+    run_step "Starting Redis (11000)" redis-server --port 11000 --daemonize yes
+    run_step "Starting Redis (12000)" redis-server --port 12000 --daemonize yes
+    run_step "Starting Redis (13000)" redis-server --port 13000 --daemonize yes
   else
-    run_step "Starting redis-server service" sudo service redis-server start || true
+    run_step "Starting redis-server service" sudo service redis-server start
   fi
 fi
 
@@ -262,7 +263,7 @@ if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
   run_step "Enabling PostgreSQL extensions (container)" \
     bash -c 'docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" && \
              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" && \
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"' || true
+             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"'
   _log "    PostgreSQL ready."
 elif [ "$IS_DOCKER" = "true" ]; then
   _log "Starting PostgreSQL Service (Docker Native)..."
@@ -274,14 +275,14 @@ elif [ "$IS_DOCKER" = "true" ]; then
       run_step "Installing PostgreSQL" \
         bash -c "apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib"
       run_step "Starting PostgreSQL service" \
-        sudo service postgresql start || true
+        sudo service postgresql start
     else
       _log "Unsupported distribution for automatic PostgreSQL installation."
       _log "Please ensure PostgreSQL is installed and running before executing this script."
     fi
   else
     run_step "Starting PostgreSQL service" \
-      sudo service postgresql start || true
+      sudo service postgresql start
   fi
 
   wait_step "Waiting for PostgreSQL" \
@@ -293,7 +294,7 @@ elif [ "$IS_DOCKER" = "true" ]; then
       bash -c "sudo -u postgres psql -c \"ALTER USER postgres PASSWORD '$DB_PW';\" && \
                sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS vector;\" && \
                sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS cube;\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS earthdistance;\"" || true
+               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS earthdistance;\""
   else
     _log "Warning: Could not connect to PostgreSQL to configure extensions and user."
   fi
@@ -389,12 +390,12 @@ else
   # Pre-create the directory that causes permission issues during plaid-python install
   S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
   _log "RokctAI: Pre-patching site-packages for plaid-python..."
-  run_step "Pre-patching site-packages" bash -c "sudo mkdir -p \"$S_PATH/tests/integration\" && sudo chmod -R 777 \"$S_PATH\"" || true
+  run_step "Pre-patching site-packages" bash -c "sudo mkdir -p \"$S_PATH/tests/integration\" && sudo chmod -R 777 \"$S_PATH\""
 
   # Debug: Verify site structure
   _log "RokctAI: Debugging site structure..."
-  ls -la /home/frappe/frappe-bench/sites || true
-  ls -la /home/frappe/frappe-bench/sites/rpanel.local || true
+  ls -la /home/frappe/frappe-bench/sites
+  ls -la /home/frappe/frappe-bench/sites/rpanel.local
 fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
@@ -447,7 +448,7 @@ if [ "$INSTALL_ROK" = "true" ]; then
   fi
 
   if [ ! -d "$ROK_DIR/.git" ]; then
-    rm -rf "$ROK_DIR" || true
+    rm -rf "$ROK_DIR"
     run_step "Cloning ROK into $ROK_DIR (ref: $ROK_REF)" \
       git clone --depth 1 --branch "$ROK_REF" "$ROK_REPO_URL" "$ROK_DIR"
     RET=$?
@@ -535,7 +536,7 @@ if [ "$INSTALL_PAYMENTS" = "true" ]; then
   _log "Fetching Payments..."
   if [ ! -d "apps/payments" ]; then
     bench_step "Fetching Payments" \
-      bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets || true
+      bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets
   fi
 fi
 
@@ -543,7 +544,7 @@ if [ "$INSTALL_ERPNEXT" = "true" ]; then
   _log "Fetching ERPNext..."
   if [ ! -d "apps/erpnext" ]; then
     bench_step "Fetching ERPNext" \
-      bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets || true
+      bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets
   fi
 fi
 
@@ -664,7 +665,7 @@ for extra_app in lending rcore; do
     RET=$?
     if [ $RET -ne 0 ]; then
       bench_step "Fetching $extra_app (fallback)" \
-        bench get-app "$REPO_URL" --skip-assets || true
+        bench get-app "$REPO_URL" --skip-assets
     fi
   else
     _log "    $extra_app already present."
@@ -721,7 +722,7 @@ for app_dir in apps/*; do
   # G. Dynamic App Dependency Stripping
   if [ -f "apps/$this_app/$this_app/hooks.py" ]; then
     if [ "$this_app" = "lending" ]; then
-      run_step "[$this_app] Stripping 'erpnext' requirement" sed -i "s/[\"']erpnext[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+      run_step "[$this_app] Stripping 'erpnext' requirement" sed -i "s/[\"']erpnext[\"']//g" "apps/$this_app/$this_app/hooks.py"
 
       # Fix #2: Guard erpnext imports in loan.py to prevent ImportError during DocType sync.
       LOAN_PY="apps/lending/lending/loan_management/doctype/loan/loan.py"
@@ -780,11 +781,11 @@ text = re.sub(r'^from erpnext([^\n]*)$',
   text, flags=re.MULTILINE)
 p.write_text(text)
 print('loan_controller.py patched')
-" || true
+"
       fi
     fi
     if [ "$this_app" = "rcore" ]; then
-      run_step "[$this_app] Stripping 'payments' requirement" sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py" || true
+      run_step "[$this_app] Stripping 'payments' requirement" sed -i "s/[\"']payments[\"']//g" "apps/$this_app/$this_app/hooks.py"
     fi
 
     if [ "$this_app" = "control" ]; then
@@ -836,7 +837,7 @@ with open(path, \"w\") as f: f.write(new_content)
 '; done || true"
 
   # G. Forced Registration (Editable Mode)
-  bench_step "[$this_app] Registering in editable mode" bench pip install -e "apps/$this_app" || true
+  bench_step "[$this_app] Registering in editable mode" bench pip install -e "apps/$this_app"
 
   # H. Surgical Ecosystem Hotfixes
   if [ "$this_app" = "helpdesk" ]; then
@@ -865,10 +866,10 @@ if [ "$BOOTSTRAP" = "false" ]; then
   SITE_NAME="$WORKING_SITE"
   if [ "$DB_TYPE" = "mariadb" ]; then
     run_step "Creating new site (MariaDB)" \
-      bench new-site "$SITE_NAME" --db-root-password "$DB_PW" --admin-password admin --no-mariadb-socket || true
+      bench new-site "$SITE_NAME" --db-root-password "$DB_PW" --admin-password admin --no-mariadb-socket
   else
     run_step "Creating new site (PostgreSQL)" \
-      bench new-site "$SITE_NAME" --db-type postgres --db-root-password "$DB_PW" --admin-password admin || true
+      bench new-site "$SITE_NAME" --db-type postgres --db-root-password "$DB_PW" --admin-password admin
   fi
   echo "$SITE_NAME" >sites/currentsite.txt
   sync_apps_txt
@@ -886,14 +887,14 @@ else
 
   if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
     if [ -d "/home/frappe/frappe-bench/sites/$SITE_NAME" ]; then
-      run_step "Recovering site config" cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/" || true
+      run_step "Recovering site config" cp -r "/home/frappe/frappe-bench/sites/$SITE_NAME/." "sites/$SITE_NAME/"
     fi
   fi
 
-  run_step "Configuring site" bash -c "bench --site \"$SITE_NAME\" set-config developer_mode 1 && bench --site \"$SITE_NAME\" set-config allow_tests true" || true
+  run_step "Configuring site" bash -c "bench --site \"$SITE_NAME\" set-config developer_mode 1 && bench --site \"$SITE_NAME\" set-config allow_tests true"
 fi
 
-mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
+mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
@@ -1050,8 +1051,8 @@ if [ "${DOCKER_BUILD}" != "true" ] && [ "${CI}" != "true" ] && [ "$SITE_NAME" !=
     run_step "Renaming site to platform.rokct.ai" mv "sites/$SITE_NAME" "sites/platform.rokct.ai"
     SITE_NAME="platform.rokct.ai"
     echo "$SITE_NAME" >sites/currentsite.txt
-    run_step "Setting up nginx" bench setup nginx || true
-    run_step "Setting up supervisor" bench setup supervisor || true
+    run_step "Setting up nginx" bench setup nginx
+    run_step "Setting up supervisor" bench setup supervisor
   fi
 fi
 _log "    RokctAI: Golden Build Complete!"
