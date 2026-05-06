@@ -99,6 +99,20 @@ wait_step() {
   rm -f "$step_log"
 }
 
+ensure_site_logs() {
+  local base="$1"
+  _log "Ensuring log structure for: $base"
+  mkdir -p "$base/logs" "$base/task_logs" 2>/dev/null || true
+
+  touch "$base/logs/database.log" 2>/dev/null || true
+  touch "$base/logs/web.log" 2>/dev/null || true
+  touch "$base/logs/worker.log" 2>/dev/null || true
+  touch "$base/logs/scheduler.log" 2>/dev/null || true
+
+  chmod -R 777 "$base/logs" "$base/task_logs" 2>/dev/null || true
+}
+export -f ensure_site_logs
+
 # ==============================================================================
 # RokctAI: Golden Build Script (build_ecosystem.sh)
 # Author: Antigravity
@@ -131,6 +145,10 @@ else
   WORKING_SITE="platform.rokct.ai"
 fi
 SITE_NAME="${SITE_NAME:-$WORKING_SITE}"
+
+# CRITICAL: Pre-create log directories BEFORE any frappe.init() or bench commands
+ensure_site_logs "/home/frappe/frappe-bench/sites/$SITE_NAME"
+ensure_site_logs "/home/frappe/frappe-bench/$SITE_NAME"
 
 # Silence tqdm progress bars (e.g. "Updating DocTypes [===] 40%") in non-TTY environments.
 # Without a TTY, tqdm can't use \r to overwrite lines so it prints every % update as a new line.
@@ -409,7 +427,7 @@ fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\" && mkdir -p \"/home/frappe/frappe-bench/$SITE_NAME/logs\""
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs /home/frappe/frappe-bench/logs && ensure_site_logs \"/home/frappe/frappe-bench/sites/$SITE_NAME\" && ensure_site_logs \"/home/frappe/frappe-bench/$SITE_NAME\""
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -422,12 +440,6 @@ cd "$BENCH_DIR" || {
   echo "    Error: Could not find bench at $BENCH_DIR"
   exit 1
 }
-
-# CRITICAL: Pre-create log directories BEFORE any frappe.init()
-mkdir -p /home/frappe/logs
-mkdir -p /home/frappe/frappe-bench/logs
-mkdir -p "sites/$SITE_NAME/logs"
-mkdir -p "/home/frappe/frappe-bench/$SITE_NAME/logs"
 
 export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
