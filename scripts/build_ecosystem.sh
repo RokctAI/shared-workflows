@@ -14,7 +14,7 @@ run_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   local errors
@@ -40,7 +40,7 @@ bench_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   # Filter supervisor noise and known-harmless DB conflicts
@@ -73,7 +73,7 @@ wait_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   if [ $exit_code -eq 0 ]; then
@@ -858,11 +858,7 @@ else
 fi
 
 # Map platform hosts
-run_step "Mapping platform hosts" bash -c "echo \"127.0.0.1 platform.rokct.ai\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\" && echo \"127.0.0.1 rpanel.local\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\""
-RET=$?
-if [ $RET -ne 0 ]; then
-  _log "Skipped: /etc/hosts is read-only"
-fi
+_log "Skipping /etc/hosts mapping (Docker build — not needed)"
 
 # Site Initialization
 if [ "$BOOTSTRAP" = "false" ]; then
@@ -885,7 +881,7 @@ else
     echo "$SITE_NAME" >sites/currentsite.txt
   fi
 
-  run_step "Mapping site host" bash -c "echo \"127.0.0.1 $SITE_NAME\" | sudo tee -a /etc/hosts >>\"$BUILD_LOG\"" || true
+  _log "Skipping /etc/hosts mapping (Docker build — not needed)"
   echo "$SITE_NAME" >sites/currentsite.txt
 
   if [ ! -f "sites/$SITE_NAME/site_config.json" ]; then
@@ -901,28 +897,28 @@ mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null || true
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
-  safe_install_app payments || true
+  safe_install_app payments
 fi
 
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
-  safe_install_app erpnext || true
+  safe_install_app erpnext
 fi
 
 # Install the Target App
-safe_install_app "$APP_NAME" || true
+safe_install_app "$APP_NAME"
 _log "Current apps directory: $(ls apps)"
 
 sync_apps_txt
 
 # Final Migration & App Installation
 if [ -d "apps/lending" ]; then
-  safe_install_app lending || true
+  safe_install_app lending
   bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q lending &&
     echo "  - lending installed OK...     DONE" ||
     _log "WARNING: lending not installed on site"
 fi
-if [ -d "apps/rcore" ]; then safe_install_app rcore || true; fi
-safe_install_app control || true
+if [ -d "apps/rcore" ]; then safe_install_app rcore; fi
+safe_install_app control
 run_step "Initializing site apps.txt" bash -c "[ -f \"sites/$SITE_NAME/apps.txt\" ] || cp sites/apps.txt \"sites/$SITE_NAME/apps.txt\""
 bench_step "Migrating site" \
   bench --site "$SITE_NAME" migrate || echo "Warning: Migration returned non-zero. Suppressing Frappe fixture conflicts."
