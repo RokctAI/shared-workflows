@@ -292,18 +292,17 @@ if [ "$DB_TYPE" = "postgres" ]; then
   if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ] && [ "$CI" = "false" ]; then
     if ! docker ps -a | grep -q db-service; then
       DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-      if ! docker pull "$DB_IMAGE" >/dev/null 2>&1; then
-        _log "       Custom image $DB_IMAGE not found, falling back to pgvector"
-        DB_IMAGE="pgvector/pgvector:pg16"
-      fi
+      _log "       Pulling $DB_IMAGE..."
+      docker pull "$DB_IMAGE"
+
       run_step "Starting PostgreSQL container" \
         docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
     fi
   fi
 
-  # 2. Wait for connectivity
+  # 2. Wait for connectivity via TCP
   wait_step "Waiting for PostgreSQL ($DB_HOST)" \
-    timeout 60s bash -c "until psql -h $DB_HOST -U postgres -c '\q' > /dev/null 2>&1; do sleep 2; done"
+    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
 
   # 3. Initialize Extensions (TCP)
   run_step "Initializing PostgreSQL extensions (TCP)" \

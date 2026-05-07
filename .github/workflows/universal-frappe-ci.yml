@@ -138,36 +138,26 @@ jobs:
           echo "DB_HOST=127.0.0.1" >> "$GITHUB_ENV"
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service --network host -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
-             # Wait for health
-             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+             docker run -d --name db-service -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
+             # Wait for health via TCP
+             timeout 60s bash -c "until mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
               echo "Starting PostgreSQL..."
-              # Primary: RPanel DB (Customized pg16 + pgvector)
               DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-              FALLBACK_IMAGE="pgvector/pgvector:pg${{ inputs.postgres-version }}"
+              echo "Pulling $DB_IMAGE..."
+              docker pull "$DB_IMAGE"
 
-              echo "Attempting to pull primary database image: $DB_IMAGE"
-              if ! docker pull "$DB_IMAGE"; then
-                  echo "⚠️ Primary image pull failed, using fallback: $FALLBACK_IMAGE"
-                  DB_IMAGE="$FALLBACK_IMAGE"
-              fi
+              docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
 
-              if ! docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"; then
-                  echo "❌ Primary image failed to start, attempting fallback: $FALLBACK_IMAGE"
-                  docker rm -f db-service 2>/dev/null || true
-                  DB_IMAGE="$FALLBACK_IMAGE"
-                  docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
-              fi
+              # Wait for health via TCP
+              timeout 60s bash -c 'until pg_isready -h 127.0.0.1 -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
 
-              # Wait for health
-              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
-
-              # Ensure critical extensions are active regardless of image
+              # Ensure critical extensions are active
               echo "Initializing PostgreSQL extensions (vector, cube, earthdistance)..."
-              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
-              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
-              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
+              export PGPASSWORD="${{ env.DB_PW }}"
+              psql -h 127.0.0.1 -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+              psql -h 127.0.0.1 -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+              psql -h 127.0.0.1 -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
           fi
 
       - name: Install Runtime Toolchains (Python & Node)
