@@ -371,13 +371,13 @@ if [ "$BOOTSTRAP" = "false" ]; then
     echo "  - Bench initialization completed... ✓ DONE"
 
     if [ ! -f "/home/frappe/frappe-bench/env/bin/pip" ]; then
-      echo "Bench virtualenv missing"
+      echo "FATAL: virtualenv not created"
       exit 1
     fi
     echo "  - Bench virtualenv validation... ✓ DONE"
 
     if [ ! -f "/home/frappe/frappe-bench/sites/common_site_config.json" ]; then
-      echo "Bench structure incomplete"
+      echo "FATAL: bench structure incomplete"
       exit 1
     fi
     echo "  - Bench structure validation... ✓ DONE"
@@ -405,6 +405,9 @@ else
   # PATCH: Prevent yarn install OOM and timeouts in container environments
   run_step "Setting yarn timeouts/options" sed -i 's/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\";/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\"; export YARN_NETWORK_TIMEOUT=300000; export NODE_OPTIONS=\\x27--max-old-space-size=2048\\x27;/g' install.sh
 
+  # PATCH: Enable strict mode in install.sh
+  run_step "Enabling strict mode in install.sh" sed -i '1a set -euo pipefail' install.sh
+
   # PATCH: Configure yarn for the frappe user specifically
   run_step "Patching install.sh" \
     bash -c "sed -i 's/run_quiet \"Initializing frappe-bench\"/run_quiet \"Configuring Frappe User Yarn\" sudo -u frappe -i bash -c \"yarn config set ignore-engines true; yarn config set network-timeout 300000\"\\n\\n  echo -e \"\\\\033[0;34m  - Initializing frappe-bench (Verbose)... \\\\033[0;0m\"/g' install.sh && chmod +x install.sh"
@@ -414,11 +417,25 @@ else
   bench_step "Executing install.sh" bash -c "
     sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
     exit_code=\$?
-    if [ \$exit_code -ne 0 ] && [ ! -d '/home/frappe/frappe-bench' ]; then
-      echo '=== install.sh failed - dumping rpanel_install.log ==='
+    if [ \$exit_code -ne 0 ]; then
+      echo 'FATAL: install.sh failed'
+      echo '---- INSTALL LOG START ----'
       cat /tmp/rpanel_install.log || true
+      echo '---- INSTALL LOG END ----'
       exit 1
     fi
+
+    # Validation
+    if [ ! -f '/home/frappe/frappe-bench/env/bin/pip' ]; then
+      echo 'FATAL: virtualenv not created'
+      exit 1
+    fi
+    if [ ! -f '/home/frappe/frappe-bench/sites/common_site_config.json' ]; then
+      echo 'FATAL: bench structure incomplete'
+      exit 1
+    fi
+    echo '  - Bench virtualenv validation... ✓ DONE'
+    echo '  - Bench structure validation... ✓ DONE'
     exit 0
   "
 
