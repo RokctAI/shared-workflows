@@ -3,6 +3,8 @@
 
 #!/bin/bash
 
+set -euo pipefail
+
 _log() { echo "$*" >>"/tmp/rpanel_install.log"; }
 
 run_step() {
