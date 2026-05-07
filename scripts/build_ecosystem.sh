@@ -282,34 +282,57 @@ fi
 # PostgreSQL Startup & Validation
 # RokctAI Standard: PostgreSQL MUST run as a container (db-service) or external host.
 # Local system PostgreSQL server packages are NOT used.
-DB_HOST=${DB_HOST:-127.0.0.1}
+DB_HOST=${DB_HOST:-db-service}
 export PGPASSWORD="$DB_PW"
 
 if [ "$DB_TYPE" = "postgres" ]; then
   _log "RokctAI: Validating PostgreSQL Service (Host: $DB_HOST)..."
 
-  # 1. Start Container if not present and on Host/Non-Bootstrap
-  if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ] && [ "$CI" = "false" ]; then
+  # 0. Ensure client tools are installed
+  if ! command -v pg_isready >/dev/null 2>&1; then
+    run_step "Installing postgresql-client" bash -c "apt-get update -qq && apt-get install -y -qq postgresql-client"
+  fi
+
+  # 1. Start Container if not present
+  if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
     if ! docker ps -a | grep -q db-service; then
       DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
       _log "       Pulling $DB_IMAGE..."
       docker pull "$DB_IMAGE"
 
+      # In CI we use a shared network if possible, otherwise we rely on localhost mapping
+      # But the prompt specifically asks for db-service hostname and -p 5432:5432
+      NET_ARGS=""
+      if [ "$CI" = "true" ]; then
+          # If we are in CI, we try to use the same network as the current container
+          # Or create one. For now, assume host networking is avoid as per previous prompt
+          # But we need resolution.
+          NET_ARGS="--network bridge"
+      fi
+
       run_step "Starting PostgreSQL container" \
-        docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
+        docker run -d --name db-service $NET_ARGS -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
     fi
   fi
 
   # 2. Wait for connectivity via TCP
+  # If 127.0.0.1 failed, we try $DB_HOST (db-service)
   wait_step "Waiting for PostgreSQL ($DB_HOST)" \
-    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
+    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres || pg_isready -h 127.0.0.1 -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
 
   # 3. Initialize Extensions (TCP)
+  # Resolve which host actually worked
+  if pg_isready -h "$DB_HOST" -U postgres >/dev/null 2>&1; then
+      ACTUAL_HOST="$DB_HOST"
+  else
+      ACTUAL_HOST="127.0.0.1"
+  fi
+
   run_step "Initializing PostgreSQL extensions (TCP)" \
-    bash -c "psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
-             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
-             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
-  _log "    PostgreSQL ready at $DB_HOST."
+    bash -c "psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
+             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
+             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
+  _log "    PostgreSQL ready at $ACTUAL_HOST."
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
