@@ -385,26 +385,16 @@ else
 
   _log "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   # Softer check for install.sh: mark success if frappe-bench exists even if error patterns appeared in log.
-  printf "  - \033[0;34mExecuting install.sh\033[0m... "
-  step_log=$(mktemp)
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh >"$step_log" 2>&1
-  exit_code=$?
-  if [ $exit_code -eq 0 ] || [ -d "/home/frappe/frappe-bench" ]; then
-    echo -e "\033[0;32m✓ DONE\033[0m"
-    cat "$step_log" >>"$BUILD_LOG"
-  else
-    echo -e "\033[0;31m❌ FAILED\033[0m"
-    echo "    ---- LOG START ----"
-    cat "$step_log"
-    echo "    ---- LOG END ----"
-    cat "$step_log" >>"$BUILD_LOG"
-    _log "=== install.sh failed - dumping rpanel_install.log ==="
-    cat /tmp/rpanel_install.log || true
-    echo "    frappe-bench missing after install.sh - cannot continue"
-    rm -f "$step_log"
-    exit 1
-  fi
-  rm -f "$step_log"
+  bench_step "Executing install.sh" bash -c "
+    sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+    exit_code=\$?
+    if [ \$exit_code -ne 0 ] && [ ! -d '/home/frappe/frappe-bench' ]; then
+      echo '=== install.sh failed - dumping rpanel_install.log ==='
+      cat /tmp/rpanel_install.log || true
+      exit 1
+    fi
+    exit 0
+  "
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
