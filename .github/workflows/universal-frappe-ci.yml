@@ -135,36 +135,33 @@ jobs:
       - name: Start Database Service
         if: inputs.bootstrap == false
         run: |
+          # Create shared network for service resolution
+          docker network create rokct-net || true
+          docker network connect rokct-net $(hostname) || true
+
+          echo "DB_HOST=db-service" >> "$GITHUB_ENV"
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service --network host -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
-             # Wait for health
-             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+             docker run -d --name db-service --network rokct-net -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
+             # Wait for health via TCP
+             timeout 60s bash -c "until mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
               echo "Starting PostgreSQL..."
-              if [ "${{ github.repository_owner }}" == "RokctAI" ]; then
-                  DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-                  echo "Attempting to pull $DB_IMAGE..."
-                  if ! docker pull "$DB_IMAGE"; then
-                      echo "⚠️ Failed to pull $DB_IMAGE, falling back to standard postgres"
-                      DB_IMAGE="postgres:${{ inputs.postgres-version }}"
-                  fi
-              else
-                  DB_IMAGE="postgres:${{ inputs.postgres-version }}"
-              fi
+              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+              echo "Pulling $DB_IMAGE..."
+              docker pull "$DB_IMAGE"
 
-              docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
+              docker run -d --name db-service --network rokct-net -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
 
-              # Wait for health
-              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+              # Wait for health via TCP (using hostname)
+              timeout 60s bash -c 'until pg_isready -h db-service -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
 
-              if [[ "$DB_IMAGE" == *"rpanel-db"* ]]; then
-                  # Pre-enable pgvector, cube, earthdistance in template1 so all new bench sites have them
-                  echo "Enabling pgextensions in template1..."
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
-              fi
+              # Ensure critical extensions are active
+              echo "Initializing PostgreSQL extensions (vector, cube, earthdistance)..."
+              export PGPASSWORD="${{ env.DB_PW }}"
+              psql -h db-service -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+              psql -h db-service -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+              psql -h db-service -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
           fi
 
       - name: Install Runtime Toolchains (Python & Node)
@@ -201,7 +198,7 @@ jobs:
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              apt-get install -y mariadb-client
           else
-             apt-get install -y postgresql-16 postgresql-client-16 postgresql-16-pgvector
+             apt-get install -y postgresql-client
           fi
 
       - name: Checkout Monorepo for Overrides
@@ -331,7 +328,7 @@ jobs:
 
           # Configure Bench to use the service DB/Redis
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench set-config -g db_host 127.0.0.1
+             bench set-config -g db_host "${{ env.DB_HOST }}"
              bench set-config -g redis_cache redis://127.0.0.1:6379
              bench set-config -g redis_queue redis://127.0.0.1:6379
              bench set-config -g redis_socketio redis://127.0.0.1:6379

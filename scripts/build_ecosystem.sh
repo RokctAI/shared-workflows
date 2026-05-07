@@ -2,21 +2,25 @@
 # Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
-set -e
+set -euo pipefail
 
-BUILD_LOG="/tmp/build_ecosystem.log"
->"$BUILD_LOG"
+export BUILD_LOG="/tmp/build_ecosystem.log"
+touch "$BUILD_LOG" 2>/dev/null || true
+> "$BUILD_LOG" 2>/dev/null || true
 
-_log() { echo "$*" >>"$BUILD_LOG"; }
+_log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
+export -f _log
 
 run_step() {
   local title="$1"
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
@@ -40,9 +44,11 @@ bench_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   # Filter supervisor noise and known-harmless DB conflicts
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
@@ -74,9 +80,11 @@ wait_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   if [ $exit_code -eq 0 ]; then
     echo -e "\033[0;32m✓ READY\033[0m"
     cat "$step_log" >>"$BUILD_LOG"
@@ -91,6 +99,20 @@ wait_step() {
   fi
   rm -f "$step_log"
 }
+
+ensure_site_logs() {
+  local base="$1"
+  _log "Ensuring log structure for: $base"
+  mkdir -p "$base/logs" "$base/task_logs" 2>/dev/null || true
+
+  touch "$base/logs/database.log" 2>/dev/null || true
+  touch "$base/logs/web.log" 2>/dev/null || true
+  touch "$base/logs/worker.log" 2>/dev/null || true
+  touch "$base/logs/scheduler.log" 2>/dev/null || true
+
+  chmod -R 777 "$base/logs" "$base/task_logs" 2>/dev/null || true
+}
+export -f ensure_site_logs
 
 # ==============================================================================
 # RokctAI: Golden Build Script (build_ecosystem.sh)
@@ -112,9 +134,15 @@ BOOTSTRAP=${BOOTSTRAP:-false}
 DB_TYPE=${DB_TYPE:-postgres}
 DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
+
+# Environment-aware variables for set -u compatibility
+DOCKER_BUILD=${DOCKER_BUILD:-false}
+CI=${CI:-false}
+IS_DOCKER=${IS_DOCKER:-false}
 
 # Determine the working site name: In Docker/CI, we use rpanel.local to avoid rename issues.
 if [ "${DOCKER_BUILD}" = "true" ] || [ "${CI}" = "true" ]; then
@@ -143,7 +171,8 @@ if ! command -v python3.14 >/dev/null 2>&1; then
     PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
   fi
 fi
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
@@ -206,6 +235,7 @@ fi
 _log "RokctAI: Setting up Identity & Services..."
 
 # git setup (CI only, Docker usually has its own or doesn't need tokens)
+GITHUB_TOKEN=${GITHUB_TOKEN:-""}
 if [ "$IS_DOCKER" = "false" ] && [ -n "$GITHUB_TOKEN" ]; then
   run_step "Configuring Git token" bash -c "git config --global url.\"https://x-access-token:${GITHUB_TOKEN}@github.com/\".insteadOf \"git@github.com:\" && git config --global url.\"https://x-access-token:${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\""
 fi
@@ -245,59 +275,60 @@ else
   fi
 fi
 
-# PostgreSQL Startup
-if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-  _log "Starting PostgreSQL Service (CI Docker DB)..."
-  if ! docker ps -a | grep -q db-service; then
-    # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
-    DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-    if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
-      _log "       Custom image $DB_IMAGE not found, falling back to official pg16"
-      DB_IMAGE="pgvector/pgvector:pg16"
-    fi
-    run_step "Starting PostgreSQL container" \
-      docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
-  fi
-  wait_step "Waiting for PostgreSQL container" \
-    timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
-  run_step "Enabling PostgreSQL extensions (container)" \
-    bash -c 'docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" && \
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" && \
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"'
-  _log "    PostgreSQL ready."
-elif [ "$IS_DOCKER" = "true" ]; then
-  _log "Starting PostgreSQL Service (Docker Native)..."
-  # Check if postgresql service exists, if not try to install it
-  if ! command -v service >/dev/null 2>&1 || ! service --status-all | grep -q postgresql; then
-    _log "PostgreSQL service not found. Attempting to install..."
-    if [ -f /etc/debian_version ]; then
-      # Debian/Ubuntu
-      run_step "Installing PostgreSQL" \
-        bash -c "apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib"
-      run_step "Starting PostgreSQL service" \
-        sudo service postgresql start
-    else
-      _log "Unsupported distribution for automatic PostgreSQL installation."
-      _log "Please ensure PostgreSQL is installed and running before executing this script."
-    fi
-  else
-    run_step "Starting PostgreSQL service" \
-      sudo service postgresql start
+# PostgreSQL Startup & Validation
+# RokctAI Standard: PostgreSQL MUST run as a container (db-service) or external host.
+# Local system PostgreSQL server packages are NOT used.
+DB_HOST=${DB_HOST:-db-service}
+export PGPASSWORD="$DB_PW"
+
+if [ "$DB_TYPE" = "postgres" ]; then
+  _log "RokctAI: Validating PostgreSQL Service (Host: $DB_HOST)..."
+
+  # 0. Ensure client tools are installed
+  if ! command -v pg_isready >/dev/null 2>&1; then
+    run_step "Installing postgresql-client" bash -c "apt-get update -qq && apt-get install -y -qq postgresql-client"
   fi
 
-  wait_step "Waiting for PostgreSQL" \
-    timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
+  # 1. Start Container if not present
+  if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
+    if ! docker ps -a | grep -q db-service; then
+      DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+      _log "       Pulling $DB_IMAGE..."
+      docker pull "$DB_IMAGE"
 
-  # Only attempt to alter user and create extensions if we can connect
-  if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
-    run_step "Configuring PostgreSQL" \
-      bash -c "sudo -u postgres psql -c \"ALTER USER postgres PASSWORD '$DB_PW';\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS vector;\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS cube;\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS earthdistance;\""
-  else
-    _log "Warning: Could not connect to PostgreSQL to configure extensions and user."
+      # In CI we use a shared network if possible, otherwise we rely on localhost mapping
+      # But the prompt specifically asks for db-service hostname and -p 5432:5432
+      NET_ARGS=""
+      if [ "$CI" = "true" ]; then
+          # If we are in CI, we try to use the same network as the current container
+          # Or create one. For now, assume host networking is avoid as per previous prompt
+          # But we need resolution.
+          NET_ARGS="--network bridge"
+      fi
+
+      run_step "Starting PostgreSQL container" \
+        docker run -d --name db-service $NET_ARGS -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
+    fi
   fi
+
+  # 2. Wait for connectivity via TCP
+  # If 127.0.0.1 failed, we try $DB_HOST (db-service)
+  wait_step "Waiting for PostgreSQL ($DB_HOST)" \
+    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres || pg_isready -h 127.0.0.1 -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
+
+  # 3. Initialize Extensions (TCP)
+  # Resolve which host actually worked
+  if pg_isready -h "$DB_HOST" -U postgres >/dev/null 2>&1; then
+      ACTUAL_HOST="$DB_HOST"
+  else
+      ACTUAL_HOST="127.0.0.1"
+  fi
+
+  run_step "Initializing PostgreSQL extensions (TCP)" \
+    bash -c "psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
+             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
+             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
+  _log "    PostgreSQL ready at $ACTUAL_HOST."
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
@@ -326,8 +357,27 @@ command -v bench >/dev/null || {
 
 if [ "$BOOTSTRAP" = "false" ]; then
   if [ ! -d "frappe-bench" ]; then
-    run_step "Initializing frappe-bench" \
-      bench init --skip-redis-config-generation --skip-assets --python $PY_BIN frappe-bench
+    echo "  - Initializing frappe-bench (Verbose)..."
+    if ! bench init --skip-redis-config-generation --skip-assets --python "$PY_BIN" frappe-bench --verbose 2>&1 | tee /tmp/bench_init.log; then
+      echo "Bench initialization failed"
+      echo "---- BENCH INIT LOG START ----"
+      cat /tmp/bench_init.log
+      echo "---- BENCH INIT LOG END ----"
+      exit 1
+    fi
+    echo "  - Bench initialization completed... ✓ DONE"
+
+    if [ ! -f "/home/frappe/frappe-bench/env/bin/pip" ]; then
+      echo "FATAL: virtualenv not created"
+      exit 1
+    fi
+    echo "  - Bench virtualenv validation... ✓ DONE"
+
+    if [ ! -f "/home/frappe/frappe-bench/sites/common_site_config.json" ]; then
+      echo "FATAL: bench structure incomplete"
+      exit 1
+    fi
+    echo "  - Bench structure validation... ✓ DONE"
   fi
 else
   # Bootstrap path (install.sh)
@@ -352,32 +402,39 @@ else
   # PATCH: Prevent yarn install OOM and timeouts in container environments
   run_step "Setting yarn timeouts/options" sed -i 's/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\";/export PATH=\\"\\$PATH:\/home\/frappe\/.local\/bin:\/usr\/local\/bin\\"; export YARN_NETWORK_TIMEOUT=300000; export NODE_OPTIONS=\\x27--max-old-space-size=2048\\x27;/g' install.sh
 
+  # PATCH: Enable strict mode in install.sh
+  run_step "Enabling strict mode in install.sh" sed -i '1a set -euo pipefail' install.sh
+
   # PATCH: Configure yarn for the frappe user specifically
   run_step "Patching install.sh" \
     bash -c "sed -i 's/run_quiet \"Initializing frappe-bench\"/run_quiet \"Configuring Frappe User Yarn\" sudo -u frappe -i bash -c \"yarn config set ignore-engines true; yarn config set network-timeout 300000\"\\n\\n  echo -e \"\\\\033[0;34m  - Initializing frappe-bench (Verbose)... \\\\033[0;0m\"/g' install.sh && chmod +x install.sh"
 
   _log "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   # Softer check for install.sh: mark success if frappe-bench exists even if error patterns appeared in log.
-  printf "  - \033[0;34mExecuting install.sh\033[0m... "
-  step_log=$(mktemp)
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh >"$step_log" 2>&1
-  exit_code=$?
-  if [ $exit_code -eq 0 ] || [ -d "/home/frappe/frappe-bench" ]; then
-    echo -e "\033[0;32m✓ DONE\033[0m"
-    cat "$step_log" >>"$BUILD_LOG"
-  else
-    echo -e "\033[0;31m❌ FAILED\033[0m"
-    echo "    ---- LOG START ----"
-    cat "$step_log"
-    echo "    ---- LOG END ----"
-    cat "$step_log" >>"$BUILD_LOG"
-    _log "=== install.sh failed - dumping rpanel_install.log ==="
-    cat /tmp/rpanel_install.log || true
-    echo "    frappe-bench missing after install.sh - cannot continue"
-    rm -f "$step_log"
-    exit 1
-  fi
-  rm -f "$step_log"
+  bench_step "Executing install.sh" bash -c "
+    sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+    exit_code=\$?
+    if [ \$exit_code -ne 0 ]; then
+      echo 'FATAL: install.sh failed'
+      echo '---- INSTALL LOG START ----'
+      cat /tmp/rpanel_install.log || true
+      echo '---- INSTALL LOG END ----'
+      exit 1
+    fi
+
+    # Validation
+    if [ ! -f '/home/frappe/frappe-bench/env/bin/pip' ]; then
+      echo 'FATAL: virtualenv not created'
+      exit 1
+    fi
+    if [ ! -f '/home/frappe/frappe-bench/sites/common_site_config.json' ]; then
+      echo 'FATAL: bench structure incomplete'
+      exit 1
+    fi
+    echo '  - Bench virtualenv validation... ✓ DONE'
+    echo '  - Bench structure validation... ✓ DONE'
+    exit 0
+  "
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -400,7 +457,7 @@ fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\""
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs /home/frappe/frappe-bench/logs && ensure_site_logs \"/home/frappe/frappe-bench/sites/$SITE_NAME\" && ensure_site_logs \"/home/frappe/frappe-bench/$SITE_NAME\""
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -413,6 +470,7 @@ cd "$BENCH_DIR" || {
   echo "    Error: Could not find bench at $BENCH_DIR"
   exit 1
 }
+
 export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
@@ -532,6 +590,7 @@ export APP_NAME
 _log "Target App Detected: $APP_NAME"
 
 # A. Standard Dependencies (ERPNext, Payments)
+INSTALL_PAYMENTS=${INSTALL_PAYMENTS:-false}
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
   _log "Fetching Payments..."
   if [ ! -d "apps/payments" ]; then
@@ -540,6 +599,7 @@ if [ "$INSTALL_PAYMENTS" = "true" ]; then
   fi
 fi
 
+INSTALL_ERPNEXT=${INSTALL_ERPNEXT:-false}
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
   _log "Fetching ERPNext..."
   if [ ! -d "apps/erpnext" ]; then
@@ -551,6 +611,7 @@ fi
 sync_apps_txt
 
 # 4. Control App Installation (The Installer)
+GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-""}
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
   _log "     Using LOCAL Control Panel from workspace..."
   run_step "Staging Control Panel" \
@@ -1041,6 +1102,7 @@ print('STRICT VERIFICATION PASSED')
 "
 
 # Tests
+RUN_TESTS=${RUN_TESTS:-false}
 if [ "$RUN_TESTS" = "true" ]; then
   bench_step "Running App Tests ($APP_NAME)" bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
 fi
