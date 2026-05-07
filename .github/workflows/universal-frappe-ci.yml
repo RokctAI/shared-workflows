@@ -135,6 +135,7 @@ jobs:
       - name: Start Database Service
         if: inputs.bootstrap == false
         run: |
+          echo "DB_HOST=127.0.0.1" >> "$GITHUB_ENV"
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
              docker run -d --name db-service --network host -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
@@ -142,29 +143,31 @@ jobs:
              timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
           else
               echo "Starting PostgreSQL..."
-              if [ "${{ github.repository_owner }}" == "RokctAI" ]; then
-                  DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-                  echo "Attempting to pull $DB_IMAGE..."
-                  if ! docker pull "$DB_IMAGE"; then
-                      echo "⚠️ Failed to pull $DB_IMAGE, falling back to standard postgres"
-                      DB_IMAGE="postgres:${{ inputs.postgres-version }}"
-                  fi
-              else
-                  DB_IMAGE="postgres:${{ inputs.postgres-version }}"
+              # Primary: RPanel DB (Customized pg16 + pgvector)
+              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+              FALLBACK_IMAGE="pgvector/pgvector:pg${{ inputs.postgres-version }}"
+
+              echo "Attempting to pull primary database image: $DB_IMAGE"
+              if ! docker pull "$DB_IMAGE"; then
+                  echo "⚠️ Primary image pull failed, using fallback: $FALLBACK_IMAGE"
+                  DB_IMAGE="$FALLBACK_IMAGE"
               fi
 
-              docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
+              if ! docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"; then
+                  echo "❌ Primary image failed to start, attempting fallback: $FALLBACK_IMAGE"
+                  docker rm -f db-service 2>/dev/null || true
+                  DB_IMAGE="$FALLBACK_IMAGE"
+                  docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
+              fi
 
               # Wait for health
               timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
 
-              if [[ "$DB_IMAGE" == *"rpanel-db"* ]]; then
-                  # Pre-enable pgvector, cube, earthdistance in template1 so all new bench sites have them
-                  echo "Enabling pgextensions in template1..."
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
-              fi
+              # Ensure critical extensions are active regardless of image
+              echo "Initializing PostgreSQL extensions (vector, cube, earthdistance)..."
+              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" || true
+              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" || true
+              docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;" || true
           fi
 
       - name: Install Runtime Toolchains (Python & Node)
@@ -201,7 +204,7 @@ jobs:
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              apt-get install -y mariadb-client
           else
-             apt-get install -y postgresql-16 postgresql-client-16 postgresql-16-pgvector
+             apt-get install -y postgresql-client
           fi
 
       - name: Checkout Monorepo for Overrides
@@ -331,7 +334,7 @@ jobs:
 
           # Configure Bench to use the service DB/Redis
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench set-config -g db_host 127.0.0.1
+             bench set-config -g db_host "${{ env.DB_HOST }}"
              bench set-config -g redis_cache redis://127.0.0.1:6379
              bench set-config -g redis_queue redis://127.0.0.1:6379
              bench set-config -g redis_socketio redis://127.0.0.1:6379
