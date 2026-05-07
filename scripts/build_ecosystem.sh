@@ -15,7 +15,7 @@ run_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
   set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
@@ -43,7 +43,7 @@ bench_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
   set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
@@ -79,7 +79,7 @@ wait_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
   set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
