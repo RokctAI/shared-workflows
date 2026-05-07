@@ -2,13 +2,14 @@
 # Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
-set -e
+set -euo pipefail
 
-BUILD_LOG="/tmp/build_ecosystem.log"
+export BUILD_LOG="/tmp/build_ecosystem.log"
 touch "$BUILD_LOG" 2>/dev/null || true
 > "$BUILD_LOG" 2>/dev/null || true
 
 _log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
+export -f _log
 
 run_step() {
   local title="$1"
@@ -138,6 +139,11 @@ command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
+# Environment-aware variables for set -u compatibility
+DOCKER_BUILD=${DOCKER_BUILD:-false}
+CI=${CI:-false}
+IS_DOCKER=${IS_DOCKER:-false}
+
 # Determine the working site name: In Docker/CI, we use rpanel.local to avoid rename issues.
 if [ "${DOCKER_BUILD}" = "true" ] || [ "${CI}" = "true" ]; then
   WORKING_SITE="rpanel.local"
@@ -233,6 +239,7 @@ fi
 _log "RokctAI: Setting up Identity & Services..."
 
 # git setup (CI only, Docker usually has its own or doesn't need tokens)
+GITHUB_TOKEN=${GITHUB_TOKEN:-""}
 if [ "$IS_DOCKER" = "false" ] && [ -n "$GITHUB_TOKEN" ]; then
   run_step "Configuring Git token" bash -c "git config --global url.\"https://x-access-token:${GITHUB_TOKEN}@github.com/\".insteadOf \"git@github.com:\" && git config --global url.\"https://x-access-token:${GITHUB_TOKEN}@github.com/\".insteadOf \"https://github.com/\""
 fi
@@ -353,8 +360,27 @@ command -v bench >/dev/null || {
 
 if [ "$BOOTSTRAP" = "false" ]; then
   if [ ! -d "frappe-bench" ]; then
-    run_step "Initializing frappe-bench" \
-      bench init --skip-redis-config-generation --skip-assets --python $PY_BIN frappe-bench
+    echo "  - Initializing frappe-bench (Verbose)..."
+    if ! bench init --skip-redis-config-generation --skip-assets --python "$PY_BIN" frappe-bench --verbose 2>&1 | tee /tmp/bench_init.log; then
+      echo "Bench initialization failed"
+      echo "---- BENCH INIT LOG START ----"
+      cat /tmp/bench_init.log
+      echo "---- BENCH INIT LOG END ----"
+      exit 1
+    fi
+    echo "  - Bench initialization completed... ✓ DONE"
+
+    if [ ! -f "/home/frappe/frappe-bench/env/bin/pip" ]; then
+      echo "Bench virtualenv missing"
+      exit 1
+    fi
+    echo "  - Bench virtualenv validation... ✓ DONE"
+
+    if [ ! -f "/home/frappe/frappe-bench/sites/common_site_config.json" ]; then
+      echo "Bench structure incomplete"
+      exit 1
+    fi
+    echo "  - Bench structure validation... ✓ DONE"
   fi
 else
   # Bootstrap path (install.sh)
@@ -550,6 +576,7 @@ export APP_NAME
 _log "Target App Detected: $APP_NAME"
 
 # A. Standard Dependencies (ERPNext, Payments)
+INSTALL_PAYMENTS=${INSTALL_PAYMENTS:-false}
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
   _log "Fetching Payments..."
   if [ ! -d "apps/payments" ]; then
@@ -558,6 +585,7 @@ if [ "$INSTALL_PAYMENTS" = "true" ]; then
   fi
 fi
 
+INSTALL_ERPNEXT=${INSTALL_ERPNEXT:-false}
 if [ "$INSTALL_ERPNEXT" = "true" ]; then
   _log "Fetching ERPNext..."
   if [ ! -d "apps/erpnext" ]; then
@@ -569,6 +597,7 @@ fi
 sync_apps_txt
 
 # 4. Control App Installation (The Installer)
+GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-""}
 if [ -n "$GITHUB_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/control" ]; then
   _log "     Using LOCAL Control Panel from workspace..."
   run_step "Staging Control Panel" \
@@ -1059,6 +1088,7 @@ print('STRICT VERIFICATION PASSED')
 "
 
 # Tests
+RUN_TESTS=${RUN_TESTS:-false}
 if [ "$RUN_TESTS" = "true" ]; then
   bench_step "Running App Tests ($APP_NAME)" bench --site "$SITE_NAME" run-tests --app "$APP_NAME"
 fi
