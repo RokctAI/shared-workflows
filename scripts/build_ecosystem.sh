@@ -5,18 +5,21 @@
 set -e
 
 BUILD_LOG="/tmp/build_ecosystem.log"
->"$BUILD_LOG"
+touch "$BUILD_LOG" 2>/dev/null || true
+> "$BUILD_LOG" 2>/dev/null || true
 
-_log() { echo "$*" >>"$BUILD_LOG"; }
+_log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
 
 run_step() {
   local title="$1"
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED|FileNotFoundError|UniqueViolation|SyntaxError|ImportError|ModuleNotFoundError|psycopg2|OperationalError|DuplicateEntryError" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
@@ -40,9 +43,11 @@ bench_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   # Filter supervisor noise and known-harmless DB conflicts
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
@@ -74,9 +79,11 @@ wait_step() {
   shift
   local step_log
   step_log=$(mktemp)
-  printf "  - \033[0;34m%s\033[0m... " "$title" >/dev/tty 2>/dev/null || printf "  - \033[0;34m%s\033[0m... " "$title"
+  printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   if [ $exit_code -eq 0 ]; then
     echo -e "\033[0;32m✓ READY\033[0m"
     cat "$step_log" >>"$BUILD_LOG"
@@ -91,6 +98,20 @@ wait_step() {
   fi
   rm -f "$step_log"
 }
+
+ensure_site_logs() {
+  local base="$1"
+  _log "Ensuring log structure for: $base"
+  mkdir -p "$base/logs" "$base/task_logs" 2>/dev/null || true
+
+  touch "$base/logs/database.log" 2>/dev/null || true
+  touch "$base/logs/web.log" 2>/dev/null || true
+  touch "$base/logs/worker.log" 2>/dev/null || true
+  touch "$base/logs/scheduler.log" 2>/dev/null || true
+
+  chmod -R 777 "$base/logs" "$base/task_logs" 2>/dev/null || true
+}
+export -f ensure_site_logs
 
 # ==============================================================================
 # RokctAI: Golden Build Script (build_ecosystem.sh)
@@ -112,7 +133,8 @@ BOOTSTRAP=${BOOTSTRAP:-false}
 DB_TYPE=${DB_TYPE:-postgres}
 DB_PW=${DB_PW:-admin}
 APP_NAME=${APP_NAME:-""}
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 INSTALL_ROK=${INSTALL_ROK:-true}
 ROK_REF=${ROK_REF:-main}
 
@@ -143,7 +165,8 @@ if ! command -v python3.14 >/dev/null 2>&1; then
     PY_BIN=$(uv python find 3.14 2>/dev/null || echo "python3")
   fi
 fi
-command -v "$PY_BIN" >/dev/null || PY_BIN=python3
+PY_BIN=${PY_BIN:-python3}
+command -v "$PY_BIN" >/dev/null 2>&1 || PY_BIN=python3
 
 # --- 0. Helper Functions ---
 sync_apps_txt() {
@@ -358,26 +381,16 @@ else
 
   _log "Executing: sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh"
   # Softer check for install.sh: mark success if frappe-bench exists even if error patterns appeared in log.
-  printf "  - \033[0;34mExecuting install.sh\033[0m... "
-  step_log=$(mktemp)
-  sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh >"$step_log" 2>&1
-  exit_code=$?
-  if [ $exit_code -eq 0 ] || [ -d "/home/frappe/frappe-bench" ]; then
-    echo -e "\033[0;32m✓ DONE\033[0m"
-    cat "$step_log" >>"$BUILD_LOG"
-  else
-    echo -e "\033[0;31m❌ FAILED\033[0m"
-    echo "    ---- LOG START ----"
-    cat "$step_log"
-    echo "    ---- LOG END ----"
-    cat "$step_log" >>"$BUILD_LOG"
-    _log "=== install.sh failed - dumping rpanel_install.log ==="
-    cat /tmp/rpanel_install.log || true
-    echo "    frappe-bench missing after install.sh - cannot continue"
-    rm -f "$step_log"
-    exit 1
-  fi
-  rm -f "$step_log"
+  bench_step "Executing install.sh" bash -c "
+    sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
+    exit_code=\$?
+    if [ \$exit_code -ne 0 ] && [ ! -d '/home/frappe/frappe-bench' ]; then
+      echo '=== install.sh failed - dumping rpanel_install.log ==='
+      cat /tmp/rpanel_install.log || true
+      exit 1
+    fi
+    exit 0
+  "
 
   # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
   # We give absolute control to the current user and set global write bits to ensure
@@ -400,7 +413,7 @@ fi
 
 # Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
 # frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs && mkdir -p /home/frappe/frappe-bench/logs && mkdir -p \"/home/frappe/frappe-bench/sites/$SITE_NAME/logs\""
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs /home/frappe/frappe-bench/logs && ensure_site_logs \"/home/frappe/frappe-bench/sites/$SITE_NAME\" && ensure_site_logs \"/home/frappe/frappe-bench/$SITE_NAME\""
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -413,6 +426,7 @@ cd "$BENCH_DIR" || {
   echo "    Error: Could not find bench at $BENCH_DIR"
   exit 1
 }
+
 export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
 
