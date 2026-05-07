@@ -6,7 +6,7 @@ set -euo pipefail
 
 export BUILD_LOG="/tmp/build_ecosystem.log"
 touch "$BUILD_LOG" 2>/dev/null || true
->"$BUILD_LOG" 2>/dev/null || true
+> "$BUILD_LOG" 2>/dev/null || true
 
 _log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
 export -f _log
@@ -279,59 +279,38 @@ else
   fi
 fi
 
-# PostgreSQL Startup
-if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-  _log "Starting PostgreSQL Service (CI Docker DB)..."
-  if ! docker ps -a | grep -q db-service; then
-    # Try to use the custom rpanel-db image if it exists, otherwise fallback to standard pg16
-    DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-    if ! docker pull $DB_IMAGE >/dev/null 2>&1; then
-      _log "       Custom image $DB_IMAGE not found, falling back to official pg16"
-      DB_IMAGE="pgvector/pgvector:pg16"
+# PostgreSQL Startup & Validation
+# RokctAI Standard: PostgreSQL MUST run as a container (db-service) or external host.
+# Local system PostgreSQL server packages are NOT used.
+DB_HOST=${DB_HOST:-127.0.0.1}
+export PGPASSWORD="$DB_PW"
+
+if [ "$DB_TYPE" = "postgres" ]; then
+  _log "RokctAI: Validating PostgreSQL Service (Host: $DB_HOST)..."
+
+  # 1. Start Container if not present and on Host/Non-Bootstrap
+  if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ] && [ "$CI" = "false" ]; then
+    if ! docker ps -a | grep -q db-service; then
+      DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+      if ! docker pull "$DB_IMAGE" >/dev/null 2>&1; then
+        _log "       Custom image $DB_IMAGE not found, falling back to pgvector"
+        DB_IMAGE="pgvector/pgvector:pg16"
+      fi
+      run_step "Starting PostgreSQL container" \
+        docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
     fi
-    run_step "Starting PostgreSQL container" \
-      docker run -d --name db-service -p 5432:5432 -e POSTGRES_PASSWORD=$DB_PW -e POSTGRES_USER=postgres $DB_IMAGE
-  fi
-  wait_step "Waiting for PostgreSQL container" \
-    timeout 60s bash -c 'until docker exec db-service psql -U postgres -c "\q" > /dev/null 2>&1; do sleep 2; done'
-  run_step "Enabling PostgreSQL extensions (container)" \
-    bash -c 'docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;" && \
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;" && \
-             docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"'
-  _log "    PostgreSQL ready."
-elif [ "$IS_DOCKER" = "true" ]; then
-  _log "Starting PostgreSQL Service (Docker Native)..."
-  # Check if postgresql service exists, if not try to install it
-  if ! command -v service >/dev/null 2>&1 || ! service --status-all | grep -q postgresql; then
-    _log "PostgreSQL service not found. Attempting to install..."
-    if [ -f /etc/debian_version ]; then
-      # Debian/Ubuntu
-      run_step "Installing PostgreSQL" \
-        bash -c "apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib"
-      run_step "Starting PostgreSQL service" \
-        sudo service postgresql start
-    else
-      _log "Unsupported distribution for automatic PostgreSQL installation."
-      _log "Please ensure PostgreSQL is installed and running before executing this script."
-    fi
-  else
-    run_step "Starting PostgreSQL service" \
-      sudo service postgresql start
   fi
 
-  wait_step "Waiting for PostgreSQL" \
-    timeout 60 bash -c 'until pg_isready -h localhost -p 5432; do sleep 2; done'
+  # 2. Wait for connectivity
+  wait_step "Waiting for PostgreSQL ($DB_HOST)" \
+    timeout 60s bash -c "until psql -h $DB_HOST -U postgres -c '\q' > /dev/null 2>&1; do sleep 2; done"
 
-  # Only attempt to alter user and create extensions if we can connect
-  if sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
-    run_step "Configuring PostgreSQL" \
-      bash -c "sudo -u postgres psql -c \"ALTER USER postgres PASSWORD '$DB_PW';\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS vector;\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS cube;\" && \
-               sudo -u postgres psql -d template1 -c \"CREATE EXTENSION IF NOT EXISTS earthdistance;\""
-  else
-    _log "Warning: Could not connect to PostgreSQL to configure extensions and user."
-  fi
+  # 3. Initialize Extensions (TCP)
+  run_step "Initializing PostgreSQL extensions (TCP)" \
+    bash -c "psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
+             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
+             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
+  _log "    PostgreSQL ready at $DB_HOST."
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
