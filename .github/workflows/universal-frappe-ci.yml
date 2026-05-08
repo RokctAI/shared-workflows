@@ -135,36 +135,48 @@ jobs:
       - name: Start Database Service
         if: inputs.bootstrap == false
         run: |
+          # Create shared network for service resolution
+          docker network create rokct-net || true
+
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service --network host -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
-             # Wait for health
-             timeout 60s bash -c "until docker exec db-service mysqladmin ping -p${{ env.DB_PW }} --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+             docker run -d --name db-service --network rokct-net -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
+
+             # Standard Probe (db-service or localhost fallback)
+             timeout 15s bash -c "until mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent || mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent; do sleep 1; done"
+
+             if mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent >/dev/null 2>&1; then
+                 DB_HOST="db-service"
+             else
+                 DB_HOST="127.0.0.1"
+             fi
+             echo "DB_HOST=$DB_HOST" >> "$GITHUB_ENV"
+             echo "✅ MariaDB ready on $DB_HOST"
           else
               echo "Starting PostgreSQL..."
-              if [ "${{ github.repository_owner }}" == "RokctAI" ]; then
-                  DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-                  echo "Attempting to pull $DB_IMAGE..."
-                  if ! docker pull "$DB_IMAGE"; then
-                      echo "⚠️ Failed to pull $DB_IMAGE, falling back to standard postgres"
-                      DB_IMAGE="postgres:${{ inputs.postgres-version }}"
-                  fi
+              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+              echo "Pulling $DB_IMAGE..."
+              docker pull "$DB_IMAGE"
+
+              docker run -d --name db-service --network rokct-net -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
+
+              # Standard Probe (db-service or localhost fallback)
+              timeout 15s bash -c 'until pg_isready -h db-service -U postgres || pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done'
+
+              if pg_isready -h db-service -U postgres >/dev/null 2>&1; then
+                  TARGET_HOST="db-service"
               else
-                  DB_IMAGE="postgres:${{ inputs.postgres-version }}"
+                  TARGET_HOST="127.0.0.1"
               fi
+              echo "DB_HOST=$TARGET_HOST" >> "$GITHUB_ENV"
 
-              docker run -d --name db-service --network host -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
-
-              # Wait for health
-              timeout 60s bash -c 'until docker exec db-service pg_isready -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
-
-              if [[ "$DB_IMAGE" == *"rpanel-db"* ]]; then
-                  # Pre-enable pgvector, cube, earthdistance in template1 so all new bench sites have them
-                  echo "Enabling pgextensions in template1..."
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
-                  docker exec db-service psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
-              fi
+              # Ensure critical extensions are active
+              echo "Initializing PostgreSQL extensions (vector, cube, earthdistance) on $TARGET_HOST..."
+              export PGPASSWORD="${{ env.DB_PW }}"
+              psql -h "$TARGET_HOST" -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+              psql -h "$TARGET_HOST" -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS cube;"
+              psql -h "$TARGET_HOST" -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS earthdistance;"
+              echo "✅ PostgreSQL ready on $TARGET_HOST"
           fi
 
       - name: Install Runtime Toolchains (Python & Node)
@@ -197,12 +209,8 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          apt-get install -y wkhtmltopdf
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-             apt-get install -y mariadb-client
-          else
-             apt-get install -y postgresql-16 postgresql-client-16 postgresql-16-pgvector
-          fi
+          # Packages already installed in System Essentials: wkhtmltopdf, mariadb-client, postgresql-client
+          echo "System dependencies already satisfied in previous steps."
 
       - name: Checkout Monorepo for Overrides
         if: inputs.bootstrap == true
@@ -331,7 +339,7 @@ jobs:
 
           # Configure Bench to use the service DB/Redis
           if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             bench set-config -g db_host 127.0.0.1
+             bench set-config -g db_host "${{ env.DB_HOST }}"
              bench set-config -g redis_cache redis://127.0.0.1:6379
              bench set-config -g redis_queue redis://127.0.0.1:6379
              bench set-config -g redis_socketio redis://127.0.0.1:6379
