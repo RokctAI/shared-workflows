@@ -6,7 +6,7 @@ set -euo pipefail
 
 export BUILD_LOG="/tmp/build_ecosystem.log"
 touch "$BUILD_LOG" 2>/dev/null || true
-> "$BUILD_LOG" 2>/dev/null || true
+>"$BUILD_LOG" 2>/dev/null || true
 
 _log() { printf "%b\n" "$*" >>"$BUILD_LOG" 2>/dev/null || true; }
 export -f _log
@@ -304,10 +304,10 @@ if [ "$DB_TYPE" = "postgres" ]; then
       # But the prompt specifically asks for db-service hostname and -p 5432:5432
       NET_ARGS=""
       if [ "$CI" = "true" ]; then
-          # If we are in CI, we try to use the same network as the current container
-          # Or create one. For now, assume host networking is avoid as per previous prompt
-          # But we need resolution.
-          NET_ARGS="--network bridge"
+        # If we are in CI, we try to use the same network as the current container
+        # Or create one. For now, assume host networking is avoid as per previous prompt
+        # But we need resolution.
+        NET_ARGS="--network bridge"
       fi
 
       run_step "Starting PostgreSQL container" \
