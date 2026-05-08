@@ -316,23 +316,28 @@ if [ "$DB_TYPE" = "postgres" ]; then
   fi
 
   # 2. Wait for connectivity via TCP
-  # If 127.0.0.1 failed, we try $DB_HOST (db-service)
-  wait_step "Waiting for PostgreSQL ($DB_HOST)" \
-    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres || pg_isready -h 127.0.0.1 -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
+  # Multi-Host Probe: Check the provided DB_HOST, localhost, and the Docker Bridge IP (for buildx compatibility)
+  wait_step "Probing PostgreSQL connectivity ($DB_HOST, 127.0.0.1, 172.17.0.1)" \
+    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres || pg_isready -h 127.0.0.1 -U postgres || pg_isready -h 172.17.0.1 -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
 
-  # 3. Initialize Extensions (TCP)
-  # Resolve which host actually worked
+  # 3. Resolve the active DB_HOST
   if pg_isready -h "$DB_HOST" -U postgres >/dev/null 2>&1; then
-      ACTUAL_HOST="$DB_HOST"
+      _log "PostgreSQL active on: $DB_HOST"
+  elif pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
+      DB_HOST="127.0.0.1"
+      _log "PostgreSQL active on: 127.0.0.1 (localhost)"
   else
-      ACTUAL_HOST="127.0.0.1"
+      DB_HOST="172.17.0.1"
+      _log "PostgreSQL active on: 172.17.0.1 (docker bridge)"
   fi
+  export DB_HOST
 
-  run_step "Initializing PostgreSQL extensions (TCP)" \
-    bash -c "psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
-             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
-             psql -h $ACTUAL_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
-  _log "    PostgreSQL ready at $ACTUAL_HOST."
+  # 4. Initialize Extensions (TCP)
+  run_step "Initializing PostgreSQL extensions (TCP on $DB_HOST)" \
+    bash -c "psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
+             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
+             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
+  _log "    PostgreSQL ready at $DB_HOST."
 fi
 
 # --- 3. Bench Initialization & CLI Setup ---
@@ -382,6 +387,10 @@ if [ "$BOOTSTRAP" = "false" ]; then
       exit 1
     fi
     echo "  - Bench structure validation... ✓ DONE"
+
+    # Configure Bench to use the resolved DB_HOST
+    run_step "Configuring Bench DB Host ($DB_HOST)" \
+      /home/frappe/frappe-bench/env/bin/bench set-config -g db_host "$DB_HOST"
   fi
 else
   # Bootstrap path (install.sh)
@@ -437,6 +446,11 @@ else
     fi
     echo '  - Bench virtualenv validation... ✓ DONE'
     echo '  - Bench structure validation... ✓ DONE'
+
+    # Configure Bench to use the resolved DB_HOST
+    # We pass the outer $DB_HOST into the inner sudo bash
+    /home/frappe/frappe-bench/env/bin/bench set-config -g db_host \"$DB_HOST\"
+    echo \"  - Bench DB configuration ($DB_HOST)... ✓ DONE\"
     exit 0
   "
 
