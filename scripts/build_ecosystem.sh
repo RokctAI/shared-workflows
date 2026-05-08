@@ -103,14 +103,14 @@ wait_step() {
 ensure_site_logs() {
   local base="$1"
   _log "Ensuring log structure for: $base"
-  mkdir -p "$base/logs" "$base/task_logs" 2>/dev/null || true
+  mkdir -p "$base/logs" "$base/task_logs" || true
 
-  touch "$base/logs/database.log" 2>/dev/null || true
-  touch "$base/logs/web.log" 2>/dev/null || true
-  touch "$base/logs/worker.log" 2>/dev/null || true
-  touch "$base/logs/scheduler.log" 2>/dev/null || true
+  touch "$base/logs/database.log" || true
+  touch "$base/logs/web.log" || true
+  touch "$base/logs/worker.log" || true
+  touch "$base/logs/scheduler.log" || true
 
-  chmod -R 777 "$base/logs" "$base/task_logs" 2>/dev/null || true
+  chmod -R 777 "$base/logs" "$base/task_logs" || true
 }
 export -f ensure_site_logs
 
@@ -199,7 +199,7 @@ sync_apps_txt() {
 is_app_installed() {
   local app=$1
   # Check if app is already installed on the target site
-  bench --site "$SITE_NAME" list-apps 2>/dev/null | grep -q "^${app}$"
+  bench --site "$SITE_NAME" list-apps | grep -q "^${app}$"
 }
 
 safe_install_app() {
@@ -279,50 +279,30 @@ else
   fi
 fi
 
-# PostgreSQL Startup & Validation
-# RokctAI Standard: PostgreSQL MUST run as a container (db-service) or external host.
-# Local system PostgreSQL server packages are NOT used.
+# PostgreSQL Validation
+# RokctAI Standard: PostgreSQL is managed by the caller (GitHub Action or External Host).
 DB_HOST=${DB_HOST:-db-service}
 export PGPASSWORD="$DB_PW"
 
 if [ "$DB_TYPE" = "postgres" ]; then
-  _log "RokctAI: Validating PostgreSQL Service (Host: $DB_HOST)..."
+  _log "RokctAI: Validating External PostgreSQL Service (Host: $DB_HOST)..."
 
   # 0. Ensure client tools are installed
-  if ! command -v pg_isready >/dev/null 2>&1; then
+  if ! command -v pg_isready >/dev/null; then
     run_step "Installing postgresql-client" bash -c "apt-get update -qq && apt-get install -y -qq postgresql-client"
   fi
 
-  # 1. Start Container if not present
-  if [ "$IS_DOCKER" = "false" ] && [ "$BOOTSTRAP" = "false" ]; then
-    if ! docker ps -a | grep -q db-service; then
-      DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
-      _log "       Pulling $DB_IMAGE..."
-      docker pull "$DB_IMAGE"
-
-      # In CI we use a shared network if possible, otherwise we rely on localhost mapping
-      # But the prompt specifically asks for db-service hostname and -p 5432:5432
-      NET_ARGS=""
-      if [ "$CI" = "true" ]; then
-          # If we are in CI, we try to use the same network as the current container
-          # Or create one. For now, assume host networking is avoid as per previous prompt
-          # But we need resolution.
-          NET_ARGS="--network bridge"
-      fi
-
-      run_step "Starting PostgreSQL container" \
-        docker run -d --name db-service $NET_ARGS -p 5432:5432 -e POSTGRES_PASSWORD="$DB_PW" -e POSTGRES_USER=postgres "$DB_IMAGE"
-    fi
-  fi
-
   # 2. Verifying DB Connectivity
-  wait_step "Verifying DB Connectivity" timeout 15s bash -c "until pg_isready -h $DB_HOST -U postgres; do sleep 1; done"
+  until pg_isready -h "$DB_HOST" -p 5432 -U postgres; do
+    echo "Waiting for external database at $DB_HOST..."
+    sleep 2
+  done
 
   # 4. Initialize Extensions (TCP)
   # RPanel-db already contains these, but we ensure they exist for stability.
   for ext in vector cube earthdistance; do
     run_step "Initializing PostgreSQL extension: $ext (on $DB_HOST)" \
-      psql -h "$DB_HOST" -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS $ext;"
+      psql -h "$DB_HOST" -p 5432 -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS $ext;"
   done
   _log "    PostgreSQL ready at $DB_HOST."
 fi
@@ -444,9 +424,9 @@ else
   # PERMISSION STABILIZATION: In CI/Docker build, ensure the frappe user owns the bench.
   # We give full ownership to the frappe user and set standard directory/file permissions.
   _log "RokctAI: Stabilizing permissions for frappe..."
-  run_step "Setting bench ownership" sudo chown -R frappe:frappe /home/frappe/frappe-bench
-  run_step "Setting standard directory permissions" sudo find /home/frappe/frappe-bench -type d -exec chmod 755 {} +
-  run_step "Setting standard file permissions" sudo find /home/frappe/frappe-bench -type f -exec chmod 644 {} +
+  sudo chown -R frappe:frappe /home/frappe/frappe-bench
+  sudo find /home/frappe/frappe-bench -type d -exec chmod 755 {} +
+  sudo find /home/frappe/frappe-bench -type f -exec chmod 644 {} +
 
   # Pre-create the directory that causes permission issues during plaid-python install
   S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
@@ -959,7 +939,7 @@ else
   run_step "Configuring site" bash -c "bench --site \"$SITE_NAME\" set-config developer_mode 1 && bench --site \"$SITE_NAME\" set-config allow_tests true"
 fi
 
-mkdir -p "sites/$SITE_NAME/logs" 2>/dev/null
+mkdir -p "sites/$SITE_NAME/logs"
 
 # Ensure all dependencies are installed on site
 if [ "$INSTALL_PAYMENTS" = "true" ]; then
@@ -1010,13 +990,13 @@ if [ -n "$STACK_INSTALLER" ]; then
     python3 "$STACK_INSTALLER" "$SITE_NAME"
 
   bench_step "Post-stack migration" \
-    bench --site "$SITE_NAME" migrate 2>/dev/null || echo "Warning: Post-stack migration returned non-zero."
+    bench --site "$SITE_NAME" migrate || echo "Warning: Post-stack migration returned non-zero."
 fi
 
 if [ -d "apps/rcore" ]; then
   HAS_PLATFORM=$(env/bin/python -c "import importlib.util; print('yes' if importlib.util.find_spec('rcore.platform') or importlib.util.find_spec('rcore.rcore.platform') else 'no')" 2>/dev/null || echo "no")
   if [ "$HAS_PLATFORM" = "yes" ]; then
-    run_step "Baking rcore assets" bash -c "bench --site \"$SITE_NAME\" execute rcore.platform.manager.bake_assets 2>/dev/null || bench --site \"$SITE_NAME\" execute rcore.rcore.platform.manager.bake_assets 2>/dev/null"
+    run_step "Baking rcore assets" bash -c "bench --site \"$SITE_NAME\" execute rcore.platform.manager.bake_assets || bench --site \"$SITE_NAME\" execute rcore.rcore.platform.manager.bake_assets"
     RET=$?
     if [ $RET -ne 0 ]; then
       _log "Warning: Failed to bake rcore assets."
