@@ -137,21 +137,18 @@ jobs:
         run: |
           # Create shared network for service resolution
           docker network create rokct-net || true
-          docker network connect rokct-net $(hostname) || true
 
           if [ "${{ inputs.db-type }}" == "mariadb" ]; then
              echo "Starting MariaDB..."
              docker run -d --name db-service --network rokct-net -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
 
-             # Multi-Host Probe (db-service, localhost, docker bridge)
-             timeout 60s bash -c "until mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent || mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent || mariadb-admin -h 172.17.0.1 -u root -p${{ env.DB_PW }} ping --silent; do echo 'Waiting for MariaDB...'; sleep 2; done"
+             # Standard Probe (db-service or localhost fallback)
+             timeout 15s bash -c "until mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent || mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent; do sleep 1; done"
 
              if mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent >/dev/null 2>&1; then
                  DB_HOST="db-service"
-             elif mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent >/dev/null 2>&1; then
-                 DB_HOST="127.0.0.1"
              else
-                 DB_HOST="172.17.0.1"
+                 DB_HOST="127.0.0.1"
              fi
              echo "DB_HOST=$DB_HOST" >> "$GITHUB_ENV"
              echo "✅ MariaDB ready on $DB_HOST"
@@ -163,15 +160,13 @@ jobs:
 
               docker run -d --name db-service --network rokct-net -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
 
-              # Multi-Host Probe (db-service, localhost, docker bridge)
-              timeout 60s bash -c 'until pg_isready -h db-service -U postgres || pg_isready -h 127.0.0.1 -U postgres || pg_isready -h 172.17.0.1 -U postgres; do echo "Waiting for PostgreSQL..."; sleep 2; done'
+              # Standard Probe (db-service or localhost fallback)
+              timeout 15s bash -c 'until pg_isready -h db-service -U postgres || pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done'
 
               if pg_isready -h db-service -U postgres >/dev/null 2>&1; then
                   TARGET_HOST="db-service"
-              elif pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
-                  TARGET_HOST="127.0.0.1"
               else
-                  TARGET_HOST="172.17.0.1"
+                  TARGET_HOST="127.0.0.1"
               fi
               echo "DB_HOST=$TARGET_HOST" >> "$GITHUB_ENV"
 
@@ -214,12 +209,8 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          apt-get install -y wkhtmltopdf
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
-             apt-get install -y mariadb-client
-          else
-             apt-get install -y postgresql-client
-          fi
+          # Packages already installed in System Essentials: wkhtmltopdf, mariadb-client, postgresql-client
+          echo "System dependencies already satisfied in previous steps."
 
       - name: Checkout Monorepo for Overrides
         if: inputs.bootstrap == true

@@ -315,28 +315,15 @@ if [ "$DB_TYPE" = "postgres" ]; then
     fi
   fi
 
-  # 2. Wait for connectivity via TCP
-  # Multi-Host Probe: Check the provided DB_HOST, localhost, and the Docker Bridge IP (for buildx compatibility)
-  wait_step "Probing PostgreSQL connectivity ($DB_HOST, 127.0.0.1, 172.17.0.1)" \
-    timeout 60s bash -c "until pg_isready -h $DB_HOST -U postgres || pg_isready -h 127.0.0.1 -U postgres || pg_isready -h 172.17.0.1 -U postgres; do echo 'Waiting for PostgreSQL...'; sleep 2; done"
-
-  # 3. Resolve the active DB_HOST
-  if pg_isready -h "$DB_HOST" -U postgres >/dev/null 2>&1; then
-      _log "PostgreSQL active on: $DB_HOST"
-  elif pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
-      DB_HOST="127.0.0.1"
-      _log "PostgreSQL active on: 127.0.0.1 (localhost)"
-  else
-      DB_HOST="172.17.0.1"
-      _log "PostgreSQL active on: 172.17.0.1 (docker bridge)"
-  fi
-  export DB_HOST
+  # 2. Verifying DB Connectivity
+  wait_step "Verifying DB Connectivity" timeout 15s bash -c "until pg_isready -h $DB_HOST -U postgres; do sleep 1; done"
 
   # 4. Initialize Extensions (TCP)
-  run_step "Initializing PostgreSQL extensions (TCP on $DB_HOST)" \
-    bash -c "psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' && \
-             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS cube;' && \
-             psql -h $DB_HOST -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS earthdistance;'"
+  # RPanel-db already contains these, but we ensure they exist for stability.
+  for ext in vector cube earthdistance; do
+    run_step "Initializing PostgreSQL extension: $ext (on $DB_HOST)" \
+      psql -h "$DB_HOST" -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS $ext;"
+  done
   _log "    PostgreSQL ready at $DB_HOST."
 fi
 
@@ -454,13 +441,12 @@ else
     exit 0
   "
 
-  # NUCLEAR PERMISSION FIX: In CI/Docker build, fine-grained permissions cause more harm than good.
-  # We give absolute control to the current user and set global write bits to ensure
-  # all build tools (git, pip, bench) can operate.
-  CURRENT_USER=$(whoami)
-  _log "RokctAI: Applying Nuclear Permissions for $CURRENT_USER..."
-  run_step "Applying Nuclear Permissions" sudo chown -R $CURRENT_USER:$CURRENT_USER /home/frappe/frappe-bench
-  run_step "Setting Global Write Bits" sudo chmod -R 777 /home/frappe/frappe-bench
+  # PERMISSION STABILIZATION: In CI/Docker build, ensure the frappe user owns the bench.
+  # We give full ownership to the frappe user and set standard directory/file permissions.
+  _log "RokctAI: Stabilizing permissions for frappe..."
+  run_step "Setting bench ownership" sudo chown -R frappe:frappe /home/frappe/frappe-bench
+  run_step "Setting standard directory permissions" sudo find /home/frappe/frappe-bench -type d -exec chmod 755 {} +
+  run_step "Setting standard file permissions" sudo find /home/frappe/frappe-bench -type f -exec chmod 644 {} +
 
   # Pre-create the directory that causes permission issues during plaid-python install
   S_PATH="/home/frappe/frappe-bench/env/lib/python3.14/site-packages"
