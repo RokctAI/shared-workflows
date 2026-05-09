@@ -152,7 +152,6 @@ else
 fi
 SITE_NAME="${SITE_NAME:-$WORKING_SITE}"
 
-
 # Silence tqdm progress bars (e.g. "Updating DocTypes [===] 40%") in non-TTY environments.
 # Without a TTY, tqdm can't use \r to overwrite lines so it prints every % update as a new line.
 # TQDM_DISABLE=1 suppresses all tqdm output entirely.
