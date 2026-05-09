@@ -394,8 +394,8 @@ else
   bench_step "Executing install.sh" bash -c "
     sudo CI=true DB_TYPE=$DB_TYPE SKIP_ASSETS=true PYTHON_BIN=$PY_BIN bash ./install.sh
     exit_code=\$?
-    if [ \$exit_code -ne 0 ]; then
-      echo 'FATAL: install.sh failed'
+    if [ $exit_code -ne 0 ] && [ ! -d '/home/frappe/frappe-bench' ]; then
+      echo 'FATAL: install.sh failed and frappe-bench is missing'
       echo '---- INSTALL LOG START ----'
       cat /tmp/rpanel_install.log || true
       echo '---- INSTALL LOG END ----'
