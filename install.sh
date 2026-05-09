@@ -3,6 +3,8 @@
 
 #!/bin/bash
 
+set -euo pipefail
+
 _log() { echo "$*" >>"/tmp/rpanel_install.log"; }
 
 run_step() {
@@ -11,8 +13,10 @@ run_step() {
   local step_log
   step_log=$(mktemp)
   printf "  - \033[0;34m%s\033[0m... " "$title"
+  set +e
   "$@" >"$step_log" 2>&1
   local exit_code=$?
+  set -e
   local errors
   errors=$(grep -Ei "Traceback|Exception:|Error:|FAILED" "$step_log" 2>/dev/null || true)
   if [ $exit_code -eq 0 ] && [ -z "$errors" ]; then
