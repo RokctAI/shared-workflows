@@ -2,7 +2,7 @@
 # Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
-set -euo pipefail
+set -eo pipefail
 
 export BUILD_LOG="/tmp/build_ecosystem.log"
 touch "$BUILD_LOG" 2>/dev/null || true
@@ -49,7 +49,7 @@ bench_step() {
   "$@" >"$step_log" 2>&1
   local exit_code=$?
   set -e
-  # Filter supervisor noise and known-harmless DB conflicts
+  # Fix Issue 3: Noise suppression for supervisor and DB conflicts
   sed -i '/unix:\/\/\/var\/run\/supervisor.sock no such file/d' "$step_log"
   sed -i '/WARN: restarting supervisor group/d' "$step_log"
   sed -i '/Use `bench restart` to retry/d' "$step_log"
@@ -152,9 +152,6 @@ else
 fi
 SITE_NAME="${SITE_NAME:-$WORKING_SITE}"
 
-# CRITICAL: Pre-create log directories BEFORE any frappe.init() or bench commands
-ensure_site_logs "/home/frappe/frappe-bench/sites/$SITE_NAME"
-ensure_site_logs "/home/frappe/frappe-bench/$SITE_NAME"
 
 # Silence tqdm progress bars (e.g. "Updating DocTypes [===] 40%") in non-TTY environments.
 # Without a TTY, tqdm can't use \r to overwrite lines so it prints every % update as a new line.
@@ -439,9 +436,8 @@ else
   ls -la /home/frappe/frappe-bench/sites/rpanel.local
 fi
 
-# Fix #1: Ensure logs directory exists before any bench/frappe DB commands run.
-# frappe.connect() tries to open /home/frappe/logs/database.log at startup.
-run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs /home/frappe/frappe-bench/logs && ensure_site_logs \"/home/frappe/frappe-bench/sites/$SITE_NAME\" && ensure_site_logs \"/home/frappe/frappe-bench/$SITE_NAME\""
+# Fix Issue 2: Moved log directories creation to run after install.sh completes
+run_step "Creating log directories" bash -c "mkdir -p /home/frappe/logs /home/frappe/frappe-bench/logs"
 
 # --- 4. Workspace Sync & Ecosystem Fetching ---
 _log "RokctAI: Preparing Workspace & Fetching Apps..."
@@ -457,6 +453,10 @@ cd "$BENCH_DIR" || {
 
 export PATH="$BENCH_DIR/env/bin:$PATH"
 if [ -f "env/bin/activate" ]; then source env/bin/activate; fi
+
+# Fix Issue 2: Restore log structure after bench is created
+ensure_site_logs "/home/frappe/frappe-bench/sites/$SITE_NAME"
+ensure_site_logs "/home/frappe/frappe-bench/$SITE_NAME"
 
 # --- 4A. Patch: Suppress Frappe Progress Bars (Non-TTY) ---
 # Suppress Frappe's built-in progress bar in non-TTY environments
