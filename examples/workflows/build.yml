@@ -29,7 +29,7 @@ on:
         default: '10.6'
       postgres-version:
         type: string
-        default: '15'
+        default: '16'
       db-type:
         type: string
         default: 'mariadb'
