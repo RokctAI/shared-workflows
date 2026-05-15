@@ -224,7 +224,7 @@ for domain in ${MAIL_DOMAINS}; do
 ${DKIM_SELECTOR}._domainkey.${domain}. TXT "v=DKIM1; k=rsa; p=${PUBKEY}"
 EOF
 
-  echo "${domain}:${PRIVATE_KEY}" >>/etc/exim4/dkim_keys
+  echo "${domain}: ${PRIVATE_KEY}" >>/etc/exim4/dkim_keys
 
   chown -R ${EXIM_USER}:${EXIM_USER} "${DOMAIN_DIR}"
 
@@ -247,9 +247,9 @@ step "Creating DKIM transport"
 cat >/etc/exim4/conf.d/transport/32_dkim_transport <<'EOF'
 remote_smtp_dkim:
   driver = smtp
-  dkim_domain = $sender_address_domain
+  dkim_domain = ${lookup{$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{$sender_address_domain}{}}
   dkim_selector = DKIM_SELECTOR
-  dkim_private_key = ${lookup{$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{$value}fail}
+  dkim_private_key = ${lookup{$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{$value}{0}}
   dkim_canon = relaxed
 EOF
 
