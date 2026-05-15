@@ -46,47 +46,21 @@ EXIM_USER="${EXIM_USER:-Debian-exim}"
 SKIP_EXIM="${SKIP_EXIM:-0}"
 
 # =============================================================================
-# PRECHECKS
-# =============================================================================
-
-echo -e "${GREEN}=== RokctAI Exim4 Bootstrap ===${NC}"
-
-step "Checking Exim installation"
-
-command -v exim4 >/dev/null 2>&1 || fail "exim4 not installed"
-
-done_ok
-
-step "Checking split-config mode"
-
-grep -q "dc_use_split_config='true'" /etc/exim4/update-exim4.conf.conf ||
-  fail "split config mode is not enabled"
-
-done_ok
-
-# =============================================================================
-# LOCAL MACROS
+# 1. LOCAL MACROS
 # =============================================================================
 
 step "Writing local macros"
 
 cat >/etc/exim4/conf.d/main/00_local_macros <<EOF
 primary_hostname = ${PRIMARY_HOSTNAME}
-
 daemon_smtp_ports = 25 : 587
-
-MAIN_TLS_ENABLE = yes
-MAIN_TLS_CERTIFICATE = ${TLS_CERT}
-MAIN_TLS_PRIVATEKEY = ${TLS_KEY}
-MAIN_TLS_ADVERTISE_HOSTS = *
-
 DKIM_SELECTOR = ${DKIM_SELECTOR}
 EOF
 
 done_ok
 
 # =============================================================================
-# TLS OPTIONS
+# 2. TLS OPTIONS
 # =============================================================================
 
 step "Configuring TLS"
@@ -99,27 +73,23 @@ tls_privatekey = ${TLS_KEY}
 tls_advertise_hosts = *
 EOF
 
+sed -i 's/^tls_certificate = MAIN_TLS_CERT/#tls_certificate = MAIN_TLS_CERT/' /etc/exim4/conf.d/main/03_exim4-config_tlsoptions
+
 done_ok
 
 # =============================================================================
-# LETSENCRYPT PERMISSIONS
+# 3. LETSENCRYPT PERMISSIONS
 # =============================================================================
 
 step "Fixing certificate permissions"
 
-if [ -d /etc/letsencrypt/live ]; then
-
-  chgrp -R "${EXIM_USER}" /etc/letsencrypt/live || true
-  chgrp -R "${EXIM_USER}" /etc/letsencrypt/archive || true
-
-  chmod 750 /etc/letsencrypt/live || true
-  chmod 750 /etc/letsencrypt/archive || true
-fi
+chgrp -R "${EXIM_USER}" /etc/letsencrypt/live /etc/letsencrypt/archive
+chmod 750 /etc/letsencrypt/live /etc/letsencrypt/archive
 
 done_ok
 
 # =============================================================================
-# STARTTLS ACL
+# 4. STARTTLS ACL
 # =============================================================================
 
 step "Configuring STARTTLS ACL"
@@ -136,7 +106,7 @@ EOF
 done_ok
 
 # =============================================================================
-# SMTP AUTH
+# 5. SMTP AUTH
 # =============================================================================
 
 step "Configuring SMTP AUTH"
@@ -162,126 +132,114 @@ EOF
 done_ok
 
 # =============================================================================
-# SMTP AUTH PASSWORD FILE
+# 6. SMTP AUTH PASSWORD FILE
 # =============================================================================
 
 step "Creating SMTP password file"
 
-touch /etc/exim4/passwd
-
 if [ -n "${SMTP_AUTH_PASS}" ]; then
-
   HASHED_PASS=$(openssl passwd -6 "${SMTP_AUTH_PASS}")
-
   cat >/etc/exim4/passwd <<EOF
 ${SMTP_AUTH_USER}:${HASHED_PASS}
 EOF
-
 fi
 
-chown root:${EXIM_USER} /etc/exim4/passwd
-chmod 640 /etc/exim4/passwd
+if [ -f /etc/exim4/passwd ]; then
+  chown root:${EXIM_USER} /etc/exim4/passwd
+  chmod 640 /etc/exim4/passwd
+fi
 
 done_ok
 
 # =============================================================================
-# DKIM SETUP
+# 7. DKIM KEYS
 # =============================================================================
 
-step "Configuring DKIM"
+step "Generating DKIM keys"
 
 mkdir -p "${DKIM_BASE}"
 
->/etc/exim4/dkim_keys
-
 for domain in ${MAIL_DOMAINS}; do
-
   DOMAIN_DIR="${DKIM_BASE}/${domain}"
-
   mkdir -p "${DOMAIN_DIR}"
 
   PRIVATE_KEY="${DOMAIN_DIR}/mail.private"
   PUBLIC_KEY="${DOMAIN_DIR}/mail.public"
 
   if [ ! -f "${PRIVATE_KEY}" ]; then
-
-    echo "Generating DKIM key for ${domain}"
-
     openssl genrsa -out "${PRIVATE_KEY}" 2048 >/dev/null 2>&1
-
-    openssl rsa \
-      -in "${PRIVATE_KEY}" \
-      -pubout \
-      -out "${PUBLIC_KEY}" >/dev/null 2>&1
-
+    openssl rsa -in "${PRIVATE_KEY}" -pubout -out "${PUBLIC_KEY}" >/dev/null 2>&1
   fi
 
-  PUBKEY=$(openssl rsa -in "${PRIVATE_KEY}" -pubout 2>/dev/null |
-    grep -v "-----" |
-    tr -d '\n')
+  PUBKEY=$(openssl rsa -in "${PRIVATE_KEY}" -pubout 2>/dev/null | grep -v "\-----" | tr -d '\n')
 
   cat >"${DOMAIN_DIR}/dns_record.txt" <<EOF
 ${DKIM_SELECTOR}._domainkey.${domain}. TXT "v=DKIM1; k=rsa; p=${PUBKEY}"
 EOF
 
-  echo "${domain}: ${PRIVATE_KEY}" >>/etc/exim4/dkim_keys
-
-  chown -R ${EXIM_USER}:${EXIM_USER} "${DOMAIN_DIR}"
-
+  chown -R "${EXIM_USER}" "${DOMAIN_DIR}"
   chmod 640 "${PRIVATE_KEY}"
   chmod 644 "${PUBLIC_KEY}"
-
 done
 
-chown root:${EXIM_USER} /etc/exim4/dkim_keys
+done_ok
+
+# =============================================================================
+# 8. DKIM LOOKUP FILE
+# =============================================================================
+
+step "Writing DKIM lookup file"
+
+>/etc/exim4/dkim_keys
+for domain in ${MAIL_DOMAINS}; do
+  echo "${domain}: ${DKIM_BASE}/${domain}/mail.private" >>/etc/exim4/dkim_keys
+done
+
+chown root:"${EXIM_USER}" /etc/exim4/dkim_keys
 chmod 640 /etc/exim4/dkim_keys
 
 done_ok
 
 # =============================================================================
-# DKIM TRANSPORT
+# 9. DKIM TRANSPORT
 # =============================================================================
 
 step "Creating DKIM transport"
 
-cat >/etc/exim4/conf.d/transport/32_dkim_transport <<'EOF'
+cat >/etc/exim4/conf.d/transport/32_dkim_transport <<EOF
 remote_smtp_dkim:
   driver = smtp
-  dkim_domain = ${lookup{$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{$sender_address_domain}{}}
+  dkim_domain = \${lookup{\$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{\$sender_address_domain}{}}
   dkim_selector = DKIM_SELECTOR
-  dkim_private_key = ${lookup{$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{$value}{0}}
+  dkim_private_key = \${lookup{\$sender_address_domain}lsearch{/etc/exim4/dkim_keys}{\$value}{0}}
   dkim_canon = relaxed
 EOF
 
 done_ok
 
 # =============================================================================
-# ROUTER PATCH
+# 10. ROUTER PATCH
 # =============================================================================
 
 step "Patching primary router"
 
 ROUTER_FILE="/etc/exim4/conf.d/router/200_exim4-config_primary"
 
-if grep -q "transport = remote_smtp$" "${ROUTER_FILE}"; then
-
-  sed -i \
-    's/transport = remote_smtp$/transport = remote_smtp_dkim/g' \
-    "${ROUTER_FILE}"
-
+if ! grep -q "transport = remote_smtp_dkim" "${ROUTER_FILE}"; then
+  sed -i 's/transport = remote_smtp/transport = remote_smtp_dkim/g' "${ROUTER_FILE}"
 fi
 
 done_ok
 
 # =============================================================================
-# CATCHALL FORWARD
+# 11. CATCHALL FORWARD
 # =============================================================================
 
 step "Configuring catchall forwarding"
 
 DOMAIN_LIST=$(echo "${MAIL_DOMAINS}" | tr ' ' ':')
 
-cat >/etc/exim4/conf.d/router/150_exim4-config_catch_all_forward <<EOF
+cat >/etc/exim4/conf.d/router/850_exim4-config_catch_all_forward <<EOF
 catch_all_forward:
   driver = redirect
   domains = ${DOMAIN_LIST}
@@ -293,10 +251,10 @@ EOF
 done_ok
 
 # =============================================================================
-# UPDATE-EXIM4 CONFIG
+# 12. UPDATE-EXIM4.CONF.CONF
 # =============================================================================
 
-step "Updating Exim config variables"
+step "Updating update-exim4.conf.conf"
 
 OTHER_HOSTNAMES=$(echo "${MAIL_DOMAINS}" | tr ' ' ':')
 OTHER_HOSTNAMES="${PRIMARY_HOSTNAME}:${OTHER_HOSTNAMES}"
@@ -320,76 +278,48 @@ EOF
 done_ok
 
 # =============================================================================
-# REBUILD CONFIG
+# 13. REBUILD AND VALIDATE
 # =============================================================================
 
-step "Rebuilding Exim configuration"
+step "Rebuilding and validating Exim configuration"
 
 update-exim4.conf || fail "update-exim4.conf failed"
+exim -bV >/dev/null 2>&1 || fail "exim -bV failed"
+exim -C /var/lib/exim4/config.autogenerated -bV >/dev/null 2>&1 || fail "exim autogenerated config validation failed"
+exim -bP primary_hostname | grep -q "${PRIMARY_HOSTNAME}" || fail "primary_hostname validation failed"
+exim -bP authenticators | grep -q "plain_server" || fail "authenticators validation failed"
 
 done_ok
 
 # =============================================================================
-# VALIDATION
-# =============================================================================
-
-step "Validating Exim configuration"
-
-exim -bV >/dev/null 2>&1 ||
-  fail "exim config validation failed"
-
-exim -bP primary_hostname >/dev/null 2>&1 ||
-  fail "exim runtime config invalid"
-
-done_ok
-
-# =============================================================================
-# START EXIM
+# 14. START EXIM
 # =============================================================================
 
 if [ "${SKIP_EXIM}" = "1" ]; then
-
   echo -e "${BLUE}  - SKIP_EXIM=1, skipping restart${NC}"
-
 else
-
   step "Restarting Exim"
-
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl restart exim4 ||
-      fail "systemctl restart failed"
+    systemctl restart exim4 || fail "systemctl restart exim4 failed"
   else
-    service exim4 restart ||
-      fail "service restart failed"
+    service exim4 restart || fail "service exim4 restart failed"
   fi
-
   done_ok
-
 fi
 
 # =============================================================================
-# SUMMARY
+# 15. PRINT DKIM DNS RECORDS
 # =============================================================================
-
-echo ""
-echo -e "${GREEN}=== CONFIGURATION COMPLETE ===${NC}"
-
-echo -e "${BLUE}Hostname:${NC} ${PRIMARY_HOSTNAME}"
-echo -e "${BLUE}Domains:${NC} ${MAIL_DOMAINS}"
-echo -e "${BLUE}Catchall:${NC} ${FORWARD_TO}"
-echo -e "${BLUE}TLS Cert:${NC} ${TLS_CERT}"
 
 echo ""
 echo -e "${GREEN}=== DKIM DNS RECORDS ===${NC}"
 
 for domain in ${MAIL_DOMAINS}; do
-
-  echo ""
-  echo -e "${BLUE}${domain}${NC}"
-
-  cat "${DKIM_BASE}/${domain}/dns_record.txt"
-
+  if [ -f "${DKIM_BASE}/${domain}/dns_record.txt" ]; then
+    echo -e "${BLUE}${domain}:${NC}"
+    cat "${DKIM_BASE}/${domain}/dns_record.txt"
+    echo ""
+  fi
 done
 
-echo ""
-echo -e "${GREEN}Done.${NC}"
+echo -e "${GREEN}Configuration Complete.${NC}"
