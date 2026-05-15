@@ -67,6 +67,9 @@ on:
       install-erpnext:
         type: boolean
         default: false
+      install-rpanel:
+        type: boolean
+        default: false
       install-payments:
         type: boolean
         default: false
@@ -257,6 +260,7 @@ jobs:
       redis-version: ${{ inputs.redis-version || '6.0' }}
       node-version: ${{ inputs.node-version || '24' }}
       install-erpnext: ${{ inputs.install-erpnext }}
+      install-rpanel: ${{ inputs.install-rpanel }}
       install-payments: ${{ inputs.install-payments }}
       bootstrap: ${{ inputs.bootstrap }}
     secrets: inherit
