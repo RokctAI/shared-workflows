@@ -25,6 +25,7 @@ on:
 
 jobs:
   upgrade-test:
+    if: github.repository == 'RokctAI/PlatformStack'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
