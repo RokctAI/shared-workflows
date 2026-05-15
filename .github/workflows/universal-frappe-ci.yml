@@ -251,14 +251,14 @@ jobs:
           echo "✅ Redis instances ready (Ports: 11000, 12000, 13000)."
 
       - name: Install Frappe Bench (Manual)
-        if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == false
+        if: github.repository != 'RokctAI/PlatformStack' && inputs.bootstrap == false
         run: |
           npm install -g yarn
           python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
           bench init --skip-redis-config-generation --skip-assets --python python3 --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
-        if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == true
+        if: github.repository != 'RokctAI/PlatformStack' && inputs.bootstrap == true
         run: |
           npm install -g yarn
           # Install official bench first
@@ -277,7 +277,7 @@ jobs:
           # We just wanted the bench source code patched for when install.sh calls it.
 
       - name: Install RPanel via Bootstrap Script
-        if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == true
+        if: github.repository != 'RokctAI/PlatformStack' && inputs.bootstrap == true
         env:
           DB_TYPE: ${{ inputs.db-type }}
         run: |
@@ -300,7 +300,7 @@ jobs:
           fi
 
       - name: Sync Workspace Code to Bootstrap Bench 🔄
-        if: github.repository != 'RokctAI/rpanel' && inputs.bootstrap == true
+        if: github.repository != 'RokctAI/PlatformStack' && inputs.bootstrap == true
         working-directory: frappe-bench
         run: |
           # Detect actual app name again or use repo name
@@ -329,7 +329,7 @@ jobs:
           fi
 
       - name: Install App & Run Tests
-        if: github.repository != 'RokctAI/rpanel'
+        if: github.repository != 'RokctAI/PlatformStack'
         working-directory: frappe-bench
         run: |
           # 1. Standard Environment Activation
