@@ -1029,7 +1029,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-           TAG="v${{ steps.version.outputs.version }}${{ steps.mode.outputs.suffix }}"
+           VERSION="${{ steps.version.outputs.version }}"
+           if [ -z "$VERSION" ]; then
+              echo "❌ Error: Extracted version is empty. Cannot create tag."
+              exit 1
+           fi
+
+           TAG="v${VERSION}${{ steps.mode.outputs.suffix }}"
            MODE="${{ steps.mode.outputs.mode }}"
 
            # Check for Ghost Release (Record exists but tag might not)

@@ -520,8 +520,6 @@ jobs:
 #          echo "Registry detected as RokctAI. Triggering Native Ecosystem Compilation..."
 #          
 #          # Download and execute the Golden Build Script
-#          wget -qO build_ecosystem.sh https://raw.githubusercontent.com/RokctAI/shared-workflows/main/scripts/build_ecosystem.sh
-#          chmod +x build_ecosystem.sh
 #          
 #          # Pass required inputs as environment variables
 #          export BOOTSTRAP=${{ inputs.bootstrap }}
@@ -536,7 +534,6 @@ jobs:
 #          export INSTALL_ERPNEXT=${{ inputs.install-erpnext }}
 #          export INSTALL_RPANEL=${{ inputs.install-rpanel }}
 #          
-#          ./build_ecosystem.sh
 
       - name: Archive Apps (Artifact)
         if: success()

@@ -199,7 +199,6 @@ To balance security and flexibility, we follow a strict **"Respect Local, Overwr
 
 ## 🛠️ Hook Guard (Frappe Ecosystem)
 
-The Golden Build Script (`scripts/build_ecosystem.sh`) implements a **Hook Guard** to prevent `on_update` and `after_insert` hooks from running during site installation and migration. This ensures PostgreSQL transaction stability and speeds up the build.
 
 ### 🔓 Opt-out Mechanism
 If you have critical hooks that **must** run during installation (e.g., creating mandatory system DocTypes), you can opt-out using the `# rokct-no-guard` comment:
