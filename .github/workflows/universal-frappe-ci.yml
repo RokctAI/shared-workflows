@@ -42,6 +42,10 @@ on:
         required: false
         type: boolean
         default: false
+      install-rpanel:
+        required: false
+        type: boolean
+        default: false
       install-payments:
         required: false
         type: boolean
@@ -360,6 +364,12 @@ jobs:
              bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets
           fi
 
+          # Install RPanel if requested
+          if [ "${{ inputs.install-rpanel }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+             echo "Installing RPanel..."
+             bench get-app https://github.com/RokctAI/rpanel.git --branch main --resolve-deps --skip-assets
+          fi
+
           # Configure git to use GitHub token for private repos
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
           
@@ -524,6 +534,7 @@ jobs:
 #          export GITHUB_WORKSPACE=${{ github.workspace }}
 #          export INSTALL_PAYMENTS=${{ inputs.install-payments }}
 #          export INSTALL_ERPNEXT=${{ inputs.install-erpnext }}
+#          export INSTALL_RPANEL=${{ inputs.install-rpanel }}
 #          
 #          ./build_ecosystem.sh
 

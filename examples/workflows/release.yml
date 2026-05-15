@@ -21,7 +21,7 @@ on:
         default: '10.6'
       postgres-version:
         type: string
-        default: '15'
+        default: '16'
       db-type:
         type: string
         default: 'mariadb'
@@ -102,7 +102,7 @@ jobs:
       node-version: ${{ inputs.node-version || '24' }}
       python-version: ${{ inputs.python-version || '3.14' }}
       mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
-      postgres-version: ${{ inputs.postgres-version || '15' }}
+      postgres-version: ${{ inputs.postgres-version || '16' }}
       db-type: ${{ inputs.db-type || 'mariadb' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       # Recommended: Pin Flutter version to avoid compiler issues (e.g., google_fonts)
