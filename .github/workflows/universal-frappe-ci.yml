@@ -272,6 +272,11 @@ jobs:
         run: |
           npm install -g yarn
           python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
+          
+          # Monkey-patch bench CLI to allow running as root in container
+          BENCH_BIN=$(which bench)
+          sed -i '2i import os\nos.getuid = lambda: 1000\nos.geteuid = lambda: 1000' "$BENCH_BIN"
+
           bench init --skip-redis-config-generation --skip-assets --python python3 --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
       - name: Install Frappe Bench (Bootstrap with Overrides)
@@ -281,6 +286,10 @@ jobs:
           # Install official bench first
           python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
           
+          # Monkey-patch bench CLI to allow running as root in container
+          BENCH_BIN=$(which bench)
+          sed -i '2i import os\nos.getuid = lambda: 1000\nos.geteuid = lambda: 1000' "$BENCH_BIN"
+
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
              echo "🔥 Applying Bench Overrides from Monorepo..."
