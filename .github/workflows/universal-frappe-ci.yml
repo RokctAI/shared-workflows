@@ -200,8 +200,23 @@ jobs:
       - name: Install Runtime Toolchains (Python & Node)
         run: |
           # 1. Install Python
-          apt-get install -y python3 python3-pip python3-venv
-          ln -sf /usr/bin/python3 /usr/bin/python
+          apt-get install -y software-properties-common
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          
+          # Parse version (e.g. 3.14.2 -> 3.14)
+          INPUT_VER="${{ inputs.python-version }}"
+          PY_VER=$(echo "${INPUT_VER:-3.14}" | cut -d. -f1,2)
+          echo "Installing Python $PY_VER..."
+          
+          apt-get install -y "python${PY_VER}" "python${PY_VER}-venv" "python${PY_VER}-dev"
+          
+          # Symlink python & python3 to our custom version
+          ln -sf "/usr/bin/python${PY_VER}" /usr/bin/python3
+          ln -sf "/usr/bin/python${PY_VER}" /usr/bin/python
+          
+          # Install pip for this specific Python version
+          curl -sS https://bootstrap.pypa.io/get-pip.py | python3
           
           # 2. Install Node.js
           curl -fsSL https://deb.nodesource.com/setup_${{ inputs.node-version }}.x | bash -
