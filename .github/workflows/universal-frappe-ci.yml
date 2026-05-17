@@ -109,7 +109,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
           echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-          apt-get update && apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential
+          apt-get update && apt-get install -y sudo git curl wget redis-server wkhtmltopdf mariadb-client postgresql-client ca-certificates procps gnupg2 build-essential pkg-config libmariadb-dev libpq-dev
           # Install Docker CLI to support Docker commands from within the container
           curl -fsSL https://get.docker.com | sh
 
