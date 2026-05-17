@@ -293,23 +293,8 @@ jobs:
           id -u frappe >/dev/null 2>&1 || useradd -m -s /bin/bash frappe || true
           
           # Monkey-patch bench CLI to allow running as root in container
-          cat << 'EOF' > patch_bench.py
-import os, pwd, getpass
-path = os.getenv('BENCH_BIN')
-content = open(path).read().splitlines()
-patch = '''import os, pwd, getpass
-try:
-    f_uid = pwd.getpwnam("frappe").pw_uid
-except Exception:
-    f_uid = 1000
-os.getuid = lambda: f_uid
-os.geteuid = lambda: f_uid
-getpass.getuser = lambda: "frappe"'''
-content.insert(1, patch)
-open(path, 'w').write('\n'.join(content) + '\n')
-EOF
-          BENCH_BIN=$(which bench) BENCH_BIN=$BENCH_BIN python3 patch_bench.py
-          rm patch_bench.py
+          BENCH_BIN=$(which bench)
+          BENCH_BIN=$BENCH_BIN python3 -c "import os, pwd, getpass; path = os.getenv('BENCH_BIN'); content = open(path).read().splitlines(); patch = 'import os, pwd, getpass\ntry:\n    f_uid = pwd.getpwnam(\"frappe\").pw_uid\nexcept Exception:\n    f_uid = 1000\nos.getuid = lambda: f_uid\nos.geteuid = lambda: f_uid\ngetpass.getuser = lambda: \"frappe\"'; content.insert(1, patch); open(path, 'w').write('\n'.join(content) + '\n')"
 
           bench init --skip-redis-config-generation --skip-assets --python python3 --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
@@ -324,23 +309,8 @@ EOF
           id -u frappe >/dev/null 2>&1 || useradd -m -s /bin/bash frappe || true
 
           # Monkey-patch bench CLI to allow running as root in container
-          cat << 'EOF' > patch_bench.py
-import os, pwd, getpass
-path = os.getenv('BENCH_BIN')
-content = open(path).read().splitlines()
-patch = '''import os, pwd, getpass
-try:
-    f_uid = pwd.getpwnam("frappe").pw_uid
-except Exception:
-    f_uid = 1000
-os.getuid = lambda: f_uid
-os.geteuid = lambda: f_uid
-getpass.getuser = lambda: "frappe"'''
-content.insert(1, patch)
-open(path, 'w').write('\n'.join(content) + '\n')
-EOF
-          BENCH_BIN=$(which bench) BENCH_BIN=$BENCH_BIN python3 patch_bench.py
-          rm patch_bench.py
+          BENCH_BIN=$(which bench)
+          BENCH_BIN=$BENCH_BIN python3 -c "import os, pwd, getpass; path = os.getenv('BENCH_BIN'); content = open(path).read().splitlines(); patch = 'import os, pwd, getpass\ntry:\n    f_uid = pwd.getpwnam(\"frappe\").pw_uid\nexcept Exception:\n    f_uid = 1000\nos.getuid = lambda: f_uid\nos.geteuid = lambda: f_uid\ngetpass.getuser = lambda: \"frappe\"'; content.insert(1, patch); open(path, 'w').write('\n'.join(content) + '\n')"
 
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
