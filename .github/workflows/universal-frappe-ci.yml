@@ -382,7 +382,7 @@ jobs:
         run: |
           # 1. Standard Environment Activation
           if [ -f "env/bin/activate" ]; then
-             source env/bin/activate
+             . env/bin/activate
           fi
 
           # Configure Bench to use the service DB/Redis
