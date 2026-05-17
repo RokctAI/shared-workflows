@@ -388,9 +388,9 @@ jobs:
           # Configure Bench to use the service DB/Redis
           if [ "${{ inputs.bootstrap }}" = "false" ]; then
              bench set-config -g db_host "${{ env.DB_HOST }}"
-             bench set-config -g redis_cache redis://127.0.0.1:6379
-             bench set-config -g redis_queue redis://127.0.0.1:6379
-             bench set-config -g redis_socketio redis://127.0.0.1:6379
+             bench set-config -g redis_cache redis://redis:6379
+             bench set-config -g redis_queue redis://redis:6379
+             bench set-config -g redis_socketio redis://redis:6379
           fi
 
           # Fix for Missing pkg_resources in payments app
@@ -475,7 +475,7 @@ jobs:
           echo "Actual App Name: $APP_NAME"
           
           # If names differ (package name != current folder name), rename the app directory
-          if [[ -n "$APP_DIR" && "$APP_NAME" != "$APP_DIR" && -n "$APP_NAME" ]]; then
+          if [ -n "$APP_DIR" ] && [ "$APP_NAME" != "$APP_DIR" ] && [ -n "$APP_NAME" ]; then
              echo "Renaming apps/$APP_DIR to apps/$APP_NAME"
              mv "apps/$APP_DIR" "apps/$APP_NAME"
              
