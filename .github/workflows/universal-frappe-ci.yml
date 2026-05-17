@@ -552,6 +552,14 @@ jobs:
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
           if [ "${{ inputs.bootstrap }}" = "false" ]; then
+             if [ "${{ inputs.install-payments }}" = "true" ]; then
+                echo "Installing payments app on $SITE_NAME..."
+                bench --site "$SITE_NAME" install-app payments
+             fi
+             if [ "${{ inputs.install-erpnext }}" = "true" ]; then
+                echo "Installing erpnext app on $SITE_NAME..."
+                bench --site "$SITE_NAME" install-app erpnext
+             fi
              bench --site "$SITE_NAME" install-app "$APP_NAME"
           fi
           bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log
