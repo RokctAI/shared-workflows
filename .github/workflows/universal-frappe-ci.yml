@@ -379,6 +379,7 @@ jobs:
       - name: Install App & Run Tests
         if: github.repository != 'RokctAI/PlatformStack'
         working-directory: frappe-bench
+        shell: bash
         run: |
           # 1. Standard Environment Activation
           if [ -f "env/bin/activate" ]; then
