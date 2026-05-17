@@ -289,12 +289,25 @@ jobs:
           npm install -g yarn
           python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
 
-          # Create non-root user with UID 1000 so getpwuid(1000) resolves successfully
-          id -u frappe >/dev/null 2>&1 || useradd -u 1000 -m -s /bin/bash frappe || true
+          # Create non-root user so getpwuid resolves successfully
+          id -u frappe >/dev/null 2>&1 || useradd -m -s /bin/bash frappe || true
           
           # Monkey-patch bench CLI to allow running as root in container
           BENCH_BIN=$(which bench)
-          sed -i '2i import os, pwd, getpass\nos.getuid = lambda: 1000\nos.geteuid = lambda: 1000\ngetpass.getuser = lambda: "frappe"\norig = pwd.getpwuid\npwd.getpwuid = lambda uid: orig(1000) if uid == 1000 else orig(uid)' "$BENCH_BIN"
+          python3 -c "
+path = '$BENCH_BIN'
+content = open(path).read().splitlines()
+patch = '''import os, pwd, getpass
+try:
+    f_uid = pwd.getpwnam(\"frappe\").pw_uid
+except Exception:
+    f_uid = 1000
+os.getuid = lambda: f_uid
+os.geteuid = lambda: f_uid
+getpass.getuser = lambda: \"frappe\"'''
+content.insert(1, patch)
+open(path, 'w').write('\n'.join(content) + '\n')
+"
 
           bench init --skip-redis-config-generation --skip-assets --python python3 --frappe-branch rokct --frappe-path https://github.com/Frappenize/frappe.git frappe-bench
 
@@ -305,12 +318,25 @@ jobs:
           # Install official bench first
           python3 -m pip install frappe-bench --break-system-packages || python3 -m pip install frappe-bench
           
-          # Create non-root user with UID 1000 so getpwuid(1000) resolves successfully
-          id -u frappe >/dev/null 2>&1 || useradd -u 1000 -m -s /bin/bash frappe || true
+          # Create non-root user so getpwuid resolves successfully
+          id -u frappe >/dev/null 2>&1 || useradd -m -s /bin/bash frappe || true
 
           # Monkey-patch bench CLI to allow running as root in container
           BENCH_BIN=$(which bench)
-          sed -i '2i import os, pwd, getpass\nos.getuid = lambda: 1000\nos.geteuid = lambda: 1000\ngetpass.getuser = lambda: "frappe"\norig = pwd.getpwuid\npwd.getpwuid = lambda uid: orig(1000) if uid == 1000 else orig(uid)' "$BENCH_BIN"
+          python3 -c "
+path = '$BENCH_BIN'
+content = open(path).read().splitlines()
+patch = '''import os, pwd, getpass
+try:
+    f_uid = pwd.getpwnam(\"frappe\").pw_uid
+except Exception:
+    f_uid = 1000
+os.getuid = lambda: f_uid
+os.geteuid = lambda: f_uid
+getpass.getuser = lambda: \"frappe\"'''
+content.insert(1, patch)
+open(path, 'w').write('\n'.join(content) + '\n')
+"
 
           # PATCH: Override bench source code with Monorepo version
           if [ -d "monorepo_overrides/bench" ]; then
