@@ -139,12 +139,25 @@ jobs:
       - name: Start Database Service
         if: inputs.bootstrap == false
         run: |
-          # Create shared network for service resolution
-          docker network create rokct-net || true
+          # Auto-detect GHA runner container network
+          GHA_NET=""
+          if [ -f /var/run/docker.sock ] || docker ps >/dev/null 2>&1; then
+             MY_CONTAINER_ID=$(hostname)
+             GHA_NET=$(docker inspect "$MY_CONTAINER_ID" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null || echo "")
+          fi
 
-          if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+          if [ -n "$GHA_NET" ]; then
+             echo "Detected GHA runner network: $GHA_NET"
+             DB_NET="$GHA_NET"
+          else
+             echo "Fallback to default bridge network"
+             docker network create rokct-net || true
+             DB_NET="rokct-net"
+          fi
+
+          if [ "${{ inputs.db-type }}" = "mariadb" ]; then
              echo "Starting MariaDB..."
-             docker run -d --name db-service --network rokct-net -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
+             docker run -d --name db-service --network "$DB_NET" -p 3306:3306 -e MARIADB_ROOT_PASSWORD="${{ env.DB_PW }}" mariadb:${{ inputs.mariadb-version }}
 
              # Standard Probe (db-service or localhost fallback)
              timeout 15s bash -c "until mariadb-admin -h db-service -u root -p${{ env.DB_PW }} ping --silent || mariadb-admin -h 127.0.0.1 -u root -p${{ env.DB_PW }} ping --silent; do sleep 1; done"
@@ -162,7 +175,7 @@ jobs:
               echo "Pulling $DB_IMAGE..."
               docker pull "$DB_IMAGE"
 
-              docker run -d --name db-service --network rokct-net -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
+              docker run -d --name db-service --network "$DB_NET" -p 5432:5432 -e POSTGRES_PASSWORD="${{ env.DB_PW }}" -e POSTGRES_USER=postgres "$DB_IMAGE"
 
               # Standard Probe (db-service or localhost fallback)
               timeout 15s bash -c 'until pg_isready -h db-service -U postgres || pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done'
@@ -342,7 +355,7 @@ jobs:
           fi
 
           # Configure Bench to use the service DB/Redis
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.bootstrap }}" = "false" ]; then
              bench set-config -g db_host "${{ env.DB_HOST }}"
              bench set-config -g redis_cache redis://127.0.0.1:6379
              bench set-config -g redis_queue redis://127.0.0.1:6379
@@ -353,19 +366,19 @@ jobs:
           bench pip install setuptools
 
           # Install Payments if requested (Required by some apps like rcore)
-          if [ "${{ inputs.install-payments }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.install-payments }}" = "true" ] && [ "${{ inputs.bootstrap }}" = "false" ]; then
              echo "Installing Payments App..."
              bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets
           fi
 
           # Install ERPNext if requested
-          if [ "${{ inputs.install-erpnext }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.install-erpnext }}" = "true" ] && [ "${{ inputs.bootstrap }}" = "false" ]; then
              echo "Installing ERPNext (version-16)..."
              bench get-app https://github.com/Frappenize/erpnext.git --branch rokct --resolve-deps --skip-assets
           fi
 
           # Install RPanel if requested
-          if [ "${{ inputs.install-rpanel }}" == "true" ] && [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.install-rpanel }}" = "true" ] && [ "${{ inputs.bootstrap }}" = "false" ]; then
              echo "Installing RPanel..."
              bench get-app https://github.com/RokctAI/rpanel.git --branch main --resolve-deps --skip-assets
           fi
@@ -374,7 +387,7 @@ jobs:
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token || github.token }}@github.com/".insteadOf "https://github.com/"
           
           # Fetch key app (the repo calling this workflow)
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.bootstrap }}" = "false" ]; then
              # Use --skip-assets to avoid esbuild failures (assets aren't needed for python tests)
              bench get-app ${{ github.server_url }}/${{ github.repository }} --branch ${{ github.ref_name }} --skip-assets
           fi
@@ -462,8 +475,8 @@ jobs:
           echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
           
           # Create Test Site
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
-             if [ "${{ inputs.db-type }}" == "mariadb" ]; then
+          if [ "${{ inputs.bootstrap }}" = "false" ]; then
+             if [ "${{ inputs.db-type }}" = "mariadb" ]; then
                 bench new-site test_site --db-root-password "${{ env.DB_PW }}" --admin-password admin --no-mariadb-socket
              else
                 bench new-site test_site --db-type postgres --db-root-password "${{ env.DB_PW }}" --admin-password admin
@@ -503,7 +516,7 @@ jobs:
           # Install App & Run Tests
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
-          if [ "${{ inputs.bootstrap }}" == "false" ]; then
+          if [ "${{ inputs.bootstrap }}" = "false" ]; then
              bench --site "$SITE_NAME" install-app "$APP_NAME"
           fi
           bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log

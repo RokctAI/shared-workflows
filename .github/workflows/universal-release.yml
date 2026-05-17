@@ -159,7 +159,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Setup Node
         run: |
-          if [ "${{ inputs.project_type }}" == "frappe" ]; then
+          if [ "${{ inputs.project_type }}" = "frappe" ]; then
              curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
              apt-get install -y nodejs
           else
@@ -249,7 +249,7 @@ jobs:
       - name: Determine Context
         if: steps.check_major.outputs.bumped == 'true'
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             echo "IS_SELF=true" >> "$GITHUB_ENV"
           else
             echo "IS_SELF=false" >> "$GITHUB_ENV"
@@ -356,7 +356,7 @@ jobs:
 
       - name: Determine Context
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             echo "IS_SELF=true" >> "$GITHUB_ENV"
           else
             echo "IS_SELF=false" >> "$GITHUB_ENV"
@@ -593,7 +593,7 @@ jobs:
 
               # Find Predecessor in the stable list
               PREV_TAG=$(echo "$ALL_STABLE_TAGS" | grep -A 1 "^${TAG}$" | tail -n 1)
-              if [ "$PREV_TAG" == "$TAG" ]; then PREV_TAG=""; fi
+              if [ "$PREV_TAG" = "$TAG" ]; then PREV_TAG=""; fi
 
               echo "    Range: ${PREV_TAG:-START} -> $TAG"
 
@@ -742,7 +742,7 @@ jobs:
 
       - name: Determine Context
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             echo "IS_SELF=true" >> "$GITHUB_ENV"
           else
             echo "IS_SELF=false" >> "$GITHUB_ENV"
@@ -929,7 +929,7 @@ jobs:
                    fi
                 fi
 
-                if [ "$PR_AUTHOR" == "null" ] || [ -z "$PR_AUTHOR" ]; then
+                if [ "$PR_AUTHOR" = "null" ] || [ -z "$PR_AUTHOR" ]; then
                    COMMIT_AUTHOR=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login' 2>/dev/null || echo "null")
                    if [ "$COMMIT_AUTHOR" != "null" ] && [ -n "$COMMIT_AUTHOR" ]; then AUTHORS="$AUTHORS $COMMIT_AUTHOR"; fi
                 fi
@@ -991,7 +991,7 @@ jobs:
                print(cur_ver)
            ")
 
-           if [ "$CUR_VER" == "$NEW_VER" ]; then
+           if [ "$CUR_VER" = "$NEW_VER" ]; then
               echo "⏭️ No version change calculated. Skipping PR."
               exit 0
            fi
@@ -1388,7 +1388,7 @@ jobs:
 
               echo "📦 Initializing source transformation..."
 
-              if [ "$VENDOR_PACKAGE" == "$TARGET_PACKAGE" ]; then
+              if [ "$VENDOR_PACKAGE" = "$TARGET_PACKAGE" ]; then
                   echo "✅ Source matches target. Nothing to do."
                   exit 0
               fi
@@ -1769,7 +1769,7 @@ jobs:
         run: |
            TAG="${{ env.TAG_NAME }}"
            PRERELEASE_FLAG=""
-           if [ "${{ env.IS_PRERELEASE }}" == "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
+           if [ "${{ env.IS_PRERELEASE }}" = "true" ]; then PRERELEASE_FLAG="--prerelease"; fi
 
            echo "Creating Release $TAG via gh CLI..."
 
@@ -1782,7 +1782,7 @@ jobs:
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
 
            # Rename Windows Zip with Tag
-           if [ "${{ env.has_windows }}" == "true" ]; then
+           if [ "${{ env.has_windows }}" = "true" ]; then
               mv windows_app.zip "app-windows-${TAG}.zip"
               FILES+=("app-windows-${TAG}.zip")
            fi

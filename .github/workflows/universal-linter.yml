@@ -88,7 +88,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             {
               echo "ENGINE_PATH=scripts/standardize_fleet.py"
               echo "README_ENGINE_PATH=scripts/update_readme_badges.py"
@@ -281,7 +281,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
             { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
@@ -319,7 +319,7 @@ jobs:
       - name: Set up Python
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          if [ "${{ inputs.project_type }}" == "frappe" ]; then
+          if [ "${{ inputs.project_type }}" = "frappe" ]; then
             apt-get update && apt-get install -y python3 python3-pip
           else
             # We cannot easily use actions/setup-python in a conditional container
@@ -555,7 +555,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
             { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
@@ -711,7 +711,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
             { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
@@ -869,7 +869,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
             { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
@@ -1091,7 +1091,7 @@ jobs:
 
       - name: Setup Fleet Standardizer
         run: |
-          if [ "${{ github.repository }}" == "RokctAI/shared-workflows" ]; then
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
             { echo "IS_SELF=true"; } >> "$GITHUB_ENV"
           else
             { echo "IS_SELF=false"; } >> "$GITHUB_ENV"
@@ -1129,7 +1129,7 @@ jobs:
       - name: Setup Node
         if: steps.check_node.outputs.exists == 'true'
         run: |
-          if [ "${{ inputs.project_type }}" == "frappe" ]; then
+          if [ "${{ inputs.project_type }}" = "frappe" ]; then
              curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
              apt-get install -y nodejs
           else
