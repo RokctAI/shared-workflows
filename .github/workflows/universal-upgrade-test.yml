@@ -101,6 +101,7 @@ jobs:
           echo "🚀 Previous Version detected: $PREV_VERSION (skip_phase1=$SKIP_PHASE1)"
 
       - name: "🔴 Phase 1: Deploy Legacy (Red)"
+        if: steps.prev.outputs.skip_phase1 != 'true'
         run: |
           echo "Deploying version ${{ steps.prev.outputs.prev_version }}..."
           
