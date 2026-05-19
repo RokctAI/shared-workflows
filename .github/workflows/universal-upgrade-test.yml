@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: "rpanel"
+      min_legacy_version:
+        required: false
+        type: string
+        default: ""
+        description: "Minimum version that has a healthy entrypoint. If prev_version is older, skip Phase 1."
     secrets:
       MONOREPO_PAT:
         required: false
@@ -79,8 +84,21 @@ jobs:
              fi
           fi
           
+          # Check against the minimum legacy version floor
+          MIN_FLOOR="${{ inputs.min_legacy_version }}"
+          SKIP_PHASE1="false"
+          if [ -n "$MIN_FLOOR" ] && [ "$PREV_VERSION" != "latest" ]; then
+            # Use sort -V to compare semantic versions
+            LOWEST=$(printf "%s\n%s" "$PREV_VERSION" "$MIN_FLOOR" | sort -V | head -n 1)
+            if [ "$LOWEST" != "$MIN_FLOOR" ] && [ "$PREV_VERSION" != "$MIN_FLOOR" ]; then
+              echo "⚠️ Previous version $PREV_VERSION is below the minimum floor $MIN_FLOOR. Skipping Phase 1."
+              SKIP_PHASE1="true"
+            fi
+          fi
+          
           echo "prev_version=$PREV_VERSION" >> "$GITHUB_OUTPUT"
-          echo "🚀 Previous Version detected: $PREV_VERSION"
+          echo "skip_phase1=$SKIP_PHASE1" >> "$GITHUB_OUTPUT"
+          echo "🚀 Previous Version detected: $PREV_VERSION (skip_phase1=$SKIP_PHASE1)"
 
       - name: "🔴 Phase 1: Deploy Legacy (Red)"
         run: |
