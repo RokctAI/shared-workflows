@@ -103,13 +103,31 @@ jobs:
       - name: "🔴 Phase 1: Deploy Legacy (Red)"
         if: steps.prev.outputs.skip_phase1 != 'true'
         run: |
-          echo "Deploying version ${{ steps.prev.outputs.prev_version }}..."
-          
-          # Update compose file to use previous version
-          sed -i "s|:latest|:${{ steps.prev.outputs.prev_version }}|g" docker-compose.yml
-          
+          PREV="${{ steps.prev.outputs.prev_version }}"
+          REGISTRY="${{ inputs.registry }}"
+          APP_IMAGE="$REGISTRY/${{ inputs.app_name }}-control:$PREV"
+
+          echo "Deploying version $PREV..."
+
+          # Guard: verify the previous app image actually exists in GHCR before attempting pull.
+          # If the tag was never pushed (first ever build) or was rolled back/deleted, skip Phase 1
+          # gracefully rather than letting 'docker compose up' fail with 'manifest unknown'.
+          if ! docker manifest inspect "$APP_IMAGE" >/dev/null 2>&1; then
+            echo "⚠️ Image $APP_IMAGE not found in registry (tag may have been rolled back or never pushed)."
+            echo "Skipping Phase 1 — no stable legacy baseline available."
+            exit 0
+          fi
+
+          # Pin app + tenant + drone images to the previous version tag.
+          # IMPORTANT: rpanel-db uses :latest — the DB image may not have a matching versioned tag
+          # for every patch release (rollback jobs clean up failed version tags from all images,
+          # but the DB schema is stable across patch versions so :latest is always safe here).
+          sed -i "s|$REGISTRY/${{ inputs.app_name }}-control:latest|$REGISTRY/${{ inputs.app_name }}-control:$PREV|g" docker-compose.yml
+          sed -i "s|$REGISTRY/${{ inputs.app_name }}-tenant:latest|$REGISTRY/${{ inputs.app_name }}-tenant:$PREV|g" docker-compose.yml
+          # Leave rpanel-db on :latest intentionally.
+
           docker compose up -d
-          
+
           # Phase 1a: Wait for the container to be in 'running' state (not just 'created')
           echo "Waiting for app container to start..."
           # shellcheck disable=SC2016
@@ -118,7 +136,7 @@ jobs:
           # Phase 1b: Wait for bench to be ready (site created + DB connected)
           # 'bench list-apps' only succeeds once the site is fully set up
           echo "Waiting for legacy app to finish site setup..."
-          
+
           # Wait with timeout AND stream logs simultaneously
           APP_CONTAINER=$(docker compose ps -q app)
           docker logs -f "$APP_CONTAINER" &
@@ -131,7 +149,7 @@ jobs:
             # Site name might be platform.rokct.ai or rpanel.local depending on build context
             # Detect which one exists in the sites folder
             DETECTED_SITE=$(docker compose exec -T app ls /home/frappe/frappe-bench/sites 2>/dev/null | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
-            
+
             if docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "$DETECTED_SITE" list-apps > /dev/null 2>&1; then
               echo "✅ Legacy version is healthy on site: $DETECTED_SITE"
               echo "SITE_NAME=$DETECTED_SITE" >> "$GITHUB_ENV"
