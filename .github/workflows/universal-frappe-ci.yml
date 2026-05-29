@@ -172,7 +172,7 @@ jobs:
              echo "✅ MariaDB ready on $DB_HOST"
           else
               echo "Starting PostgreSQL..."
-              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:2.4.8"
+              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
               echo "Logging into GHCR..."
               echo "${{ secrets.MONOREPO_PAT || github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
               echo "Pulling $DB_IMAGE..."
