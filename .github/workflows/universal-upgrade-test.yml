@@ -123,18 +123,8 @@ jobs:
           sed -i "s|$REGISTRY/${{ inputs.app_name }}-tenant:latest|$REGISTRY/${{ inputs.app_name }}-tenant:$PREV|g" docker-compose.yml
           # Pin the gravity syncer image too (it ships with the same release tag).
           sed -i "s|$REGISTRY/gravity:latest|$REGISTRY/gravity:$PREV|g" docker-compose.yml
-
-          # Pin rpanel-db to min_legacy_version (the known-good stable DB baseline) rather than
-          # :latest. The :latest tag may not exist if a prior build never pushed it or if the
-          # rollback job cleaned it up. min_legacy_version (e.g. 2.4.8) is explicitly pinned in
-          # build.yml's own db service — it is always guaranteed to be present in GHCR.
-          MIN_FLOOR="${{ inputs.min_legacy_version }}"
-          if [ -n "$MIN_FLOOR" ]; then
-            sed -i "s|$REGISTRY/${{ inputs.app_name }}-db:latest|$REGISTRY/${{ inputs.app_name }}-db:$MIN_FLOOR|g" docker-compose.yml
-            echo "rpanel-db pinned to $MIN_FLOOR (stable floor)"
-          else
-            echo "No min_legacy_version provided — rpanel-db stays on :latest"
-          fi
+          # Leave rpanel-db on :latest — the rollback job explicitly excludes the DB image
+          # so rpanel-db:latest is always guaranteed to exist in GHCR.
 
           docker compose up -d
 
