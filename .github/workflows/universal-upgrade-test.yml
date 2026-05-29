@@ -118,13 +118,21 @@ jobs:
             exit 0
           fi
 
-          # Pin app + tenant + drone images to the previous version tag.
-          # IMPORTANT: rpanel-db uses :latest — the DB image may not have a matching versioned tag
-          # for every patch release (rollback jobs clean up failed version tags from all images,
-          # but the DB schema is stable across patch versions so :latest is always safe here).
+          # Pin app + tenant images to the previous version tag for the legacy baseline test.
           sed -i "s|$REGISTRY/${{ inputs.app_name }}-control:latest|$REGISTRY/${{ inputs.app_name }}-control:$PREV|g" docker-compose.yml
           sed -i "s|$REGISTRY/${{ inputs.app_name }}-tenant:latest|$REGISTRY/${{ inputs.app_name }}-tenant:$PREV|g" docker-compose.yml
-          # Leave rpanel-db on :latest intentionally.
+
+          # Pin rpanel-db to min_legacy_version (the known-good stable DB baseline) rather than
+          # :latest. The :latest tag may not exist if a prior build never pushed it or if the
+          # rollback job cleaned it up. min_legacy_version (e.g. 2.4.8) is explicitly pinned in
+          # build.yml's own db service — it is always guaranteed to be present in GHCR.
+          MIN_FLOOR="${{ inputs.min_legacy_version }}"
+          if [ -n "$MIN_FLOOR" ]; then
+            sed -i "s|$REGISTRY/${{ inputs.app_name }}-db:latest|$REGISTRY/${{ inputs.app_name }}-db:$MIN_FLOOR|g" docker-compose.yml
+            echo "rpanel-db pinned to $MIN_FLOOR (stable floor)"
+          else
+            echo "No min_legacy_version provided — rpanel-db stays on :latest"
+          fi
 
           docker compose up -d
 
