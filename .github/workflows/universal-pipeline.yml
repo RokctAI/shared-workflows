@@ -263,6 +263,7 @@ jobs:
       install-rpanel: ${{ inputs.install-rpanel }}
       install-payments: ${{ inputs.install-payments }}
       bootstrap: ${{ inputs.bootstrap }}
+      rpanel-db-version: '2.4.8'
     secrets: inherit
 
   ci-node:
