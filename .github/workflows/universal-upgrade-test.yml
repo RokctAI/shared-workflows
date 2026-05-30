@@ -121,10 +121,9 @@ jobs:
           # Pin app + tenant images to the previous version tag for the legacy baseline test.
           sed -i "s|$REGISTRY/${{ inputs.app_name }}-control:latest|$REGISTRY/${{ inputs.app_name }}-control:$PREV|g" docker-compose.yml
           sed -i "s|$REGISTRY/${{ inputs.app_name }}-tenant:latest|$REGISTRY/${{ inputs.app_name }}-tenant:$PREV|g" docker-compose.yml
-          # Pin the gravity syncer image too (it ships with the same release tag).
-          sed -i "s|$REGISTRY/gravity:latest|$REGISTRY/gravity:$PREV|g" docker-compose.yml
-          # Leave rpanel-db on :latest — the rollback job explicitly excludes the DB image
-          # so rpanel-db:latest is always guaranteed to exist in GHCR.
+          # gravity and rpanel-db are left on :latest — gravity is a background syncer
+          # with no role in the upgrade test, and its versioned tag may not exist if a
+          # prior gravity build failed. rpanel-db is stable infrastructure.
 
           docker compose up -d
 
