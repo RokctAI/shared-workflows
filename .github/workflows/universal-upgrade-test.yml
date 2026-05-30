@@ -151,14 +151,16 @@ jobs:
 
           echo "Waiting for Frappe web process on port 8000..."
           while [ $ELAPSED -lt $TIMEOUT ]; do
-            # curl -s -o /dev/null -w "%{http_code}" returns any HTTP response
-            # (even 302 redirect to /login) which means bench web is alive
-            HTTP_CODE=$(docker compose exec -T app curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 5 http://127.0.0.1:8000 2>/dev/null || echo "000")
+            # Run curl inside a bash -c to avoid docker compose exec -T output-doubling.
+            # Take last 3 chars in case of any extra whitespace/CRLF, then check
+            # it matches a real HTTP response code (2xx, 3xx, 4xx or 5xx).
+            HTTP_CODE=$(docker compose exec -T app bash -c \
+              "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000 2>/dev/null" \
+              2>/dev/null | tr -d '[:space:]' | tail -c 3)
 
-            if [ "$HTTP_CODE" != "000" ] && [ "$HTTP_CODE" != "" ]; then
-              # Detect actual site name from the container filesystem
-              DETECTED_SITE=$(docker compose exec -T app ls /home/frappe/frappe-bench/sites 2>/dev/null \
+            if echo "$HTTP_CODE" | grep -qE '^[2-5][0-9][0-9]$'; then
+              DETECTED_SITE=$(docker compose exec -T app bash -c \
+                "ls /home/frappe/frappe-bench/sites" 2>/dev/null \
                 | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
               echo "✅ Legacy app responding (HTTP $HTTP_CODE) on site: $DETECTED_SITE"
               echo "SITE_NAME=$DETECTED_SITE" >> "$GITHUB_ENV"
@@ -187,33 +189,29 @@ jobs:
       - name: "🟢 Phase 2: Upgrade to Current (Green)"
         run: |
           echo "Triggering SELF-UPGRADE from the Hub..."
-          
-          # In the CI, we want to upgrade to the images we just built.
-          # The images are already tagged as 'latest' on GHCR by the previous job.
-          # We tell the Hub to perform an immediate upgrade.
-          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" update-ecosystem --immediate
-          
-          # Run Migrations (just in case, though the script should handle it)
+          SITE="${SITE_NAME:-platform.rokct.ai}"
+
+          # Use bash -c so bench resolves via PATH (same as entrypoint does).
+          # The venv bench path varies between image builds; PATH is always correct.
+          docker compose exec -T app bash -c "bench --site '$SITE' update-ecosystem --immediate"
+
           echo "Ensuring Migrations are complete..."
-          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" migrate
-          
-          # Wait for health
+          docker compose exec -T app bash -c "bench --site '$SITE' migrate"
+
           echo "Waiting for upgraded app to boot..."
-          # shellcheck disable=SC2016
-          timeout 120s bash -c 'until docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" db-ping; do sleep 5; done'
+          timeout 120s bash -c "until docker compose exec -T app bash -c \"bench --site '$SITE' db-ping\"; do sleep 5; done"
           echo "✅ Self-upgrade successful and healthy."
  
       - name: "🛰️ Phase 3: Spoke Validation (Real Tenant Provisioning)"
         run: |
           echo "Testing REAL Tenant Provisioning via Control Hub..."
-          
-          # Map the test domains to localhost
-          echo "127.0.0.1 ${SITE_NAME:-platform.rokct.ai} juvo.tenant.rokct.ai" | sudo tee -a /etc/hosts
-          
-          # Run the debug provisioning script inside the Hub container
-          # This script runs everything synchronously and prints tracebacks on failure
-          docker compose exec -T app /home/frappe/frappe-bench/env/bin/bench --site "${SITE_NAME:-platform.rokct.ai}" execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args "['juvo']"
-          
+          SITE="${SITE_NAME:-platform.rokct.ai}"
+
+          echo "127.0.0.1 $SITE juvo.tenant.rokct.ai" | sudo tee -a /etc/hosts
+
+          docker compose exec -T app bash -c \
+            "bench --site '$SITE' execute control.control.scripts.debug_provisioning.trigger_provisioning_for_debug --args \"['juvo']\""
+
           echo "✅ Real-world provisioning verified via Control Hub."
 
       - name: Cleanup
