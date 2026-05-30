@@ -191,6 +191,9 @@ jobs:
           SITE="${SITE_NAME:-platform.rokct.ai}"
           echo "Pulling latest images (simulating production upgrade)..."
 
+          # Restore docker-compose.yml back to :latest tags to allow upgrading to the current version.
+          git checkout docker-compose.yml
+
           # In production, update-ecosystem does: docker compose pull + docker compose up -d.
           # We do the same here directly — the :latest tags were just pushed by docker-release.
           docker compose pull
