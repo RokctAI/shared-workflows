@@ -829,6 +829,7 @@ jobs:
 
       - name: Determine Release Mode
         id: mode
+        shell: bash
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -890,6 +891,7 @@ jobs:
 
       - name: Extract Contributors
         id: contrib
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -1764,6 +1766,7 @@ jobs:
 
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -1823,6 +1826,7 @@ jobs:
 
       - name: Rolling RC Cleanup (Static Single Tag)
         if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
@@ -1852,6 +1856,7 @@ jobs:
 
       - name: Post-Release RC Cleanup
         if: env.TAG_NAME != '' && env.IS_PRERELEASE == 'false' && inputs.cleanup_rc_releases == true
+        shell: bash
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
