@@ -188,7 +188,6 @@ jobs:
 
       - name: "🟢 Phase 2: Upgrade to Current (Green)"
         run: |
-          SITE="${SITE_NAME:-platform.rokct.ai}"
           echo "Pulling latest images (simulating production upgrade)..."
 
           # Restore docker-compose.yml back to :latest tags to allow upgrading to the current version.
