@@ -92,12 +92,14 @@ jobs:
             {
               echo "ENGINE_PATH=scripts/standardize_fleet.py"
               echo "README_ENGINE_PATH=scripts/update_readme_badges.py"
+              echo "AUDIT_ENGINE_PATH=scripts/audit_inputs_and_drift.py"
               echo "IS_SELF=true"
             } >> "$GITHUB_ENV"
           else
             {
               echo "ENGINE_PATH=.github/shared-workflows/scripts/standardize_fleet.py"
               echo "README_ENGINE_PATH=.github/shared-workflows/scripts/update_readme_badges.py"
+              echo "AUDIT_ENGINE_PATH=.github/shared-workflows/scripts/audit_inputs_and_drift.py"
               echo "IS_SELF=false"
             } >> "$GITHUB_ENV"
           fi
@@ -126,9 +128,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" || "${{ inputs.force-fix }}" == "true" ]]; then
             python3 ${{ env.ENGINE_PATH }}
             python3 ${{ env.README_ENGINE_PATH }}
+            python3 ${{ env.AUDIT_ENGINE_PATH }}
           else
             python3 ${{ env.ENGINE_PATH }} --check || echo "⚠️ Repository standardization check failed (minor). Proceeding anyway."
             python3 ${{ env.README_ENGINE_PATH }} --check || echo "⚠️ README badges check failed. Proceeding anyway."
+            python3 ${{ env.AUDIT_ENGINE_PATH }} || echo "⚠️ Workflow inputs and version drift audit failed (minor). Proceeding anyway."
           fi
 
       - name: Setup Identity (Local)
