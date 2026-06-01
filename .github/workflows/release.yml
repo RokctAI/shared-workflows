@@ -14,6 +14,11 @@ on:
     - cron: '0 23 * * 5'
   workflow_dispatch:
     inputs:
+      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator"
+
       backfill_ai_notes_cutoff_version:
         type: string
         default: ""
@@ -39,6 +44,7 @@ jobs:
   release:
     uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
     with:
+      run_verify: ${{ inputs.run_verify != false }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
       project_type: 'node' # No longer pretending to be frappe
       run_ci: false       # Skip bench install/tests for this library

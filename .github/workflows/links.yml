@@ -9,6 +9,11 @@ on:
     - cron: '30 2 * * 0' # Weekly on Sunday
   workflow_dispatch:
     inputs:
+      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator"
+
       backfill_ai_notes_cutoff_version:
         type: string
         default: ""

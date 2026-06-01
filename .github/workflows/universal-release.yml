@@ -107,6 +107,11 @@ on:
 
   workflow_dispatch:
     inputs:
+      run_verify:
+        type: boolean
+        default: true
+        description: "Run continuous verification on Android emulator"
+
       release_strategy:
         required: true
         type: string
