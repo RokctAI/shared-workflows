@@ -3,7 +3,6 @@
 <!-- usage-badge-start -->
 ![Total Builds](https://img.shields.io/badge/Total%20Builds-^10k-blue)
 ![Stable](https://img.shields.io/github/v/release/RokctAI/shared-workflows?label=Stable&color=0052cc)
-![Candidate](https://img.shields.io/badge/Candidate-v1.2.1-e67e22)
 <!-- usage-badge-end -->
 
 A library of reusable GitHub Actions for "Universal" CI/CD.
@@ -121,7 +120,7 @@ To maintain a healthy balance between **speed** and **stability**, we use a tier
 | Tag Stage | Target Audience | Policy |
 | :--- | :--- | :--- |
 | **`@main`** | Fleet Applications | **Fleet Default.** Represents the latest code on the main branch. |
-| **`@v1.2.3`** | Mission Critical | **Pinned.** Locked to a specific snapshot. Never changes. |
+| **`@v1.2.1`** | Mission Critical | **Pinned.** Locked to a specific snapshot. Never changes. |
 
 ---
 
@@ -198,7 +197,6 @@ To balance security and flexibility, we follow a strict **"Respect Local, Overwr
 ---
 
 ## 🛠️ Hook Guard (Frappe Ecosystem)
-
 
 ### 🔓 Opt-out Mechanism
 If you have critical hooks that **must** run during installation (e.g., creating mandatory system DocTypes), you can opt-out using the `# rokct-no-guard` comment:
