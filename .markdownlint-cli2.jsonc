@@ -1,0 +1,19 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false, // Line length limits are too strict for complex markdown docs
+    "MD033": false, // Allow HTML comments and tags (badges, tables, layouts)
+    "MD034": false, // Allow bare URLs in tables and references
+    "MD030": false, // Ignore list marker spacing variances
+    "MD032": false, // Ignore blank lines around list items
+    "MD041": false  // Ignore first line H1 constraint
+  },
+  "ignores": [
+    "node_modules",
+    ".git",
+    "build",
+    "dist",
+    "out-bash",
+    "out-ps"
+  ]
+}
