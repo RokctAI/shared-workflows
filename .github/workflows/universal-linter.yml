@@ -451,9 +451,14 @@ jobs:
           pip install pip-licenses
           pip-licenses --from=mixed --format=csv --output-file=licenses.csv
           if grep -qiE "GPL|AGPL" licenses.csv; then
-             echo "❌ Prohibited license detected in Python dependencies!"
-             grep -iE "GPL|AGPL" licenses.csv
-             exit 1
+             FINDINGS=$(grep -iE "GPL|AGPL" licenses.csv | grep -vi "LGPL" | grep -viE "cloud-init|ufw|python-apt|pyparted|mercurial|sos|systemd-python|ubuntu-pro-client|ssh-import-id|launchpadlib|lazr.restfulclient|lazr.uri|wadllib|PyGObject|chardet|dbus-python" || true)
+             if [ -n "$FINDINGS" ]; then
+                echo "❌ Prohibited GPL/AGPL license detected in Python dependencies!"
+                echo "$FINDINGS"
+                exit 1
+             else
+                echo "✅ No prohibited GPL/AGPL dependencies found (system packages skipped)."
+             fi
           fi
 
       - name: Setup Identity (Local)
