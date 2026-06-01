@@ -1353,7 +1353,7 @@ jobs:
       - name: Check README Version Consistency
         run: |
           if [ -f "version.json" ]; then
-            CURRENT_VERSION=$(jq -r .version version.json || grep -o '"version": *"[^"]*"' version.json | cut -d'"' -f4 || true)
+            CURRENT_VERSION=$(head -n 5 version.json | grep -v '{' | head -n 1 | cut -d'"' -f4 || true)
             CURRENT_VERSION=$(echo "$CURRENT_VERSION" | xargs)
             if [ -n "$CURRENT_VERSION" ]; then
               echo "Current release version is: $CURRENT_VERSION"
