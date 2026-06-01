@@ -895,56 +895,69 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          git fetch --tags --force
-          # Find latest stable tag
-          PREV_STABLE=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | head -n 1 || true)
-          echo "prev_stable=$PREV_STABLE" >> "$GITHUB_OUTPUT"
+           set +e
+           git fetch --tags --force
+           # Find latest stable tag
+           PREV_STABLE=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | head -n 1 || true)
+           echo "prev_stable=$PREV_STABLE" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$PREV_STABLE" ]; then
-             echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
-             RANGE="${PREV_STABLE}..HEAD"
+           AUTHORS=""
+           REVIEWERS=""
+           EXTRACT_SUCCESS=false
 
-             AUTHORS=""
-             REVIEWERS=""
-             SEEN_PRS=""
+           if [ -n "$PREV_STABLE" ] && [ -n "$GITHUB_TOKEN" ] && [ "$GITHUB_TOKEN" != "***" ]; then
+              echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
+              RANGE="${PREV_STABLE}..HEAD"
+              SHAS=$(git log "$RANGE" --pretty=format:%H 2>/dev/null)
 
-             # Get all SHAs
-             SHAS=$(git log "$RANGE" --pretty=format:%H)
+              if [ -n "$SHAS" ]; then
+                 SEEN_PRS=""
+                 for sha in $SHAS; do
+                    PR_DATA=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null)
+                    if [ $? -ne 0 ] || [ -z "$PR_DATA" ] || [ "$PR_DATA" = "null" ]; then
+                       continue
+                    fi
 
-             for sha in $SHAS; do
-                PR_DATA=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" --jq '.[0] | {number: .number, author: .user.login}' 2>/dev/null || echo "null")
-                PR_NUM=$(echo "$PR_DATA" | jq -r '.number' 2>/dev/null || echo "null")
-                PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author' 2>/dev/null || echo "null")
+                    PR_NUM=$(echo "$PR_DATA" | jq -r '.number' 2>/dev/null)
+                    PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author' 2>/dev/null)
 
-                if [ "$PR_AUTHOR" != "null" ] && [ -n "$PR_AUTHOR" ]; then AUTHORS="$AUTHORS $PR_AUTHOR"; fi
+                    if [ -n "$PR_AUTHOR" ] && [ "$PR_AUTHOR" != "null" ]; then
+                       AUTHORS="$AUTHORS $PR_AUTHOR"
+                    fi
 
-                if [ "$PR_NUM" != "null" ] && [ -n "$PR_NUM" ]; then
-                   if [[ ! " $SEEN_PRS " == *"$PR_NUM"* ]]; then
-                      SEEN_PRS="$SEEN_PRS $PR_NUM"
-                      PR_REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/reviews" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
-                      PR_COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/comments" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
-                      REVIEWERS="$REVIEWERS $PR_REVIEWS $PR_COMMENTS"
-                   fi
-                fi
+                    if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "null" ]; then
+                       if [[ ! " $SEEN_PRS " == *"$PR_NUM"* ]]; then
+                          SEEN_PRS="$SEEN_PRS $PR_NUM"
+                          PR_REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/reviews" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
+                          PR_COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUM}/comments" --jq '.[].user.login' 2>/dev/null | grep -v "^$PR_AUTHOR$" || true)
+                          REVIEWERS="$REVIEWERS $PR_REVIEWS $PR_COMMENTS"
+                       fi
+                    fi
+                 done
+                 if [ -n "$AUTHORS" ]; then
+                    EXTRACT_SUCCESS=true
+                 fi
+              fi
+           fi
 
-                if [ "$PR_AUTHOR" = "null" ] || [ -z "$PR_AUTHOR" ]; then
-                   COMMIT_AUTHOR=$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.author.login' 2>/dev/null || echo "null")
-                   if [ "$COMMIT_AUTHOR" != "null" ] && [ -n "$COMMIT_AUTHOR" ]; then AUTHORS="$AUTHORS $COMMIT_AUTHOR"; fi
-                fi
-             done
-          else
-             echo "🔍 Extracting Authors and Reviewers from Git Log (Initial Release)..."
-             # Get unique authors from git log (limited to 50 commits to prevent huge list)
-             AUTHORS=$(git log -n 50 --pretty=format:"%an" | sort -u | xargs)
-             REVIEWERS=""
-          fi
+           if [ "$EXTRACT_SUCCESS" = "false" ]; then
+              if [ -n "$PREV_STABLE" ]; then
+                 echo "🔍 Fallback: Extracting Authors from Git Log since $PREV_STABLE..."
+                 AUTHORS=$(git log "${PREV_STABLE}..HEAD" --pretty=format:"%an" 2>/dev/null | sort -u | xargs)
+              else
+                 echo "🔍 Fallback: Extracting Authors from Git Log (Initial)..."
+                 AUTHORS=$(git log -n 50 --pretty=format:"%an" 2>/dev/null | sort -u | xargs)
+              fi
+              REVIEWERS=""
+           fi
 
-             # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like RokctBOT)
-             UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-             UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+           # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like RokctBOT)
+           UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+           UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
 
-             echo "authors=$UNIQUE_AUTHORS" >> "$GITHUB_OUTPUT"
-             echo "reviewers=$UNIQUE_REVIEWERS" >> "$GITHUB_OUTPUT"
+           echo "authors=$UNIQUE_AUTHORS" >> "$GITHUB_OUTPUT"
+           echo "reviewers=$UNIQUE_REVIEWERS" >> "$GITHUB_OUTPUT"
+           set -e
 
              # Generate Git Trailers for Sidebar Sync
              TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | while read -r user; do
