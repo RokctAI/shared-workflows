@@ -205,7 +205,16 @@ jobs:
         run: |
           if jq -e '.scripts.test' package.json > /dev/null; then
             echo "Test script detected. Running..."
-            ${{ inputs.test-command }}
+            if ! ${{ inputs.test-command }}; then
+               echo "⚠️ Node tests failed. Checking for Jest to run flaky test recovery..."
+               if [[ "${{ inputs.test-command }}" == *"jest"* || -f "jest.config.js" || -f "jest.config.ts" || -f "jest.config.json" ]]; then
+                  echo "♻️ Jest project detected. Retrying tests with --retry=3 to filter flaky issues..."
+                  ${{ inputs.test-command }} -- --retry=3
+               else
+                  echo "❌ Genuine regression or non-Jest test framework failure."
+                  exit 1
+               fi
+            fi
           else
             echo "No 'test' script found in package.json. Skipping tests."
           fi

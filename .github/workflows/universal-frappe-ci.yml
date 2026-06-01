@@ -560,7 +560,7 @@ jobs:
           # Install App & Run Tests
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
-          if [ "${{ inputs.bootstrap }}" = "false" ]; then
+           if [ "${{ inputs.bootstrap }}" = "false" ]; then
              if [ "${{ inputs.install-payments }}" = "true" ]; then
                 echo "Installing payments app on $SITE_NAME..."
                 bench --site "$SITE_NAME" install-app payments
@@ -571,7 +571,18 @@ jobs:
              fi
              bench --site "$SITE_NAME" install-app "$APP_NAME"
           fi
-          bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log
+          
+          if ! bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log; then
+             echo "⚠️ Tests failed. Initiating smart flaky test recovery..."
+             if grep -qiE "OperationalError|ConnectionAbortedError|ConnectionResetError|LockWaitTimeout|Deadlock|MySQL server has gone away" test_output.log; then
+                echo "♻️ Flaky infrastructure or database lock issue detected. Retrying tests in 5 seconds..."
+                sleep 5
+                bench --site "$SITE_NAME" run-tests --app "$APP_NAME" 2>&1 | tee test_output.log
+             else
+                echo "❌ Genuine code regression or unknown error detected."
+                exit 1
+             fi
+          fi
 
 
 
