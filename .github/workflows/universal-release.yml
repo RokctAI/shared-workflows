@@ -903,10 +903,6 @@ jobs:
           if [ -n "$PREV_STABLE" ]; then
              echo "🔍 Extracting Authors and Reviewers from PRs since $PREV_STABLE..."
              RANGE="${PREV_STABLE}..HEAD"
-          else
-             echo "🔍 Extracting Authors and Reviewers from Initial Commit..."
-             RANGE="HEAD" # Will log all commits
-          fi
 
              AUTHORS=""
              REVIEWERS=""
@@ -936,6 +932,12 @@ jobs:
                    if [ "$COMMIT_AUTHOR" != "null" ] && [ -n "$COMMIT_AUTHOR" ]; then AUTHORS="$AUTHORS $COMMIT_AUTHOR"; fi
                 fi
              done
+          else
+             echo "🔍 Extracting Authors and Reviewers from Git Log (Initial Release)..."
+             # Get unique authors from git log (limited to 50 commits to prevent huge list)
+             AUTHORS=$(git log -n 50 --pretty=format:"%an" | sort -u | xargs)
+             REVIEWERS=""
+          fi
 
              # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like RokctBOT)
              UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
