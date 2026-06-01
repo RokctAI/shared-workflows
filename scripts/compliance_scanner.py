@@ -483,6 +483,42 @@ def check_layer13_volume_persistence(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_layer16_tenant_isolation(filepath):
+    """
+    LAYER 16: Multi-Tenant Boundaries & Quota Isolation Gate.
+    Enforces strict tenant isolation and usage quotas in backend code.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+    if filepath.endswith(".py"):
+        if not any(x in path_lower for x in ["rcore", "paas", "rpanel"]):
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # 1. Tenant DB Query Isolation Check
+            if any(q in content for q in ["frappe.db.get_list", "frappe.db.get_all", "frappe.get_all", "frappe.get_list", "frappe.get_doc"]):
+                if "tenant" not in content.lower() and "session.user" not in content.lower():
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 16 (Multi-Tenant Isolation Gate)",
+                        "message": f"Tenant database queries detected in '{os.path.basename(filepath)}' but no tenant context filters (tenant_id, tenant, or session.user) are active. Restrict queries to ensure complete data isolation."
+                    })
+            
+            # 2. Free-Tier Quota Gate
+            if "chat" in base or "completions" in base or "llm_service" in base:
+                if "free_rok_msg_count" not in content and "quota" not in content.lower() and "limit" not in content.lower():
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 16 (Quota Isolation Gate)",
+                        "message": f"AI completion service '{os.path.basename(filepath)}' is missing active usage quota limit checks (e.g. checking 'free_rok_msg_count' Redis usage counters)."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def check_layer10_localhost_decoupling(filepath):
     """
     LAYER 10: Localhost Decoupling Gate.
@@ -576,6 +612,10 @@ def scan_file(filepath):
     # Run Layer 10 Localhost Decoupling Gate checks
     localhost_decoupling_errs = check_layer10_localhost_decoupling(filepath)
     errors.extend(localhost_decoupling_errs)
+
+    # Run Layer 16 Multi-Tenant & Quota Boundary checks
+    tenant_isolation_errs = check_layer16_tenant_isolation(filepath)
+    errors.extend(tenant_isolation_errs)
 
     return errors
 
