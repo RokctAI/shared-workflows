@@ -201,6 +201,22 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" \
             -d '{"labels":["trivial"]}' || echo "⚠️ Issue may already exist, skipping."
 
+      - name: Conventional Commit & PR Auto-Labeler
+        if: github.event_name == 'pull_request' && steps.diff.outputs.trivial != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROQ_API: ${{ secrets.GROQ_API }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+             python3 scripts/pr_auto_labeler.py
+          else
+             git clone --depth 1 https://github.com/RokctAI/shared-workflows.git /tmp/shared-workflows
+             python3 /tmp/shared-workflows/scripts/pr_auto_labeler.py
+          fi
+
   # 0. PR RESURRECTOR
   pr-resurrector:
     needs: detect-changes
