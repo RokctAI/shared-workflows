@@ -445,6 +445,17 @@ jobs:
           "
           gh issue create --title "🚨 CI: Python Type Errors Found" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
 
+      - name: Check Python License Compatibility
+        if: steps.check_python.outputs.exists == 'true'
+        run: |
+          pip install pip-licenses
+          pip-licenses --from=mixed --format=csv --output-file=licenses.csv
+          if grep -qiE "GPL|AGPL" licenses.csv; then
+             echo "❌ Prohibited license detected in Python dependencies!"
+             grep -iE "GPL|AGPL" licenses.csv
+             exit 1
+          fi
+
       - name: Setup Identity (Local)
         if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
@@ -1179,6 +1190,17 @@ jobs:
              npx eslint . --ext .js,.jsx,.ts,.tsx
           fi
 
+      - name: Check Node License Compatibility
+        if: steps.check_node.outputs.exists == 'true'
+        run: |
+          npm install -g license-checker
+          npx license-checker --production --json > licenses.json
+          if grep -qiE "GPL|AGPL" licenses.json; then
+             echo "❌ Prohibited license detected in Node dependencies!"
+             grep -iE "GPL|AGPL" licenses.json | head -n 20
+             exit 1
+          fi
+
       - name: Setup Identity (Local)
         if: steps.check_node.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
         uses: ./.github/actions/setup-identity
@@ -1239,4 +1261,109 @@ jobs:
                 echo "❌ Failed to push branch for PR."
                 exit 1
             fi
+          fi
+
+  lint-markdown:
+    needs: telemetry
+    name: 📝 Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli2
+      - name: Run markdownlint
+        run: npx markdownlint-cli2 '**/*.md' --ignore node_modules --ignore .git --ignore build --ignore dist
+
+  lint-dockerfile:
+    needs: telemetry
+    name: 🐳 Dockerfile Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Find Dockerfiles
+        id: files
+        run: |
+          DOCKERFILES=$(find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*" || true)
+          if [ -n "$DOCKERFILES" ]; then
+             echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+             echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run Hadolint
+        if: steps.files.outputs.exists == 'true'
+        run: |
+          sudo wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          sudo chmod +x /usr/local/bin/hadolint
+          hadolint $(find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*")
+
+  lint-todos:
+    needs: telemetry
+    name: 📋 TODO/FIXME Checker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Check for TODO/FIXME comments
+        run: |
+          TODOS=$(grep -r -n -i -E "TODO|FIXME|HACK" --include="*.{py,js,ts,jsx,tsx,java,cs,go,rs,sh,ps1,yml,yaml,json,md}" --exclude-dir={.git,node_modules,__pycache__,env,venv,dist,build,.github} . || true)
+          if [ -n "$TODOS" ]; then
+            echo "❌ Found unresolved TODO/FIXME/HACK comments in the codebase:"
+            echo "$TODOS"
+            exit 1
+          else
+            echo "✅ No unresolved TODO/FIXME/HACK comments found."
+          fi
+
+  lint-issue-templates:
+    needs: telemetry
+    name: 📋 Issue Template Validator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate Issue Template Syntax
+        run: |
+          if [ -d ".github/ISSUE_TEMPLATE" ]; then
+            for template in .github/ISSUE_TEMPLATE/*.md; do
+              if [ -f "$template" ]; then
+                echo "Checking $template..."
+                FIRST_LINE=$(head -n 1 "$template" | xargs)
+                if [ "$FIRST_LINE" != "---" ]; then
+                  echo "::error::Issue template $template does not start with ---"
+                  exit 1
+                fi
+                if [ $(grep -c "^---$" "$template") -lt 2 ]; then
+                  echo "::error::Issue template $template is missing closing --- for frontmatter"
+                  exit 1
+                fi
+              fi
+            done
+            echo "✅ All issue templates are valid."
+          else
+            echo "No issue templates folder found. Skipping."
+          fi
+
+  validate-readme-version:
+    needs: telemetry
+    name: 📖 README Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check README Version Consistency
+        run: |
+          if [ -f "version.json" ]; then
+            CURRENT_VERSION=$(jq -r .version version.json || grep -o '"version": *"[^"]*"' version.json | cut -d'"' -f4 || true)
+            CURRENT_VERSION=$(echo "$CURRENT_VERSION" | xargs)
+            if [ -n "$CURRENT_VERSION" ]; then
+              echo "Current release version is: $CURRENT_VERSION"
+              if ! grep -q "$CURRENT_VERSION" README.md; then
+                echo "❌ README.md does not reference the current version $CURRENT_VERSION!"
+                exit 1
+              else
+                echo "✅ README.md successfully references current version $CURRENT_VERSION."
+              fi
+            fi
+          else
+            echo "No version.json found. Skipping README version check."
           fi

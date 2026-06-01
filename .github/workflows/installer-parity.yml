@@ -61,3 +61,13 @@ jobs:
           diff out-bash/version.json out-ps/version.json
           
           echo "✅ Parity Confirmed! Bash and PowerShell installers are perfectly aligned."
+
+      - name: Upload Installer Artifacts on Failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: installer-parity-outputs
+          path: |
+            out-bash
+            out-ps
+          retention-days: 30

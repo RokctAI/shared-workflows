@@ -22,3 +22,8 @@
 ## Release notes (optional)
 <!-- Add a short note that will appear verbatim in the GitHub release.
      If left empty the auto‑generated notes will use the PR title. -->
+
+## Breaking changes
+<!-- Does this introduce breaking changes? 
+     - [ ] Yes (describe migration steps below)
+     - [ ] No -->

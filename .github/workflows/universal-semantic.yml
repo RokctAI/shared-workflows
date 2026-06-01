@@ -47,3 +47,23 @@ jobs:
             chore
             revert
           requireScope: false
+
+  checklist-check:
+    needs: telemetry
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Verify PR Checklist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          PR_BODY=$(gh pr view "$PR_NUMBER" --json body -q .body)
+          if echo "$PR_BODY" | grep -qE "\- \[[[:space:]]\]"; then
+             echo "❌ Please complete all checklist items in the PR description before merging!"
+             echo "Found unchecked items:"
+             echo "$PR_BODY" | grep -E "\- \[[[:space:]]\]"
+             exit 1
+          else
+             echo "✅ All checklist items are completed."
+          fi

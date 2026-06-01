@@ -30,8 +30,29 @@ jobs:
     steps:
       - uses: kentaro-m/auto-assign-action@v2.0.0
         with:
-          configuration-path: '.github/auto_assign.yml' # Apps must provide this config if used
-          # Fallback: Just assign author if no config found? 
-          # Actually, auto-assign needs a config in the repo.
-          # We will make this workflow assume the config exists or skipped.
+          configuration-path: '.github/auto_assign.yml'
         continue-on-error: true
+
+      - name: Workload-based Auto Assigner
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          CANDIDATES=("RendaniSinyage" "RokctBOT")
+          LEAST_LOADED=""
+          MIN_COUNT=9999
+          
+          for user in "${CANDIDATES[@]}"; do
+            COUNT=$(gh api "search/issues?q=assignee:$user+is:open" --jq '.total_count' || echo "0")
+            echo "Candidate: $user, Open Tasks: $COUNT"
+            if [ "$COUNT" -lt "$MIN_COUNT" ]; then
+              MIN_COUNT=$COUNT
+              LEAST_LOADED=$user
+            fi
+          done
+          
+          echo "Selected least loaded assignee: $LEAST_LOADED with $MIN_COUNT open tasks"
+          
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
+             gh pr edit "$PR_NUMBER" --add-assignee "$LEAST_LOADED"
+          fi

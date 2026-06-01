@@ -1,4 +1,4 @@
-﻿name: "Setup ROKCT Bot Identity"
+name: "Setup ROKCT Bot Identity"
 description: "Configures git with standardized ROKCT bot credentials and handles high-authority token injection"
 
 inputs:
@@ -14,6 +14,22 @@ inputs:
     description: "Email for git commits"
     required: false
     default: "2956274+RokctBOT[bot]@users.noreply.github.com"
+  setup-ssh:
+    description: "Set up SSH private key for GitHub actions"
+    required: false
+    default: "false"
+  ssh-key:
+    description: "SSH private key content"
+    required: false
+    default: ""
+  setup-gpg:
+    description: "Verify or configure GPG signing"
+    required: false
+    default: "false"
+  gpg-key-id:
+    description: "GPG Key ID"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -39,4 +55,21 @@ runs:
           GH_TOKEN="${{ inputs.token }}" gh auth status || echo "⚠️ gh auth status failed, but continuing..."
         else
           echo "ℹ️ No high-authority token provided. Using default GITHUB_TOKEN permissions."
+        fi
+
+    - name: Set up SSH Key
+      if: inputs.setup-ssh == 'true' && inputs.ssh-key != ''
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh-key }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+    - name: Verify GPG Configuration
+      if: inputs.setup-gpg == 'true' && inputs.gpg-key-id != ''
+      shell: bash
+      run: |
+        if ! gpg --list-keys "${{ inputs.gpg-key-id }}" > /dev/null 2>&1; then
+          echo "::warning::GPG key ${{ inputs.gpg-key-id }} not found or not accessible"
         fi

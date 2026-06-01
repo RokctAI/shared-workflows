@@ -19,6 +19,10 @@ inputs:
     description: 'Specific file path to check (optional)'
     required: false
     default: ''
+  version-format:
+    description: 'Expected version format regex (default: flexible semver)'
+    required: false
+    default: '^[0-9]+\.[0-9]+\.[0-9]+'
 
 runs:
   using: "composite"
@@ -155,8 +159,21 @@ runs:
           exit 1
         fi
 
+        # Validate against format
+        FORMAT="${{ inputs.version-format }}"
+        if [[ ! "$VERSION" =~ $FORMAT ]]; then
+          echo "::error::Version '$VERSION' does not match expected format '$FORMAT'"
+          exit 1
+        fi
+
         echo "Detected Version: $VERSION"
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+        # Suggest Changelog Entry
+        if [ -n "$VERSION" ] && [ "${{ github.event_name }}" = "push" ]; then
+          echo "Consider adding changelog entry for version $VERSION"
+          echo "::notice::Suggested: Update CHANGELOG.md with changes for version $VERSION"
+        fi
 
     - name: Determine Branch Suffix
       id: branch
