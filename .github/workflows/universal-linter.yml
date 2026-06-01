@@ -1296,7 +1296,7 @@ jobs:
         run: |
           sudo wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
           sudo chmod +x /usr/local/bin/hadolint
-          hadolint $(find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*")
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*" -print0 | xargs -0 hadolint
 
   lint-todos:
     needs: telemetry
@@ -1333,7 +1333,7 @@ jobs:
                   echo "::error::Issue template $template does not start with ---"
                   exit 1
                 fi
-                if [ $(grep -c "^---$" "$template") -lt 2 ]; then
+                if [ "$(grep -c "^---$" "$template")" -lt 2 ]; then
                   echo "::error::Issue template $template is missing closing --- for frontmatter"
                   exit 1
                 fi
