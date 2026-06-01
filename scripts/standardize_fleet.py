@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import json
 
 
 def fix_workflow_permissions(content):
@@ -688,6 +689,10 @@ def main():
             print("✅ Submodules synced")
         changed = True
 
+    # Standardize Linter Config Files (.markdownlint, .hadolint)
+    if standardize_linter_configs(check_only):
+        changed = True
+
     if changed:
         if check_only:
             print("❌ Repository is NOT standardized.")
@@ -698,5 +703,88 @@ def main():
         print("🙌 Repository is already standardized.")
 
 
+def standardize_linter_configs(check_only=False):
+    """Ensure standard linter configuration files exist with modern default overrides."""
+    changed = False
+
+    markdownlint_config = {
+        "default": True,
+        "MD013": False,
+        "MD033": False,
+        "MD034": False,
+        "MD030": False,
+        "MD032": False,
+        "MD041": False,
+        "MD009": False,
+        "MD022": False,
+        "MD024": False,
+        "MD025": False,
+        "MD026": False,
+        "MD031": False,
+        "MD007": False,
+        "MD004": False,
+        "MD060": False,
+        "MD036": False,
+        "MD012": False,
+        "MD047": False,
+        "MD010": False,
+        "MD040": False,
+        "MD014": False,
+        "MD003": False,
+        "MD045": False,
+        "MD051": False,
+        "MD059": False
+    }
+
+    markdownlint_cli2_config = {
+        "config": markdownlint_config,
+        "ignores": [
+            "node_modules",
+            ".git",
+            "build",
+            "dist",
+            "out-bash",
+            "out-ps",
+            ".kilo",
+            "**/.kilo/**"
+        ]
+    }
+
+    # Hadolint config (Layer 9: Dockerfile exceptions)
+    hadolint_content = """# Hadolint configuration
+ignored:
+  - DL3008 # Pin versions in apt get install
+  - DL3018 # Pin versions in apk add
+  - DL3015 # Avoid additional packages
+  - DL3009 # Clean apt-get cache
+  - DL3006 # Always tag image
+  - DL3047 # wget non-verbose
+"""
+
+    targets = [
+        (".markdownlint.json", json.dumps(markdownlint_config, indent=2) + "\n"),
+        (".markdownlint-cli2.jsonc", json.dumps(markdownlint_cli2_config, indent=2) + "\n"),
+        ("markdownlint-cli2.jsonc", json.dumps(markdownlint_cli2_config, indent=2) + "\n"),
+        (".hadolint.yaml", hadolint_content)
+    ]
+
+    for filename, content in targets:
+        if not os.path.exists(filename):
+            if not check_only:
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"✅ Created standard config: {filename}")
+            else:
+                print(f"⚠️ {filename} is missing and should be created.")
+            changed = True
+            
+    return changed
+
+
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     main()

@@ -595,6 +595,46 @@ def check_layer15_webhook_federation(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_layer14_agentic_llm_orchestration(filepath):
+    """
+    LAYER 14: Agentic & LLM Orchestration.
+    Ensures LLM endpoints, completion tasks, and prompt pipelines implement prompt templates,
+    context budgets (token counting), and model fallbacks/try-except resiliency.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if filepath.endswith(".py"):
+        if any(x in base for x in ["chat", "engram", "prompt", "completion", "llm_service"]):
+            if "test" in base:
+                return errors
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # 1. Prompt template checks
+                if not any(x in content.lower() for x in ["template", "system_prompt", "system_message", "format_prompt", "role"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 14 (Agentic & LLM Orchestration)",
+                        "message": f"LLM/Agentic service '{os.path.basename(filepath)}' lacks structured prompt templates or role context separation."
+                    })
+                # 2. Token / context limits checks
+                if not any(x in content.lower() for x in ["token", "budget", "max_tokens", "context_window", "count_tokens"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 14 (Agentic & LLM Orchestration)",
+                        "message": f"LLM/Agentic service '{os.path.basename(filepath)}' fails to implement active token limits or context window budget controls."
+                    })
+                # 3. Fallback checks
+                if not any(x in content.lower() for x in ["fallback", "alt_model", "retry", "except", "failover"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 14 (Agentic & LLM Orchestration)",
+                        "message": f"LLM/Agentic service '{os.path.basename(filepath)}' lacks resilient model fallback, failover models, or try-except exception handling strategies."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -659,6 +699,10 @@ def scan_file(filepath):
     # Run Layer 10 Localhost Decoupling Gate checks
     localhost_decoupling_errs = check_layer10_localhost_decoupling(filepath)
     errors.extend(localhost_decoupling_errs)
+
+    # Run Layer 14 Agentic & LLM Orchestration checks
+    llm_orchestration_errs = check_layer14_agentic_llm_orchestration(filepath)
+    errors.extend(llm_orchestration_errs)
 
     # Run Layer 15 Webhook Federation & Integration Federation checks
     webhook_federation_errs = check_layer15_webhook_federation(filepath)
