@@ -123,6 +123,8 @@ on:
         required: false
       MONOREPO_PAT:
         required: false
+      GROQ_API:
+        required: false
 
 jobs:
   # 🔥 NEW: Detect trivial (whitespace-only) changes
