@@ -270,6 +270,100 @@ def check_availability_and_recovery(filepath):
             })
     return errors
 
+def check_nextjs_compliance(filepath):
+    """
+    LAYER 2, 4, 5, 7 Next.js Type Safety, Security, Caching checks.
+    """
+    errors = []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        for idx, line in enumerate(lines, 1):
+            # 1. Type Safety (Layer 2): Check for 'any' types
+            if ": any" in line or " as any" in line or "<any>" in line:
+                if not line.strip().startswith("//") and not line.strip().startswith("*"):
+                    errors.append({
+                        "line": idx,
+                        "type": "Layer 2 (Type Safety - Next.js)",
+                        "message": f"Bypassing type safety with 'any' type in '{os.path.basename(filepath)}'. Specify strong interfaces or concrete types."
+                    })
+            
+            # 2. Secret Gate (Layer 4 & 5): Check for hardcoded credentials
+            line_lower = line.lower()
+            if any(k in line_lower for k in ["key", "secret", "token", "password"]):
+                if ('"' in line or "'" in line) and not any(p in line_lower for p in ["process.env", "config", "placeholder", "import", "from"]):
+                    parts = line.split("=")
+                    if len(parts) > 1:
+                        val = parts[1].strip()
+                        if (val.startswith('"') or val.startswith("'")) and len(val) > 15:
+                            errors.append({
+                                "line": idx,
+                                "type": "Layer 4 & 5 (Security - Next.js)",
+                                "message": f"Hardcoded credential parameter detected in '{os.path.basename(filepath)}'. Use dynamic server env variables instead of static front-end strings."
+                            })
+                            
+            # 3. Caching & CDN (Layer 7): API routes must configure revalidation or Cache-Control
+            if "route.ts" in filepath.lower() or "route.js" in filepath.lower():
+                content = "".join(lines)
+                if "revalidate" not in content and "cache-control" not in content.lower() and "next:" not in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 7 (Caching & CDN - Next.js)",
+                        "message": f"API Route handler '{os.path.basename(filepath)}' lacks caching directives ('revalidate' parameter or Cache-Control headers) for CDN edge acceleration."
+                    })
+                    break
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_flutter_compliance(filepath):
+    """
+    LAYER 2, 4, 5, 12 Flutter Type Safety, Security, Observability checks.
+    """
+    errors = []
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            
+        for idx, line in enumerate(lines, 1):
+            # 1. Type Safety (Layer 2): Dynamic parameters
+            if " dynamic " in line or "dynamic>" in line:
+                if not line.strip().startswith("//") and not line.strip().startswith("*") and not line.strip().startswith("///"):
+                    errors.append({
+                        "line": idx,
+                        "type": "Layer 2 (Type Safety - Flutter)",
+                        "message": f"Avoid using raw 'dynamic' types in Flutter '{os.path.basename(filepath)}'. Define concrete Dart models or strong types."
+                    })
+                    
+            # 2. Secret Gate (Layer 4 & 5): Hardcoded credentials in Dart
+            line_lower = line.lower()
+            if any(k in line_lower for k in ["key", "secret", "token", "password"]):
+                if ('"' in line or "'" in line) and not any(p in line_lower for p in ["dotenv", "environment", "placeholder", "key:"]):
+                    parts = line.split("=")
+                    if len(parts) > 1:
+                        val = parts[1].strip()
+                        if (val.startswith('"') or val.startswith("'")) and len(val) > 15:
+                            errors.append({
+                                "line": idx,
+                                "type": "Layer 4 & 5 (Security - Flutter)",
+                                "message": f"Hardcoded constant credential detected in '{os.path.basename(filepath)}'. Inject variables dynamically via environment build arguments."
+                            })
+                            
+            # 3. Observability (Layer 12): Propagate trace/request IDs in API operations
+            if "api" in filepath.lower() or "service" in filepath.lower():
+                content = "".join(lines)
+                if "x-trace-id" not in content.lower() and "trace" not in content.lower() and "requestid" not in content.lower():
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 12 (Observability - Flutter)",
+                        "message": f"Flutter API/Service layer '{os.path.basename(filepath)}' fails to propagate structured Trace/Request IDs in outgoing network header maps."
+                    })
+                    break
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -282,6 +376,16 @@ def scan_file(filepath):
             errors.extend(visitor.errors)
         except Exception as e:
             errors.append({"line": 1, "type": "Syntax Error", "message": str(e)})
+
+    # Run Next.js validations
+    if filepath.endswith(".ts") or filepath.endswith(".tsx"):
+        nextjs_errs = check_nextjs_compliance(filepath)
+        errors.extend(nextjs_errs)
+
+    # Run Flutter validations
+    if filepath.endswith(".dart"):
+        flutter_errs = check_flutter_compliance(filepath)
+        errors.extend(flutter_errs)
 
     # Run Nginx rate-limiting validations
     if "nginx" in filepath.lower() or filepath.endswith(".conf"):
