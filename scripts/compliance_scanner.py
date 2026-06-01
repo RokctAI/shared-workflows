@@ -716,32 +716,17 @@ def main():
                             files_to_scan.append(fp)
                             changed_files_list.append(fp)
     else:
-        # Default fallback: get changed files via git diff if in a git repo
-        try:
-            cmd = ["git", "diff", "--name-only", "origin/main...HEAD"]
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0:
-                for line in res.stdout.splitlines():
-                    line = line.strip()
-                    if os.path.exists(line):
-                        changed_files_list.append(line)
-                        if line.endswith(".py") or "nginx" in line.lower() or line.endswith(".conf") or line.endswith(".yml") or line.endswith(".yaml") or "dockerfile" in line.lower():
-                            files_to_scan.append(line)
-        except Exception:
-            pass
-
-        # If still empty, scan recursively from current directory
-        if not files_to_scan:
-            print("No git diff files resolved. Scanning all python/config/nextjs/flutter files in current workspace...")
-            for root, dirs, files in os.walk("."):
-                # Prune third-party and platform build cache folders
-                dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android"]]
-                for file in files:
-                    fp = os.path.join(root, file)
-                    if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
-                        files_to_scan.append(fp)
-                    if file.endswith(".json") and "doctype" in fp:
-                        changed_files_list.append(fp)
+        # Default: scan recursively from current directory to force strict codebase-wide compliance
+        print("Scanning all python/config/nextjs/flutter files in current workspace for full compliance...")
+        for root, dirs, files in os.walk("."):
+            # Prune third-party and platform build cache folders
+            dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android"]]
+            for file in files:
+                fp = os.path.join(root, file)
+                if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
+                    files_to_scan.append(fp)
+                if file.endswith(".json") and "doctype" in fp:
+                    changed_files_list.append(fp)
 
     if not files_to_scan and not changed_files_list:
         print("SUCCESS: No source files resolved for scan. Exiting.")
