@@ -148,6 +148,39 @@ def fix_candidate_badge(path, check_only=False):
     return False
 
 
+def fix_readme_version_reference(path, check_only=False):
+    if not os.path.exists(path) or not os.path.exists("version.json"):
+        return False
+
+    try:
+        with open("version.json", "r") as f:
+            version_data = json.load(f)
+            current_version = version_data.get("version")
+    except Exception as e:
+        print(f"⚠️ Failed to read version.json: {e}")
+        return False
+
+    if not current_version:
+        return False
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Regex targeting: | **`@vX.Y.Z`** | Mission Critical
+    # Or more generally: | **`@vX.Y.Z`** | in the stable strategy table
+    pattern = r"(\|\s*\*\*`@v)\d+\.\d+\.\d+(`\*\*\s*\|\s*Mission Critical)"
+    replacement = rf"\g<1>{current_version}\g<2>"
+    
+    new_content = re.sub(pattern, replacement, content)
+
+    if new_content != content:
+        if not check_only:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        return True
+    return False
+
+
 def main():
     check_only = "--check" in sys.argv
     changed = False
@@ -166,12 +199,24 @@ def main():
             print("⚠️ README.md Candidate badge needs update.")
         changed = True
 
+    if fix_readme_version_reference("README.md", check_only):
+        if not check_only:
+            print("✅ Synchronized README.md version reference with version.json")
+        else:
+            print("⚠️ README.md version reference is out of sync with version.json.")
+        changed = True
+
     if changed:
         if check_only:
             sys.exit(1)
     else:
-        print("🙌 All badges are already up to date.")
+        print("🙌 All badges and version references are already up to date.")
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     main()

@@ -190,6 +190,86 @@ def check_dockerfile_compliance(filepath):
         errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_caching_and_cdn(filepath):
+    """
+    LAYER 7: Caching & CDN checks. Enforces caching headers or Next.js caching rules.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if "next.config" in base:
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "headers" not in content and "cache-control" not in content.lower():
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 7 (Caching & CDN)",
+                    "message": f"Next.js config file '{os.path.basename(filepath)}' lacks active CDN caching headers or 'headers()' configuration overrides."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    elif filepath.endswith(".conf") or "nginx" in filepath.lower():
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "expires " not in content and "cache-control" not in content.lower():
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 7 (Caching & CDN)",
+                    "message": f"Nginx config '{os.path.basename(filepath)}' does not configure static asset expiration rules or Cache-Control headers."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_load_balancing_and_scaling(filepath):
+    """
+    LAYER 8: Compose memory limits/scaling checks.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if ("docker-compose" in base or "compose" in base) and (base.endswith(".yml") or base.endswith(".yaml")):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "mem_limit" not in content and "limits:" not in content and "memory:" not in content:
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 8 (Load Balancing & Scaling)",
+                    "message": f"Docker Compose config '{os.path.basename(filepath)}' fails to specify container memory limits (mem_limit or deploy.resources.limits.memory) for resource isolation."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_availability_and_recovery(filepath):
+    """
+    LAYER 13: Availability & Backup test coverage.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if any(x in base for x in ["backup", "restore", "recovery"]) and any(filepath.endswith(ext) for ext in [".py", ".sh", ".ps1", ".bash"]):
+        if "test" in base:
+            return errors
+        dir_name = os.path.dirname(filepath)
+        test_filename_1 = "test_" + os.path.basename(filepath)
+        test_filename_2 = os.path.basename(filepath).replace(".py", "_test.py").replace(".sh", "_test.sh").replace(".ps1", "_test.ps1").replace(".bash", "_test.bash")
+        
+        test_exists = False
+        possible_dirs = [dir_name, os.path.join(dir_name, "tests"), os.path.join(dir_name, "test")]
+        for d in possible_dirs:
+            if os.path.exists(os.path.join(d, test_filename_1)) or os.path.exists(os.path.join(d, test_filename_2)):
+                test_exists = True
+                break
+                
+        if not test_exists:
+            errors.append({
+                "line": 1,
+                "type": "Layer 13 (Availability & Backup)",
+                "message": f"Backup/Recovery script '{os.path.basename(filepath)}' lacks a corresponding unit test file (e.g. '{test_filename_1}') in the codebase."
+            })
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -212,6 +292,18 @@ def scan_file(filepath):
     if "dockerfile" in filepath.lower():
         dockerfile_errs = check_dockerfile_compliance(filepath)
         errors.extend(dockerfile_errs)
+
+    # Run Caching & CDN checks
+    cdn_errs = check_caching_and_cdn(filepath)
+    errors.extend(cdn_errs)
+
+    # Run Load Balancing checks
+    scaling_errs = check_load_balancing_and_scaling(filepath)
+    errors.extend(scaling_errs)
+
+    # Run Backup checks
+    backup_errs = check_availability_and_recovery(filepath)
+    errors.extend(backup_errs)
 
     return errors
 
@@ -267,7 +359,7 @@ def main():
                     line = line.strip()
                     if os.path.exists(line):
                         changed_files_list.append(line)
-                        if line.endswith(".py") or "nginx" in line.lower() or line.endswith(".conf"):
+                        if line.endswith(".py") or "nginx" in line.lower() or line.endswith(".conf") or line.endswith(".yml") or line.endswith(".yaml") or "dockerfile" in line.lower():
                             files_to_scan.append(line)
         except Exception:
             pass
@@ -280,7 +372,7 @@ def main():
                     continue
                 for file in files:
                     fp = os.path.join(root, file)
-                    if file.endswith(".py") or "nginx" in file.lower() or file.endswith(".conf"):
+                    if file.endswith(".py") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
                         files_to_scan.append(fp)
                     if file.endswith(".json") and "doctype" in fp:
                         changed_files_list.append(fp)

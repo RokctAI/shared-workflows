@@ -244,6 +244,12 @@ jobs:
         run: |
           python3 .shared-workflows/scripts/compliance_scanner.py
 
+      - name: Install and Run Actionlint
+        run: |
+          bash <(curl -L https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo mv actionlint /usr/local/bin/
+          actionlint -color
+
   # 2. LINT
   lint:
     needs: [detect-changes, security]
