@@ -1553,6 +1553,7 @@ jobs:
       - name: Generate Changelog
         if: env.TAG_NAME != ''
         id: changelog
+        shell: bash
         env:
           BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
           BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
