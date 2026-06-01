@@ -896,6 +896,7 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
            set +e
+           set +o pipefail
            git fetch --tags --force
            # Find latest stable tag
            PREV_STABLE=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | head -n 1 || true)
@@ -943,33 +944,34 @@ jobs:
            if [ "$EXTRACT_SUCCESS" = "false" ]; then
               if [ -n "$PREV_STABLE" ]; then
                  echo "🔍 Fallback: Extracting Authors from Git Log since $PREV_STABLE..."
-                 AUTHORS=$(git log "${PREV_STABLE}..HEAD" --pretty=format:"%an" 2>/dev/null | sort -u | xargs)
+                 AUTHORS=$(git log "${PREV_STABLE}..HEAD" --pretty=format:"%an" 2>/dev/null | sort -u | xargs || true)
               else
                  echo "🔍 Fallback: Extracting Authors from Git Log (Initial)..."
-                 AUTHORS=$(git log -n 50 --pretty=format:"%an" 2>/dev/null | sort -u | xargs)
+                 AUTHORS=$(git log -n 50 --pretty=format:"%an" 2>/dev/null | sort -u | xargs || true)
               fi
               REVIEWERS=""
            fi
 
            # Format for Changelog (Normalize generic bots to @github-actions, but preserve named bots like RokctBOT)
-           UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
-           UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " -)
+           UNIQUE_AUTHORS=$(echo "$AUTHORS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " - || true)
+           UNIQUE_REVIEWERS=$(echo "$REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | sed 's/^/@/' | paste -sd ", " - || true)
 
            echo "authors=$UNIQUE_AUTHORS" >> "$GITHUB_OUTPUT"
            echo "reviewers=$UNIQUE_REVIEWERS" >> "$GITHUB_OUTPUT"
-           set -e
 
-             # Generate Git Trailers for Sidebar Sync
-             TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | while read -r user; do
-                echo "Co-authored-by: $user <$user@users.noreply.github.com>"
-             done)
+           # Generate Git Trailers for Sidebar Sync
+           TRAILERS=$(echo "$AUTHORS $REVIEWERS" | tr ' ' '\n' | sort -u | grep -v "^null$" | grep -v "^$" | sed -E 's/^(jules|github-actions|RokctBOT|RokctBOT)(\[bot\])?$/github-actions/' | while read -r user; do
+              if [ -n "$user" ]; then
+                 echo "Co-authored-by: $user <$user@users.noreply.github.com>"
+              fi
+           done || true)
 
-             # Use a custom delimiter for multi-line output
-             {
-               echo "trailers<<EOF"
-               echo "$TRAILERS"
-               echo "EOF"
-             } >> "$GITHUB_OUTPUT"
+           # Use a custom delimiter for multi-line output
+           {
+             echo "trailers<<EOF"
+             echo "$TRAILERS"
+             echo "EOF"
+           } >> "$GITHUB_OUTPUT"
 
        # --- PATH 1: PROMOTE (WEEKLY + SCHEDULE) ---
       - name: Promote RC to Stable (Version Bump PR)
