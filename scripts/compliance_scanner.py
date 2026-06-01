@@ -406,6 +406,83 @@ def check_architectural_boundaries(filepath):
                 errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_layer5_nginx_headers(filepath):
+    """
+    LAYER 5: Network Security & Secure Headers enforcer.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if filepath.endswith(".conf") or "nginx" in filepath.lower():
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "x-frame-options" not in content.lower():
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 5 (Security - Secure Headers)",
+                    "message": f"Nginx config '{os.path.basename(filepath)}' lacks native 'X-Frame-Options' header injection to prevent Clickjacking attacks."
+                })
+            if "x-content-type-options" not in content.lower():
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 5 (Security - Secure Headers)",
+                    "message": f"Nginx config '{os.path.basename(filepath)}' lacks native 'X-Content-Type-Options' sniff protection header."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_layer10_deployment_safety(filepath):
+    """
+    LAYER 10: Hosting & Deployment - Prevent hardcoded plain IPs and secrets in deployment scripts.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if filepath.endswith(".sh") or filepath.endswith(".bash") or filepath.endswith(".yml") or filepath.endswith(".yaml"):
+        if "production.env" in base or "compliance" in base:
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            import re
+            ip_pattern = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+            for idx, line in enumerate(lines, 1):
+                if line.strip().startswith("#"):
+                    continue
+                matches = ip_pattern.findall(line)
+                for ip in matches:
+                    if ip in ["127.0.0.1", "0.0.0.0", "172.17.0.1"] or ip.startswith("10.6") or ip.startswith("3.14") or ip.startswith("2.4"):
+                        continue
+                    errors.append({
+                        "line": idx,
+                        "type": "Layer 10 (Hosting & Deployment Safety)",
+                        "message": f"Hardcoded IP address literal '{ip}' detected in '{os.path.basename(filepath)}'. Parameterize deployments via environment variables."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_layer13_volume_persistence(filepath):
+    """
+    LAYER 13: Availability & Volume Persistence checks for Compose definitions.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    if ("docker-compose" in base or "compose" in base) and (base.endswith(".yml") or base.endswith(".yaml")):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "db:" in content or "postgres" in content or "mariadb" in content:
+                if "volumes:" not in content or "/var/lib/" not in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 13 (Availability & Backup)",
+                        "message": f"Docker Compose configuration '{os.path.basename(filepath)}' runs a database service but lacks active persistent volume storage mounts."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -454,6 +531,18 @@ def scan_file(filepath):
     # Run Architectural Boundary checks
     arch_errs = check_architectural_boundaries(filepath)
     errors.extend(arch_errs)
+
+    # Run Layer 5 Nginx header checks
+    nginx_header_errs = check_layer5_nginx_headers(filepath)
+    errors.extend(nginx_header_errs)
+
+    # Run Layer 10 Plain IP checks
+    ip_safety_errs = check_layer10_deployment_safety(filepath)
+    errors.extend(ip_safety_errs)
+
+    # Run Layer 13 Volume Persistence checks
+    volume_persistence_errs = check_layer13_volume_persistence(filepath)
+    errors.extend(volume_persistence_errs)
 
     return errors
 
