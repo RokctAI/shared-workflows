@@ -483,6 +483,35 @@ def check_layer13_volume_persistence(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_layer10_localhost_decoupling(filepath):
+    """
+    LAYER 10: Localhost Decoupling Gate.
+    Ensures that containers interact with each other as if they are remote spoke VPS nodes.
+    Blocks hardcoded localhost/127.0.0.1 in Next.js, Flutter, and environment templates.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+    if filepath.endswith(".ts") or filepath.endswith(".tsx") or filepath.endswith(".dart") or filepath.endswith(".env") or filepath.endswith(".env.production") or filepath.endswith(".env.development"):
+        if any(x in base for x in ["db", "postgres", "redis", "compliance", "seed"]):
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            for idx, line in enumerate(lines, 1):
+                if line.strip().startswith("//") or line.strip().startswith("#") or line.strip().startswith("///") or line.strip().startswith("*"):
+                    continue
+                line_lower = line.lower()
+                if "localhost:" in line_lower or "127.0.0.1:" in line_lower or "http://localhost" in line_lower or "https://localhost" in line_lower:
+                    errors.append({
+                        "line": idx,
+                        "type": "Layer 10 (Localhost Decoupling Gate)",
+                        "message": f"Hardcoded local loopback address '{line.strip()[:30]}' detected in '{os.path.basename(filepath)}'. Use dynamic environment variables to support transparent local/remote spokes orchestration."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -543,6 +572,10 @@ def scan_file(filepath):
     # Run Layer 13 Volume Persistence checks
     volume_persistence_errs = check_layer13_volume_persistence(filepath)
     errors.extend(volume_persistence_errs)
+
+    # Run Layer 10 Localhost Decoupling Gate checks
+    localhost_decoupling_errs = check_layer10_localhost_decoupling(filepath)
+    errors.extend(localhost_decoupling_errs)
 
     return errors
 
