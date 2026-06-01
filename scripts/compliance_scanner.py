@@ -364,6 +364,48 @@ def check_flutter_compliance(filepath):
         errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_architectural_boundaries(filepath):
+    """
+    LAYER 10: Clean Architecture & Layered Boundary Enforcement.
+    Enforces strict separation of concerns for Next.js and Flutter.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+
+    # Next.js Boundaries
+    if path_lower.endswith(".ts") or path_lower.endswith(".tsx"):
+        if "/components/" in path_lower:
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Enforce: UI components should not query DB directly
+                if "drizzle-orm" in content or "prisma" in content or "from \"@/db\"" in content or "from '@/db'" in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 10 (Clean Architecture - Next.js)",
+                        "message": f"Presentational UI component '{os.path.basename(filepath)}' directly queries the database or schema. Delegate data access to Server Actions, API routes, or Services."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+
+    # Flutter Boundaries
+    elif path_lower.endswith(".dart"):
+        if any(x in path_lower for x in ["/presentation/", "/pages/", "/widgets/"]):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Enforce: Presentation widgets should not make raw HTTP/Dio API requests directly
+                if "import 'package:dio/" in content or "import 'package:http/" in content or "Dio()." in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 10 (Clean Architecture - Flutter)",
+                        "message": f"Presentation Widget '{os.path.basename(filepath)}' initiates direct raw API/HTTP requests. Delegate networking to Repositories or State Providers."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -408,6 +450,10 @@ def scan_file(filepath):
     # Run Backup checks
     backup_errs = check_availability_and_recovery(filepath)
     errors.extend(backup_errs)
+
+    # Run Architectural Boundary checks
+    arch_errs = check_architectural_boundaries(filepath)
+    errors.extend(arch_errs)
 
     return errors
 
