@@ -217,6 +217,33 @@ jobs:
       project_type: ${{ inputs.project_type }}
     secrets: inherit
 
+  # 🔥 NEW: Observability Compliance Gatekeeper for Frappe/Python projects
+  observability-compliance:
+    needs: detect-changes
+    if: always() && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target codebase
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout shared compliance action script
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: .shared-workflows
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Observability AST Scanner
+        run: |
+          python3 .shared-workflows/scripts/compliance_scanner.py
+
   # 2. LINT
   lint:
     needs: [detect-changes, security]
@@ -248,8 +275,8 @@ jobs:
 
   # 4. CI / BUILD
   ci-frappe:
-    needs: [detect-changes, lint]
-    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
+    needs: [detect-changes, lint, observability-compliance]
+    if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
     uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
     with:
       python-version: ${{ inputs.python-version || '3.14' }}
