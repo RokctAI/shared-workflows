@@ -359,11 +359,12 @@ jobs:
 
   # 5. RELEASE
   release:
-    needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter]
+    needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter, observability-compliance]
     if: |
       always() && 
       needs.detect-changes.outputs.trivial != 'true' &&
       (github.ref_name == 'develop' || (
+        (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') &&
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
         (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped') &&
