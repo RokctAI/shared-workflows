@@ -368,20 +368,26 @@ def scan_and_sync(target_dir, check_only=False):
                         
                     out_md_path = os.path.join(docs_api_dir, out_md_name)
                     
-                    existing_content = ""
-                    if os.path.exists(out_md_path):
+                    if not os.path.exists(out_md_path):
+                        # File doesn't exist, auto-create it even in check_only mode
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False)
+                        os.makedirs(docs_api_dir, exist_ok=True)
+                        with open(out_md_path, "w", encoding="utf-8") as f:
+                            f.write(md_content)
+                        print(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                    else:
                         with open(out_md_path, "r", encoding="utf-8") as f:
                             existing_content = f.read()
                             
-                    md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only)
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only)
 
-                    if existing_content != md_content:
-                        out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
-                        if not check_only:
-                            os.makedirs(docs_api_dir, exist_ok=True)
-                            with open(out_md_path, "w", encoding="utf-8") as f:
-                                f.write(md_content)
-                            print(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                        if existing_content != md_content:
+                            out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
+                            if not check_only:
+                                os.makedirs(docs_api_dir, exist_ok=True)
+                                with open(out_md_path, "w", encoding="utf-8") as f:
+                                    f.write(md_content)
+                                print(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
 
     return out_of_sync
 
