@@ -363,8 +363,8 @@ jobs:
     if: |
       always() && 
       needs.detect-changes.outputs.trivial != 'true' &&
+      (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') &&
       (github.ref_name == 'develop' || (
-        (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') &&
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
         (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped') &&

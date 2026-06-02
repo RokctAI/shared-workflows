@@ -32,6 +32,11 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     is_whitelisted = True
         
         if is_whitelisted:
+            path_normalized = self.filename.replace("\\", "/").lower()
+            if not any(x in path_normalized for x in ["/api/auth/", "/api/brain/", "/api/plan_builder/", "/api/setup/"]):
+                is_whitelisted = False
+        
+        if is_whitelisted:
             # 1. Observability (Layer 12)
             has_trace_id = False
             has_stderr = False
@@ -842,7 +847,7 @@ def main():
             elif os.path.isdir(arg):
                 for root, dirs, files in os.walk(arg):
                     # Prune third-party dependency, build, and platform cache directories
-                    dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__"]]
+                    dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__", ".rokct", "Compliance"]]
                     for file in files:
                         fp = os.path.join(root, file)
                         if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
@@ -853,7 +858,7 @@ def main():
         print("Scanning all python/config/nextjs/flutter files in current workspace for full compliance...")
         for root, dirs, files in os.walk("."):
             # Prune third-party and platform build cache folders
-            dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android"]]
+            dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android", ".rokct", "Compliance"]]
             for file in files:
                 fp = os.path.join(root, file)
                 if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
