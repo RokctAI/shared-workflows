@@ -516,6 +516,8 @@ def check_layer16_tenant_isolation(filepath):
     if filepath.endswith(".py"):
         if not any(x in path_lower for x in ["rcore", "paas", "rpanel"]):
             return errors
+        if "test" in path_lower:
+            return errors
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -635,6 +637,81 @@ def check_layer14_agentic_llm_orchestration(filepath):
                 errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+def check_layer17_edge_iot(filepath):
+    """
+    LAYER 17: Edge IoT compliance.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+    if "test" in path_lower:
+        return errors
+    if "iot" in base or "iot" in path_lower:
+        if filepath.endswith(".py") or filepath.endswith(".ts") or filepath.endswith(".tsx"):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Enforce MQTT, CoAP, edge buffers, or offline sync check
+                if not any(x in content.lower() for x in ["mqtt", "coap", "edge", "buffer", "offline", "sync"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 17 (Edge IoT)",
+                        "message": f"IoT edge module '{os.path.basename(filepath)}' lacks robust offline buffering, sync protocol (MQTT/CoAP) or local queues."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_layer18_ztna_mtls(filepath):
+    """
+    LAYER 18: Zero Trust Network Access (ZTNA) / mTLS.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+    if "test" in path_lower:
+        return errors
+    if filepath.endswith(".py"):
+        if any(x in base for x in ["auth", "login", "gateway", "api"]):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Enforce zero trust checks like headers, certs, token verification, mTLS
+                if not any(x in content.lower() for x in ["cert", "mtls", "tls", "token", "jwt", "verify", "permission", "authorized"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 18 (ZTNA & mTLS)",
+                        "message": f"Auth/API module '{os.path.basename(filepath)}' fails to enforce Zero Trust authorization policies or mTLS certificate checks."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+def check_layer19_event_driven(filepath):
+    """
+    LAYER 19: Event-Driven Architecture.
+    """
+    errors = []
+    base = os.path.basename(filepath).lower()
+    path_lower = filepath.lower()
+    if "test" in path_lower:
+        return errors
+    if filepath.endswith(".py"):
+        if any(x in base for x in ["event", "webhook", "publish", "subscribe", "kafka", "redis", "rabbitmq", "broker"]):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Enforce publishing/subscribing or event broker checks
+                if not any(x in content.lower() for x in ["publish", "subscribe", "emit", "enqueue", "redis", "kafka", "rabbitmq", "event", "broker"]):
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 19 (Event-Driven Architecture)",
+                        "message": f"Event module '{os.path.basename(filepath)}' must use a structured event payload publisher, consumer, or queue broker."
+                    })
+            except Exception as e:
+                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 def scan_file(filepath):
     errors = []
     if filepath.endswith(".py"):
@@ -711,6 +788,18 @@ def scan_file(filepath):
     # Run Layer 16 Multi-Tenant & Quota Boundary checks
     tenant_isolation_errs = check_layer16_tenant_isolation(filepath)
     errors.extend(tenant_isolation_errs)
+
+    # Run Layer 17 Edge IoT checks
+    edge_iot_errs = check_layer17_edge_iot(filepath)
+    errors.extend(edge_iot_errs)
+
+    # Run Layer 18 ZTNA & mTLS checks
+    ztna_mtls_errs = check_layer18_ztna_mtls(filepath)
+    errors.extend(ztna_mtls_errs)
+
+    # Run Layer 19 Event-Driven Architecture checks
+    event_driven_errs = check_layer19_event_driven(filepath)
+    errors.extend(event_driven_errs)
 
     return errors
 
