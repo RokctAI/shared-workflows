@@ -10,6 +10,7 @@ import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from compliance import scan_file, check_database_migrations
+from update_docs import scan_and_sync
 
 def main():
     print("=" * 80)
@@ -19,13 +20,16 @@ def main():
     # 1. Resolve files to scan: either passed directly or changed in git diff
     files_to_scan = []
     changed_files_list = []
+    target_dirs = []
     
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
             if os.path.isfile(arg):
                 files_to_scan.append(arg)
                 changed_files_list.append(arg)
+                target_dirs.append(os.path.dirname(os.path.abspath(arg)))
             elif os.path.isdir(arg):
+                target_dirs.append(arg)
                 for root, dirs, files in os.walk(arg):
                     # Prune third-party dependency, build, and platform cache directories
                     dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__", ".rokct", "Compliance"]]
@@ -37,6 +41,7 @@ def main():
     else:
         # Default: scan recursively from current directory to force strict codebase-wide compliance
         print("Scanning all python/config/nextjs/flutter files in current workspace for full compliance...")
+        target_dirs.append(".")
         for root, dirs, files in os.walk("."):
             # Prune third-party and platform build cache folders
             dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android", ".rokct", "Compliance"]]
@@ -46,6 +51,9 @@ def main():
                     files_to_scan.append(fp)
                 if file.endswith(".json") and "doctype" in fp:
                     changed_files_list.append(fp)
+
+    # Deduplicate target directories
+    target_dirs = list(set(os.path.abspath(d) for d in target_dirs))
 
     if not files_to_scan and not changed_files_list:
         print("SUCCESS: No source files resolved for scan. Exiting.")
@@ -70,6 +78,15 @@ def main():
         for err in migration_errors:
             print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
             total_violations += 1
+
+    # 4. Run Layer 20 Documentation Sync Compliance Checks
+    for target_dir in target_dirs:
+        drifted = scan_and_sync(target_dir, check_only=True)
+        if drifted:
+            print(f"\nCOMPLIANCE VIOLATION: Documentation drift detected in {target_dir}")
+            for doc_path, _, _, src in drifted:
+                print(f"  [Layer 20 (Documentation Sync)] -> API Reference doc out-of-sync: {os.path.basename(doc_path)} (source: {src})")
+                total_violations += 1
 
     print("\n" + "=" * 80)
     if total_violations > 0:
