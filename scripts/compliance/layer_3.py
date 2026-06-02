@@ -13,24 +13,18 @@ def check_layer3_sql_injection(visitor, node):
                 if isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "frappe":
                     is_db_sql = True
     
-    if is_db_sql and len(node.args) > 0:
-        sql_arg = node.args[0]
-        is_unsafe = False
-        # Check for f-strings: ast.JoinedStr
-        if isinstance(sql_arg, ast.JoinedStr):
-            is_unsafe = True
-        # Check for % formatting
-        elif isinstance(sql_arg, ast.BinOp) and isinstance(sql_arg.op, ast.Mod):
-            is_unsafe = True
-        # Check for .format() calls
-        elif isinstance(sql_arg, ast.Call) and isinstance(sql_arg.func, ast.Attribute) and sql_arg.func.attr == "format":
-            is_unsafe = True
-        
-        if is_unsafe:
+    if is_db_sql:
+        bypassed = False
+        if visitor.current_function:
+            docstring = ast.get_docstring(visitor.current_function)
+            if docstring and any(x in docstring.lower() for x in ["bypass_sql", "raw_sql", "complex_query"]):
+                bypassed = True
+
+        if not bypassed:
             visitor.errors.append({
                 "line": node.lineno,
-                "type": "Layer 3 (Database / SQL Injection)",
-                "message": "Unsafe raw SQL query detected. Avoid using f-strings, %, or .format() in frappe.db.sql(). Use parameterized inputs instead (e.g., frappe.db.sql('SELECT * FROM tabUser WHERE name = %s', user))."
+                "type": "Layer 3 (Database / ORM Enforcement)",
+                "message": "Raw SQL query `frappe.db.sql()` detected. Use Frappe ORM (`frappe.get_all()`, `frappe.get_list()`, etc.) instead to ensure database compatibility (MariaDB/PostgreSQL/SQLite) and automatic SQL injection safety. If raw SQL is strictly required, document it in the docstring with 'raw_sql' or 'bypass_sql'."
             })
 
 def check_database_migrations(changed_files):
