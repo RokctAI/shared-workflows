@@ -12,14 +12,14 @@ $dockerCheck = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $dockerCheck) {
     Write-Host "❌ ERROR: Docker CLI is not installed or not in PATH." -ForegroundColor Red
     Write-Host "👉 Get Docker: https://docs.docker.com/get-docker/" -ForegroundColor White
-    Exit 1
+    exit 1
 }
 
 & docker info > $null 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ ERROR: Docker daemon is not running." -ForegroundColor Red
     Write-Host "👉 Please start Docker Desktop and try again." -ForegroundColor White
-    Exit 1
+    exit 1
 }
 Write-Host "✅ Docker daemon is running." -ForegroundColor Green
 
@@ -28,7 +28,7 @@ if (-not $actCheck) {
     Write-Host "❌ ERROR: Nektos 'act' is not installed." -ForegroundColor Red
     Write-Host "👉 Install 'act' on Windows (winget):" -ForegroundColor White
     Write-Host "   winget install nektos.act" -ForegroundColor Cyan
-    Exit 1
+    exit 1
 }
 Write-Host "✅ 'act' CLI is installed." -ForegroundColor Green
 
@@ -36,13 +36,13 @@ Write-Host "✅ 'act' CLI is installed." -ForegroundColor Green
 $workflowDir = ".github/workflows"
 if (-not (Test-Path $workflowDir)) {
     Write-Host "❌ ERROR: Could not locate .github/workflows directory." -ForegroundColor Red
-    Exit 1
+    exit 1
 }
 
 $workflows = Get-ChildItem -Path $workflowDir -Filter "*.yml" -File | Sort-Object Name
 if ($workflows.Count -eq 0) {
     Write-Host "❌ No workflows found in $workflowDir." -ForegroundColor Red
-    Exit 1
+    exit 1
 }
 
 Write-Host "`nSelect a workflow to dry-run locally:" -ForegroundColor Yellow
@@ -57,13 +57,15 @@ if ($choice -match '^\d+$') {
     $choiceInt = [int]$choice
     if ($choiceInt -ge 0 -and $choiceInt -lt $workflows.Count) {
         $chosenWorkflow = $workflows[$choiceInt].FullName
-    } else {
-        Write-Host "❌ Invalid choice range. Aborting." -ForegroundColor Red
-        Exit 1
     }
-} else {
+    else {
+        Write-Host "❌ Invalid choice range. Aborting." -ForegroundColor Red
+        exit 1
+    }
+}
+else {
     Write-Host "❌ Invalid choice syntax. Aborting." -ForegroundColor Red
-    Exit 1
+    exit 1
 }
 
 Write-Host "🚀 Selected: $(Split-Path $chosenWorkflow -Leaf)" -ForegroundColor Green
@@ -105,8 +107,9 @@ if (Test-Path $envFile) { Remove-Item $envFile -Force }
 
 if ($actExitCode -eq 0) {
     Write-Host "✅ Dry-run completed successfully!" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "❌ Dry-run execution failed. Inspect logs above for debug information." -ForegroundColor Red
 }
 
-Exit $actExitCode
+exit $actExitCode
