@@ -13,8 +13,11 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
     def __init__(self, filename):
         self.filename = filename
         self.errors = []
+        self.current_function = None
 
     def visit_FunctionDef(self, node):
+        prev_func = self.current_function
+        self.current_function = node
         # ==========================================
         # LAYER 12 & LAYER 2: WHITELISTED API ENDPOINTS
         # ==========================================
@@ -40,7 +43,7 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
             # 1. Observability (Layer 12)
             has_trace_id = False
             has_stderr = False
-
+ 
             for subnode in ast.walk(node):
                 if isinstance(subnode, ast.Name) and subnode.id == "trace_id":
                     has_trace_id = True
@@ -52,7 +55,7 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     has_stderr = True
                 if isinstance(subnode, ast.Name) and subnode.id == "stderr":
                     has_stderr = True
-
+ 
             if not has_trace_id or not has_stderr:
                 missing = []
                 if not has_trace_id:
@@ -64,7 +67,7 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     "type": "Layer 12 (Observability)",
                     "message": f"whitelisted function '{node.name}()' lacks: {', '.join(missing)}"
                 })
-
+ 
             # 2. Type-safety & Documentation (Layer 2)
             docstring = ast.get_docstring(node)
             if not docstring or not docstring.strip():
@@ -73,7 +76,7 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     "type": "Layer 2 (API/Documentation)",
                     "message": f"whitelisted function '{node.name}()' must have a non-empty descriptive docstring."
                 })
-
+ 
             # Verify parameter annotations
             for arg in node.args.args:
                 if arg.arg in ["self", "cls"]:
@@ -84,7 +87,7 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                         "type": "Layer 2 (API/Type Safety)",
                         "message": f"whitelisted parameter '{arg.arg}' in '{node.name}()' lacks a type-hint annotation."
                     })
-
+ 
             # Verify return annotation
             if not node.returns:
                 self.errors.append({
@@ -92,10 +95,11 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     "type": "Layer 2 (API/Type Safety)",
                     "message": f"whitelisted function '{node.name}()' lacks a return type-hint annotation (e.g. -> dict)."
                 })
-
+ 
         # Continue traversing child nodes
         self.generic_visit(node)
-
+        self.current_function = prev_func
+ 
     def visit_Call(self, node):
         # ==========================================
         # LAYER 3: DATABASE - SQL INJECTION PREVENTION
@@ -148,6 +152,50 @@ class PlatformComplianceVisitor(ast.NodeVisitor):
                     "type": "Layer 15 (Webhook & Integration Federation)",
                     "message": f"Outgoing HTTP request 'requests.{node.func.attr}()' lacks a mandatory 'timeout' parameter to prevent hanging threads."
                 })
+
+        # ==========================================
+        # LAYER 12: STANDARD APPS DATABASE TRACING
+        # ==========================================
+        is_frappe_db_call = False
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "frappe":
+                if node.func.attr in ["get_doc", "get_all", "get_list", "get_last_doc", "get_value", "set_value"]:
+                    is_frappe_db_call = True
+            elif isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "db":
+                if isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "frappe":
+                    if node.func.attr in ["get_list", "get_all", "get_value", "set_value", "exists", "count"]:
+                        is_frappe_db_call = True
+
+        if is_frappe_db_call and len(node.args) > 0:
+            path_lower = self.filename.lower()
+            if "test" in path_lower:
+                pass
+            else:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    doctype_val = first_arg.value
+                    if doctype_val in ["User", "Company", "Employee", "Customer"]:
+                        has_trace = False
+                        if self.current_function:
+                            # Check docstring for override comment or trace references
+                            docstring = ast.get_docstring(self.current_function)
+                            if docstring and any(x in docstring.lower() for x in ["trace", "tenant", "bypass", "compliance", "hook", "event", "cron", "setup"]):
+                                has_trace = True
+                            else:
+                                for subnode in ast.walk(self.current_function):
+                                    if isinstance(subnode, ast.Name) and subnode.id in ["trace_id", "trace"]:
+                                        has_trace = True
+                                    if isinstance(subnode, ast.Constant) and isinstance(subnode.value, str):
+                                        val_lower = subnode.value.lower()
+                                        if any(x in val_lower for x in ["trace_id", "trace-id", "x-trace-id"]):
+                                            has_trace = True
+                        
+                        if not has_trace:
+                            self.errors.append({
+                                "line": node.lineno,
+                                "type": "Layer 12 (Observability - DB Tracing)",
+                                "message": f"Database query to standard DocType '{doctype_val}' in function '{self.current_function.name if self.current_function else 'global'}' lacks Trace ID propagation context."
+                            })
 
         self.generic_visit(node)
 
