@@ -259,8 +259,31 @@ jobs:
           python-version: '3.12'
 
       - name: Run Observability AST Scanner
+        env:
+          GROQ_API: ${{ secrets.GROQ_API }}
         run: |
           python3 .shared-workflows/scripts/compliance_scanner.py
+
+      - name: Commit Auto-Generated Documentation
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -n $(git status -s docs/api/) ]]; then
+            echo "Auto-generated missing markdown files found. Committing..."
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git add docs/api/
+            git commit -m "docs: auto-generate missing API reference files [skip ci]"
+            # Only push if this is a PR or branch push, not a detached head
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              git push origin HEAD:${{ github.head_ref }}
+            else
+              git push
+            fi
+          else
+            echo "No missing documentation was generated."
+          fi
 
       - name: Install and Run Actionlint
         run: |
