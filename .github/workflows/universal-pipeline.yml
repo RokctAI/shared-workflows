@@ -284,7 +284,7 @@ jobs:
             git commit -m "docs: auto-heal API documentation and logs [skip ci]"
             # Only push if this is a PR or branch push, not a detached head
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-              git push origin HEAD:$HEAD_REF
+              git push origin "HEAD:$HEAD_REF"
             else
               git push
             fi
