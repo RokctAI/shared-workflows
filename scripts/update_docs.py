@@ -11,7 +11,38 @@ import hashlib
 import json
 import urllib.request
 import urllib.error
+import logging
 from pathlib import Path
+
+def setup_logger(target_dir):
+    """Set up file logging into .rokct/agent/logs/"""
+    log_dir = os.path.join(target_dir, ".rokct", "agent", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "update_docs.log")
+
+    # We use a custom logger so we don't interfere with standard logging
+    logger = logging.getLogger("update_docs")
+    logger.setLevel(logging.DEBUG)
+
+    # Remove existing handlers to avoid duplicates
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    # We can also add a stream handler for critical console messages
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(sh)
+
+    return logger
+
+LOGGER = None
 
 def is_whitelisted(node):
     """Check if the function has a @frappe.whitelist or @whitelist decorator."""
@@ -136,8 +167,13 @@ def parse_python_file(filepath):
 
 def generate_ai_doc(func_source, func_name, args_string):
     """Use Groq API to generate a natural language description for a Python function."""
+    if LOGGER:
+        LOGGER.debug(f"Attempting to generate AI doc for function: {func_name}")
+
     groq_api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API")
     if not groq_api_key:
+        if LOGGER:
+            LOGGER.warning(f"Skipping AI doc for {func_name} - GROQ_API key is missing from environment.")
         return None
 
     prompt = (
@@ -168,13 +204,30 @@ def generate_ai_doc(func_source, func_name, args_string):
         method="POST"
     )
 
+    if LOGGER:
+        LOGGER.debug(f"Sending Groq API request for {func_name} (Payload size: {len(data['messages'][1]['content'])} bytes)")
+
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode("utf-8"))
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return content.strip() if content else None
+            if content:
+                content = content.strip()
+                if LOGGER:
+                    LOGGER.info(f"✅ Successfully generated AI doc for {func_name}.")
+                return content
+            else:
+                if LOGGER:
+                    LOGGER.warning(f"⚠️ Groq API returned empty content for {func_name}.")
+                return None
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8")
+        if LOGGER:
+            LOGGER.error(f"❌ HTTP Error generating AI doc for {func_name}: {e.code} - {err_msg}")
+        return None
     except Exception as e:
-        print(f"⚠️ Warning: Failed to generate AI documentation for {func_name}: {e}")
+        if LOGGER:
+            LOGGER.error(f"❌ Exception generating AI doc for {func_name}: {str(e)}")
         return None
 
 def extract_cached_ai_docs(md_content):
@@ -344,9 +397,14 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
 
 def scan_and_sync(target_dir, check_only=False):
     """Scan directory and sync docs to target_dir/docs/api/."""
+    global LOGGER
     target_dir = os.path.abspath(target_dir)
     docs_api_dir = os.path.join(target_dir, "docs", "api")
     
+    # Initialize logger
+    if LOGGER is None:
+        LOGGER = setup_logger(target_dir)
+
     out_of_sync = []
     
     for root, dirs, files in os.walk(target_dir):
@@ -370,11 +428,14 @@ def scan_and_sync(target_dir, check_only=False):
                     
                     if not os.path.exists(out_md_path):
                         # File doesn't exist, auto-create it even in check_only mode
+                        if LOGGER:
+                            LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
                         md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False)
                         os.makedirs(docs_api_dir, exist_ok=True)
                         with open(out_md_path, "w", encoding="utf-8") as f:
                             f.write(md_content)
-                        print(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                        if LOGGER:
+                            LOGGER.info(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
                     else:
                         with open(out_md_path, "r", encoding="utf-8") as f:
                             existing_content = f.read()
@@ -387,7 +448,8 @@ def scan_and_sync(target_dir, check_only=False):
                                 os.makedirs(docs_api_dir, exist_ok=True)
                                 with open(out_md_path, "w", encoding="utf-8") as f:
                                     f.write(md_content)
-                                print(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                                if LOGGER:
+                                    LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
 
     return out_of_sync
 

@@ -259,6 +259,8 @@ jobs:
           python-version: '3.12'
 
       - name: Run Observability AST Scanner
+        env:
+          GROQ_API: ${{ secrets.GROQ_API }}
         run: |
           python3 .shared-workflows/scripts/compliance_scanner.py
 
