@@ -1,10 +1,7 @@
 name: Universal ToDo to Issue
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  PIP_BREAK_SYSTEM_PACKAGES: 1
-
 permissions: write-all
+
 on:
   workflow_call:
     secrets:
@@ -32,9 +29,15 @@ jobs:
     concurrency:
       group: todo-${{ github.repository }}-${{ github.ref }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: TODO to Issue
-        uses: alstr/todo-to-issue-action@v5
+        uses: alstr/todo-to-issue-action@3bd536e14a2cbceeab1fadef96bea5f725ed4270
         with:
           CLOSE_ISSUES: "true"
           AUTO_ASSIGN: "true"
           INSERT_ISSUE_URLS: "true"
+          TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
