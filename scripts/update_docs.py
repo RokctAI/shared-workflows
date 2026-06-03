@@ -660,8 +660,9 @@ def scan_and_sync(target_dir, check_only=False):
             parser_func = None
             
             if project_type == "flutter" and file.endswith(".dart"):
-                is_valid_file = True
-                parser_func = parse_dart_file
+                if not (file.endswith(".freezed.dart") or file.endswith(".g.dart") or file.endswith(".gr.dart") or file == "app_assets.dart"):
+                    is_valid_file = True
+                    parser_func = parse_dart_file
             elif project_type == "typescript" and (file.endswith(".ts") or file.endswith(".tsx")):
                 is_valid_file = True
                 parser_func = parse_ts_file
