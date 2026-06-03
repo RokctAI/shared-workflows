@@ -7,7 +7,42 @@ import sys
 import ast
 import argparse
 import difflib
+import hashlib
+import json
+import urllib.request
+import urllib.error
+import logging
 from pathlib import Path
+
+def setup_logger(target_dir):
+    """Set up file logging into .rokct/agent/logs/"""
+    log_dir = os.path.join(target_dir, ".rokct", "agent", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "update_docs.log")
+
+    # We use a custom logger so we don't interfere with standard logging
+    logger = logging.getLogger("update_docs")
+    logger.setLevel(logging.DEBUG)
+
+    # Remove existing handlers to avoid duplicates
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    # We can also add a stream handler for critical console messages
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(sh)
+
+    return logger
+
+LOGGER = None
 
 def is_whitelisted(node):
     """Check if the function has a @frappe.whitelist or @whitelist decorator."""
@@ -68,6 +103,15 @@ def get_args_string(node):
         
     return ", ".join(args)
 
+def get_node_source_hash(source, node):
+    try:
+        node_source = ast.get_source_segment(source, node)
+        if not node_source:
+            node_source = ast.unparse(node)
+        return hashlib.sha256(node_source.encode("utf-8")).hexdigest()
+    except Exception:
+        return ""
+
 def parse_python_file(filepath):
     """Parse python file and extract documentation information."""
     try:
@@ -92,7 +136,9 @@ def parse_python_file(filepath):
                         "name": child.name,
                         "args": get_args_string(child),
                         "docstring": method_doc,
-                        "whitelisted": is_whitelisted(child)
+                        "whitelisted": is_whitelisted(child),
+                        "hash": get_node_source_hash(source, child),
+                        "source": ast.get_source_segment(source, child) or ast.unparse(child)
                     })
             classes.append({
                 "name": node.name,
@@ -105,7 +151,9 @@ def parse_python_file(filepath):
                 "name": node.name,
                 "args": get_args_string(node),
                 "docstring": func_doc,
-                "whitelisted": is_whitelisted(node)
+                "whitelisted": is_whitelisted(node),
+                "hash": get_node_source_hash(source, node),
+                "source": ast.get_source_segment(source, node) or ast.unparse(node)
             })
 
     # Return structure if we found any API/documentation elements
@@ -117,12 +165,148 @@ def parse_python_file(filepath):
         }
     return None
 
-def generate_markdown(filepath, rel_path, spec):
+def call_groq_api(model, prompt, groq_api_key, func_name):
+    """Helper to make the API call to Groq with specific model and error handling."""
+    data = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You are a senior technical writer documenting a Python codebase. Produce concise, readable documentation."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
+    }
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=json.dumps(data).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {groq_api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "curl/7.81.0" # Bypass Cloudflare Python-urllib 403 block
+        },
+        method="POST"
+    )
+
+    if LOGGER:
+        LOGGER.debug(f"Sending Groq {model} request for {func_name} (Payload: {len(prompt)} bytes)")
+
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if content:
+                content = content.strip()
+                if LOGGER:
+                    LOGGER.info(f"✅ Successfully generated AI doc for {func_name} using {model}.")
+                return content
+            else:
+                if LOGGER:
+                    LOGGER.warning(f"⚠️ Groq {model} returned empty content for {func_name}.")
+                return None
+    except urllib.error.HTTPError as e:
+        try:
+            err_msg = e.read().decode("utf-8")
+        except Exception:
+            err_msg = ""
+        if LOGGER:
+            LOGGER.error(f"❌ HTTP Error generating AI doc for {func_name} using {model}: {e.code} - {err_msg}")
+        return None
+    except Exception as e:
+        if LOGGER:
+            LOGGER.error(f"❌ Exception generating AI doc for {func_name} using {model}: {str(e)}")
+        return None
+
+def generate_ai_doc(func_source, func_name, args_string):
+    """Use Groq API to generate a natural language description for a Python function."""
+    if LOGGER:
+        LOGGER.debug(f"Attempting to generate AI doc for function: {func_name}")
+
+    groq_api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API")
+    if not groq_api_key:
+        if LOGGER:
+            LOGGER.warning(f"Skipping AI doc for {func_name} - GROQ_API key is missing from environment.")
+        return None
+
+    prompt = (
+        f"Write a short, professional description for the following Python function. "
+        f"Explain its purpose and what its parameters mean. "
+        f"Do not include any markdown code blocks, just output the raw text.\n\n"
+        f"Function Name: {func_name}\n"
+        f"Arguments: {args_string}\n"
+        f"Source Code:\n{func_source}"
+    )
+
+    # Tier 2A: Try groq/compound first
+    content = call_groq_api("groq/compound", prompt, groq_api_key, func_name)
+
+    # Tier 2B: Fallback to llama-3.3-70b-versatile
+    if not content:
+        if LOGGER:
+            LOGGER.info(f"🔄 Falling back to llama-3.3-70b-versatile for {func_name}...")
+        content = call_groq_api("llama-3.3-70b-versatile", prompt, groq_api_key, func_name)
+
+    return content
+
+def extract_cached_ai_docs(md_content):
+    """Parse existing markdown and return a mapping of function name -> (hash, doc)."""
+    cache = {}
+    lines = md_content.splitlines()
+    current_func = None
+    current_hash = None
+    doc_lines = []
+
+    in_doc_block = False
+
+    for line in lines:
+        if line.startswith("### `def ") or line.startswith("##### `"):
+            # New function block
+            if current_func and current_hash and doc_lines:
+                cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
+
+            # Reset state
+            doc_lines = []
+            current_hash = None
+            in_doc_block = False
+
+            # Extract function name. e.g. "### `def get_assetlinks()`" -> "get_assetlinks"
+            # e.g. "##### `my_method(...)`" -> "my_method"
+            name_part = line.split("`")[1]
+            if name_part.startswith("def "):
+                name_part = name_part[4:]
+            current_func = name_part.split("(")[0]
+
+        elif current_func and line.startswith("<!-- #AIDOC "):
+            # We found the AI marker
+            # format: <!-- #AIDOC HASH -->
+            parts = line.replace("<!--", "").replace("-->", "").strip().split()
+            if len(parts) >= 2 and parts[0] == "#AIDOC":
+                current_hash = parts[1]
+                in_doc_block = True
+        elif in_doc_block:
+            # We are reading the doc block until the next header
+            if line.startswith("#"):
+                # Hit next section, close the block early
+                if current_func and current_hash and doc_lines:
+                    cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
+                in_doc_block = False
+                current_func = None
+            else:
+                doc_lines.append(line)
+
+    # End of file
+    if current_func and current_hash and doc_lines:
+        cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
+
+    return cache
+
+def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False):
     """Generate Markdown representation of the Python specification."""
     lines = []
     basename = os.path.basename(filepath)
     module_name = os.path.splitext(basename)[0]
     
+    ai_cache = extract_cached_ai_docs(existing_md_content) if existing_md_content else {}
+
     lines.append(f"# API Reference: {module_name}")
     lines.append("")
     lines.append(f"Source file: `{rel_path.replace(os.sep, '/')}`")
@@ -151,6 +335,27 @@ def generate_markdown(filepath, rel_path, spec):
                     lines.append(f"##### `{method['name']}({method['args']})`")
                     if method["docstring"]:
                         lines.append(method["docstring"].strip())
+                    else:
+                        cached_hash, cached_doc = ai_cache.get(method["name"], (None, None))
+                        if cached_hash == method["hash"]:
+                            lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                            lines.append(cached_doc)
+                        elif not check_only:
+                            ai_doc = generate_ai_doc(method["source"], method["name"], method["args"])
+                            if ai_doc:
+                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append(ai_doc)
+                            else:
+                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append("*No documentation provided.*")
+                        else:
+                            # In check_only mode with a mismatch/missing cache, emit the new hash to trigger drift detection
+                            if cached_hash and cached_doc:
+                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append(cached_doc)
+                            else:
+                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append("*No documentation provided.*")
                     lines.append("")
                     
             if other_methods:
@@ -172,6 +377,28 @@ def generate_markdown(filepath, rel_path, spec):
                 lines.append(f"### `def {func['name']}({func['args']})`")
                 if func["docstring"]:
                     lines.append(func["docstring"].strip())
+                else:
+                    cached_hash, cached_doc = ai_cache.get(func["name"], (None, None))
+                    if cached_hash == func["hash"]:
+                        lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                        lines.append(cached_doc)
+                    elif not check_only:
+                        print(f"Generating AI documentation for {func['name']}...")
+                        ai_doc = generate_ai_doc(func["source"], func["name"], func["args"])
+                        if ai_doc:
+                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append(ai_doc)
+                        else:
+                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append("*No documentation provided.*")
+                    else:
+                        # In check_only mode with a mismatch/missing cache, emit the new hash to trigger drift detection
+                        if cached_hash and cached_doc:
+                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append(cached_doc)
+                        else:
+                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append("*No documentation provided.*")
                 lines.append("")
                 
         if other_funcs:
@@ -189,9 +416,14 @@ def generate_markdown(filepath, rel_path, spec):
 
 def scan_and_sync(target_dir, check_only=False):
     """Scan directory and sync docs to target_dir/docs/api/."""
+    global LOGGER
     target_dir = os.path.abspath(target_dir)
     docs_api_dir = os.path.join(target_dir, "docs", "api")
     
+    # Initialize logger
+    if LOGGER is None:
+        LOGGER = setup_logger(target_dir)
+
     out_of_sync = []
     
     for root, dirs, files in os.walk(target_dir):
@@ -203,7 +435,6 @@ def scan_and_sync(target_dir, check_only=False):
                 spec = parse_python_file(filepath)
                 if spec:
                     rel_path = os.path.relpath(filepath, target_dir)
-                    md_content = generate_markdown(filepath, rel_path, spec)
                     
                     # Compute output markdown file name preserving directory structure under docs/api/
                     rel_dir = os.path.relpath(root, target_dir)
@@ -214,18 +445,30 @@ def scan_and_sync(target_dir, check_only=False):
                         
                     out_md_path = os.path.join(docs_api_dir, out_md_name)
                     
-                    existing_content = ""
-                    if os.path.exists(out_md_path):
+                    if not os.path.exists(out_md_path):
+                        # File doesn't exist, auto-create it even in check_only mode
+                        if LOGGER:
+                            LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False)
+                        os.makedirs(docs_api_dir, exist_ok=True)
+                        with open(out_md_path, "w", encoding="utf-8") as f:
+                            f.write(md_content)
+                        if LOGGER:
+                            LOGGER.info(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                    else:
                         with open(out_md_path, "r", encoding="utf-8") as f:
                             existing_content = f.read()
                             
-                    if existing_content != md_content:
-                        out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
-                        if not check_only:
-                            os.makedirs(docs_api_dir, exist_ok=True)
-                            with open(out_md_path, "w", encoding="utf-8") as f:
-                                f.write(md_content)
-                            print(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only)
+
+                        if existing_content != md_content:
+                            out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
+                            if not check_only:
+                                os.makedirs(docs_api_dir, exist_ok=True)
+                                with open(out_md_path, "w", encoding="utf-8") as f:
+                                    f.write(md_content)
+                                if LOGGER:
+                                    LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
 
     return out_of_sync
 

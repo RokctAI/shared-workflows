@@ -259,8 +259,37 @@ jobs:
           python-version: '3.12'
 
       - name: Run Observability AST Scanner
+        env:
+          GROQ_API: ${{ secrets.GROQ_API }}
         run: |
           python3 .shared-workflows/scripts/compliance_scanner.py
+
+      - name: Commit Auto-Generated Documentation
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HAS_CHANGES=false
+          if [[ -n $(git status -s docs/api/) ]] || [[ -n $(git status -s .rokct/agent/logs/) ]]; then
+            HAS_CHANGES=true
+          fi
+
+          if [[ "$HAS_CHANGES" == "true" ]]; then
+            echo "Auto-generated documentation or logs found. Committing..."
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git add docs/api/ || true
+            git add .rokct/agent/logs/ || true
+            git commit -m "docs: auto-heal API documentation and logs [skip ci]"
+            # Only push if this is a PR or branch push, not a detached head
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              git push origin HEAD:${{ github.head_ref }}
+            else
+              git push
+            fi
+          else
+            echo "No missing documentation or logs were generated."
+          fi
 
       - name: Install and Run Actionlint
         run: |

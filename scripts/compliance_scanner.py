@@ -80,13 +80,18 @@ def main():
             total_violations += 1
 
     # 4. Run Layer 20 Documentation Sync Compliance Checks
-    for target_dir in target_dirs:
-        drifted = scan_and_sync(target_dir, check_only=True)
-        if drifted:
-            print(f"\nCOMPLIANCE VIOLATION: Documentation drift detected in {target_dir}")
-            for doc_path, _, _, src in drifted:
-                print(f"  [Layer 20 (Documentation Sync)] -> API Reference doc out-of-sync: {os.path.basename(doc_path)} (source: {src})")
-                total_violations += 1
+    if total_violations == 0:
+        for target_dir in target_dirs:
+            # Run in write mode so missing AI docs are generated and written to disk.
+            # The CI will auto-commit these changes instead of failing.
+            drifted = scan_and_sync(target_dir, check_only=False)
+            if drifted:
+                print(f"\nDOCUMENTATION AUTO-HEALED: Documentation drift detected and fixed in {target_dir}")
+                for doc_path, _, _, src in drifted:
+                    print(f"  [Layer 20 (Documentation Sync)] -> API Reference doc updated: {os.path.basename(doc_path)} (source: {src})")
+                print("  Note: These changes will be automatically committed to the repository by CI.")
+    else:
+        print("\nSkipping Documentation Sync Compliance Checks because prior violations exist.")
 
     print("\n" + "=" * 80)
     if total_violations > 0:
