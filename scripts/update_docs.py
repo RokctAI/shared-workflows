@@ -12,6 +12,7 @@ import json
 import urllib.request
 import urllib.error
 import logging
+import re
 from pathlib import Path
 
 def setup_logger(target_dir):
@@ -20,11 +21,9 @@ def setup_logger(target_dir):
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "update_docs.log")
 
-    # We use a custom logger so we don't interfere with standard logging
     logger = logging.getLogger("update_docs")
     logger.setLevel(logging.DEBUG)
 
-    # Remove existing handlers to avoid duplicates
     if logger.hasHandlers():
         logger.handlers.clear()
 
@@ -34,7 +33,6 @@ def setup_logger(target_dir):
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
-    # We can also add a stream handler for critical console messages
     sh = logging.StreamHandler()
     sh.setLevel(logging.INFO)
     sh.setFormatter(logging.Formatter('%(message)s'))
@@ -43,11 +41,68 @@ def setup_logger(target_dir):
     return logger
 
 LOGGER = None
+FILE_CONTENTS_CACHE = {}
+
+def get_other_files_contents(defining_filepath, target_dir):
+    """Load and cache contents of all files in target_dir except defining_filepath."""
+    key = (defining_filepath, target_dir)
+    if key in FILE_CONTENTS_CACHE:
+        return FILE_CONTENTS_CACHE[key]
+        
+    contents = []
+    for root, dirs, files in os.walk(target_dir):
+        dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
+        for file in files:
+            fp = os.path.join(root, file)
+            if fp != defining_filepath:
+                if file.endswith((".py", ".ts", ".tsx", ".dart", ".js", ".jsx", ".json", ".html")):
+                    try:
+                        with open(fp, "r", encoding="utf-8") as f:
+                            contents.append(f.read())
+                    except Exception:
+                        pass
+    FILE_CONTENTS_CACHE[key] = contents
+    return contents
+
+def is_function_used(func_name, defining_filepath, target_dir):
+    """Check if the function name is referenced in any other file in the target directory."""
+    if func_name in ["main", "login", "register", "setup", "run"]:
+        return True
+        
+    contents = get_other_files_contents(defining_filepath, target_dir)
+    pattern = re.compile(rf'\b{re.escape(func_name)}\b')
+    for text in contents:
+        if pattern.search(text):
+            return True
+    return False
+
+def detect_project_type(target_dir):
+    """Detect the dominant project type (flutter, typescript, or python)."""
+    has_dart = False
+    has_ts = False
+    has_py = False
+    
+    for root, dirs, files in os.walk(target_dir):
+        dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
+        for file in files:
+            if file.endswith(".dart"):
+                has_dart = True
+            elif file.endswith(".ts") or file.endswith(".tsx"):
+                has_ts = True
+            elif file.endswith(".py"):
+                has_py = True
+                
+    if has_dart:
+        return "flutter"
+    elif has_ts:
+        return "typescript"
+    elif has_py:
+        return "python"
+    return "unknown"
 
 def is_whitelisted(node):
     """Check if the function has a @frappe.whitelist or @whitelist decorator."""
     for decorator in node.decorator_list:
-        # Match @whitelist or @frappe.whitelist
         if isinstance(decorator, ast.Name) and decorator.id == 'whitelist':
             return True
         elif isinstance(decorator, ast.Attribute) and decorator.attr == 'whitelist':
@@ -63,13 +118,11 @@ def is_whitelisted(node):
 def get_args_string(node):
     """Format function arguments to a readable string."""
     args = []
-    # Positional/keyword arguments
     defaults_offset = len(node.args.args) - len(node.args.defaults)
     for idx, arg in enumerate(node.args.args):
         arg_name = arg.arg
         if idx >= defaults_offset:
             default_val = node.args.defaults[idx - defaults_offset]
-            # Try to get string representation of default value
             if isinstance(default_val, ast.Constant):
                 val_repr = repr(default_val.value)
             elif isinstance(default_val, ast.Name):
@@ -80,11 +133,9 @@ def get_args_string(node):
         else:
             args.append(arg_name)
             
-    # *args
     if node.args.vararg:
         args.append(f"*{node.args.vararg.arg}")
         
-    # Keyword-only arguments
     for idx, arg in enumerate(node.args.kwonlyargs):
         arg_name = arg.arg
         default_val = node.args.kw_defaults[idx]
@@ -97,7 +148,6 @@ def get_args_string(node):
         else:
             args.append(arg_name)
             
-    # **kwargs
     if node.args.kwarg:
         args.append(f"**{node.args.kwarg.arg}")
         
@@ -112,13 +162,71 @@ def get_node_source_hash(source, node):
     except Exception:
         return ""
 
+def strip_comments_except_docs(content, is_ts=True):
+    """Strip standard comments (commented-out code) while preserving docs (JSDoc or DartDoc)."""
+    if is_ts:
+        pattern = re.compile(
+            r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`)|'
+            r'(/\*\*.*?\*/)|'
+            r'(/\*.*?\*/|//.*?$)',
+            re.DOTALL | re.MULTILINE
+        )
+    else:  # Dart
+        pattern = re.compile(
+            r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')|'
+            r'(///.*?$)|'
+            r'(/\*.*?\*/|//.*?$)',
+            re.DOTALL | re.MULTILINE
+        )
+    
+    def replace(match):
+        if match.group(1):
+            return match.group(1)
+        elif match.group(2):
+            return match.group(2)
+        else:
+            return ""
+            
+    return pattern.sub(replace, content)
+
+def clean_jsdoc(jsdoc):
+    """Remove /**, */, and leading asterisks from JSDoc lines."""
+    lines = []
+    for line in jsdoc.splitlines():
+        line = line.strip()
+        if line.startswith("/**") or line.endswith("*/"):
+            continue
+        if line.startswith("*"):
+            line = line[1:].strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines).strip()
+
+def clean_dartdoc(dartdoc):
+    """Remove /// and leading spaces from DartDoc lines."""
+    lines = []
+    for line in dartdoc.splitlines():
+        line = line.strip()
+        if line.startswith("///"):
+            line = line[3:].strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines).strip()
+
+def clean_args_string(args_str):
+    """Clean newlines and excessive whitespace from arguments string."""
+    if not args_str:
+        return ""
+    cleaned = re.sub(r'\s+', ' ', args_str).strip()
+    return cleaned
+
 def parse_python_file(filepath):
     """Parse python file and extract documentation information."""
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             source = f.read()
         tree = ast.parse(source)
-    except Exception as e:
+    except Exception:
         return None
 
     module_doc = ast.get_docstring(tree)
@@ -156,10 +264,125 @@ def parse_python_file(filepath):
                 "source": ast.get_source_segment(source, node) or ast.unparse(node)
             })
 
-    # Return structure if we found any API/documentation elements
     if module_doc or classes or functions:
         return {
             "module_doc": module_doc,
+            "classes": classes,
+            "functions": functions
+        }
+    return None
+
+def parse_ts_file(filepath):
+    """Parse TypeScript/TSX file and extract documentation information."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return None
+        
+    stripped = strip_comments_except_docs(content, is_ts=True)
+    
+    # Matches JSDoc followed by exported/default function or arrow function declarations
+    pattern = re.compile(
+        r'(/\*\*.*?\*/)?\s*'
+        r'(export\s+)?(default\s+)?'
+        r'(?:'
+        r'(?:class\s+([A-Za-z0-9_]+))|'
+        r'(?:function\s+([A-Za-z0-9_]+)\s*\((.*?)\))|'
+        r'(?:(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*\((.*?)\)\s*=>)'
+        r')',
+        re.DOTALL
+    )
+    
+    classes = []
+    functions = []
+    
+    for match in pattern.finditer(stripped):
+        jsdoc = match.group(1)
+        docstring = clean_jsdoc(jsdoc) if jsdoc else ""
+        
+        class_name = match.group(4)
+        func_name = match.group(5) or match.group(7)
+        func_args = match.group(6) or match.group(8)
+        
+        if class_name:
+            classes.append({
+                "name": class_name,
+                "docstring": docstring,
+                "methods": []
+            })
+        elif func_name:
+            functions.append({
+                "name": func_name,
+                "args": clean_args_string(func_args),
+                "docstring": docstring,
+                "whitelisted": True,
+                "hash": hashlib.sha256(match.group(0).encode("utf-8")).hexdigest(),
+                "source": match.group(0)
+            })
+            
+    if classes or functions:
+        return {
+            "module_doc": "",
+            "classes": classes,
+            "functions": functions
+        }
+    return None
+
+def parse_dart_file(filepath):
+    """Parse Dart file and extract documentation information."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        return None
+        
+    stripped = strip_comments_except_docs(content, is_ts=False)
+    
+    # Matches DartDoc annotations followed by class or function declarations
+    pattern = re.compile(
+        r'((?:///.*?$(?:\r?\n)?)+)?\s*'
+        r'(?:'
+        r'(?:class\s+([a-zA-Z0-9_]+))|'
+        r'(?:([a-zA-Z0-9_<>]+)\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*\{)'
+        r')',
+        re.DOTALL | re.MULTILINE
+    )
+    
+    classes = []
+    functions = []
+    
+    for match in pattern.finditer(stripped):
+        dartdoc = match.group(1)
+        docstring = clean_dartdoc(dartdoc) if dartdoc else ""
+        
+        class_name = match.group(2)
+        func_name = match.group(4)
+        func_args = match.group(5)
+        
+        if class_name:
+            if class_name.startswith("_"):
+                continue
+            classes.append({
+                "name": class_name,
+                "docstring": docstring,
+                "methods": []
+            })
+        elif func_name:
+            if func_name.startswith("_") or func_name in ["if", "for", "while", "switch", "catch"]:
+                continue
+            functions.append({
+                "name": func_name,
+                "args": clean_args_string(func_args),
+                "docstring": docstring,
+                "whitelisted": True,
+                "hash": hashlib.sha256(match.group(0).encode("utf-8")).hexdigest(),
+                "source": match.group(0)
+            })
+            
+    if classes or functions:
+        return {
+            "module_doc": "",
             "classes": classes,
             "functions": functions
         }
@@ -170,7 +393,7 @@ def call_groq_api(model, prompt, groq_api_key, func_name):
     data = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are a senior technical writer documenting a Python codebase. Produce concise, readable documentation."},
+            {"role": "system", "content": "You are a senior technical writer documenting a Python, TypeScript, and Dart codebase. Produce concise, readable documentation."},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2
@@ -182,7 +405,7 @@ def call_groq_api(model, prompt, groq_api_key, func_name):
         headers={
             "Authorization": f"Bearer {groq_api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "curl/7.81.0" # Bypass Cloudflare Python-urllib 403 block
+            "User-Agent": "curl/7.81.0"
         },
         method="POST"
     )
@@ -217,7 +440,7 @@ def call_groq_api(model, prompt, groq_api_key, func_name):
         return None
 
 def generate_ai_doc(func_source, func_name, args_string):
-    """Use Groq API to generate a natural language description for a Python function."""
+    """Use Groq API to generate a natural language description for a Python, TS, or Dart function."""
     if LOGGER:
         LOGGER.debug(f"Attempting to generate AI doc for function: {func_name}")
 
@@ -228,7 +451,7 @@ def generate_ai_doc(func_source, func_name, args_string):
         return None
 
     prompt = (
-        f"Write a short, professional description for the following Python function. "
+        f"Write a short, professional description for the following function. "
         f"Explain its purpose and what its parameters mean. "
         f"Do not include any markdown code blocks, just output the raw text.\n\n"
         f"Function Name: {func_name}\n"
@@ -236,10 +459,8 @@ def generate_ai_doc(func_source, func_name, args_string):
         f"Source Code:\n{func_source}"
     )
 
-    # Tier 2A: Try groq/compound first
     content = call_groq_api("groq/compound", prompt, groq_api_key, func_name)
 
-    # Tier 2B: Fallback to llama-3.3-70b-versatile
     if not content:
         if LOGGER:
             LOGGER.info(f"🔄 Falling back to llama-3.3-70b-versatile for {func_name}...")
@@ -258,34 +479,28 @@ def extract_cached_ai_docs(md_content):
     in_doc_block = False
 
     for line in lines:
-        if line.startswith("### `def ") or line.startswith("##### `"):
-            # New function block
+        if line.startswith("### `def ") or line.startswith("### `function ") or line.startswith("### `") or line.startswith("##### `"):
             if current_func and current_hash and doc_lines:
                 cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
 
-            # Reset state
             doc_lines = []
             current_hash = None
             in_doc_block = False
 
-            # Extract function name. e.g. "### `def get_assetlinks()`" -> "get_assetlinks"
-            # e.g. "##### `my_method(...)`" -> "my_method"
             name_part = line.split("`")[1]
             if name_part.startswith("def "):
                 name_part = name_part[4:]
+            elif name_part.startswith("function "):
+                name_part = name_part[9:]
             current_func = name_part.split("(")[0]
 
-        elif current_func and line.startswith("<!-- #AIDOC "):
-            # We found the AI marker
-            # format: <!-- #AIDOC HASH -->
-            parts = line.replace("<!--", "").replace("-->", "").strip().split()
-            if len(parts) >= 2 and parts[0] == "#AIDOC":
-                current_hash = parts[1]
+        elif current_func and line.startswith("<!-- ") and line.endswith(" -->"):
+            comment_content = line[5:-4].strip()
+            if len(comment_content) == 64:
+                current_hash = comment_content
                 in_doc_block = True
         elif in_doc_block:
-            # We are reading the doc block until the next header
             if line.startswith("#"):
-                # Hit next section, close the block early
                 if current_func and current_hash and doc_lines:
                     cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
                 in_doc_block = False
@@ -293,17 +508,25 @@ def extract_cached_ai_docs(md_content):
             else:
                 doc_lines.append(line)
 
-    # End of file
     if current_func and current_hash and doc_lines:
         cache[current_func] = (current_hash, "\n".join(doc_lines).strip())
 
     return cache
 
-def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False):
-    """Generate Markdown representation of the Python specification."""
+def get_fn_prefix(filepath):
+    ext = os.path.splitext(filepath)[1]
+    if ext == ".py":
+        return "def "
+    elif ext in [".ts", ".tsx"]:
+        return "function "
+    return ""
+
+def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False, target_dir="."):
+    """Generate Markdown representation of the Python, TS, or Dart specification."""
     lines = []
     basename = os.path.basename(filepath)
     module_name = os.path.splitext(basename)[0]
+    fn_prefix = get_fn_prefix(filepath)
     
     ai_cache = extract_cached_ai_docs(existing_md_content) if existing_md_content else {}
 
@@ -329,6 +552,10 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
             whitelisted_methods = [m for m in cls["methods"] if m["whitelisted"]]
             other_methods = [m for m in cls["methods"] if not m["whitelisted"] and m["docstring"]]
             
+            # Filter unused class methods
+            whitelisted_methods = [m for m in whitelisted_methods if is_function_used(m["name"], filepath, target_dir)]
+            other_methods = [m for m in other_methods if is_function_used(m["name"], filepath, target_dir)]
+            
             if whitelisted_methods:
                 lines.append("#### Whitelisted API Methods")
                 for method in whitelisted_methods:
@@ -338,23 +565,20 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
                     else:
                         cached_hash, cached_doc = ai_cache.get(method["name"], (None, None))
                         if cached_hash == method["hash"]:
-                            lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                            lines.append(f"<!-- {method['hash']} -->")
                             lines.append(cached_doc)
                         elif not check_only:
                             ai_doc = generate_ai_doc(method["source"], method["name"], method["args"])
                             if ai_doc:
-                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append(f"<!-- {method['hash']} -->")
                                 lines.append(ai_doc)
                             else:
-                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
-                                lines.append("*No documentation provided.*")
+                                lines.append("*No documentation provided (generation failed).*")
                         else:
-                            # In check_only mode with a mismatch/missing cache, emit the new hash to trigger drift detection
                             if cached_hash and cached_doc:
-                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
+                                lines.append(f"<!-- {method['hash']} -->")
                                 lines.append(cached_doc)
                             else:
-                                lines.append(f"<!-- #AIDOC {method['hash']} -->")
                                 lines.append("*No documentation provided.*")
                     lines.append("")
                     
@@ -370,34 +594,35 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
         whitelisted_funcs = [f for f in spec["functions"] if f["whitelisted"]]
         other_funcs = [f for f in spec["functions"] if not f["whitelisted"] and f["docstring"]]
         
+        # Filter out unused functions/endpoints
+        whitelisted_funcs = [f for f in whitelisted_funcs if is_function_used(f["name"], filepath, target_dir)]
+        other_funcs = [f for f in other_funcs if is_function_used(f["name"], filepath, target_dir)]
+        
         if whitelisted_funcs:
             lines.append("## Whitelisted API Endpoints")
             lines.append("")
             for func in whitelisted_funcs:
-                lines.append(f"### `def {func['name']}({func['args']})`")
+                lines.append(f"### `{fn_prefix}{func['name']}({func['args']})`")
                 if func["docstring"]:
                     lines.append(func["docstring"].strip())
                 else:
                     cached_hash, cached_doc = ai_cache.get(func["name"], (None, None))
                     if cached_hash == func["hash"]:
-                        lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                        lines.append(f"<!-- {func['hash']} -->")
                         lines.append(cached_doc)
                     elif not check_only:
                         print(f"Generating AI documentation for {func['name']}...")
                         ai_doc = generate_ai_doc(func["source"], func["name"], func["args"])
                         if ai_doc:
-                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append(f"<!-- {func['hash']} -->")
                             lines.append(ai_doc)
                         else:
-                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
-                            lines.append("*No documentation provided.*")
+                            lines.append("*No documentation provided (generation failed).*")
                     else:
-                        # In check_only mode with a mismatch/missing cache, emit the new hash to trigger drift detection
                         if cached_hash and cached_doc:
-                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
+                            lines.append(f"<!-- {func['hash']} -->")
                             lines.append(cached_doc)
                         else:
-                            lines.append(f"<!-- #AIDOC {func['hash']} -->")
                             lines.append("*No documentation provided.*")
                 lines.append("")
                 
@@ -405,12 +630,11 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
             lines.append("## Documented Module Functions")
             lines.append("")
             for func in other_funcs:
-                lines.append(f"### `def {func['name']}({func['args']})`")
+                lines.append(f"### `{fn_prefix}{func['name']}({func['args']})`")
                 if func["docstring"]:
                     lines.append(func["docstring"].strip())
                 lines.append("")
 
-    # Add spacing and trailing newline
     content = "\n".join(lines).strip() + "\n"
     return content
 
@@ -420,23 +644,37 @@ def scan_and_sync(target_dir, check_only=False):
     target_dir = os.path.abspath(target_dir)
     docs_api_dir = os.path.join(target_dir, "docs", "api")
     
-    # Initialize logger
     if LOGGER is None:
         LOGGER = setup_logger(target_dir)
+
+    project_type = detect_project_type(target_dir)
+    if LOGGER:
+        LOGGER.info(f"Detected project type: {project_type} for {target_dir}")
 
     out_of_sync = []
     
     for root, dirs, files in os.walk(target_dir):
-        # Skip dependency/build folders
         dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
         for file in files:
-            if file.endswith(".py"):
+            is_valid_file = False
+            parser_func = None
+            
+            if project_type == "flutter" and file.endswith(".dart"):
+                is_valid_file = True
+                parser_func = parse_dart_file
+            elif project_type == "typescript" and (file.endswith(".ts") or file.endswith(".tsx")):
+                is_valid_file = True
+                parser_func = parse_ts_file
+            elif project_type == "python" and file.endswith(".py"):
+                is_valid_file = True
+                parser_func = parse_python_file
+                
+            if is_valid_file and parser_func:
                 filepath = os.path.join(root, file)
-                spec = parse_python_file(filepath)
+                spec = parser_func(filepath)
                 if spec:
                     rel_path = os.path.relpath(filepath, target_dir)
                     
-                    # Compute output markdown file name preserving directory structure under docs/api/
                     rel_dir = os.path.relpath(root, target_dir)
                     if rel_dir == ".":
                         out_md_name = f"{os.path.splitext(file)[0]}.md"
@@ -446,10 +684,9 @@ def scan_and_sync(target_dir, check_only=False):
                     out_md_path = os.path.join(docs_api_dir, out_md_name)
                     
                     if not os.path.exists(out_md_path):
-                        # File doesn't exist, auto-create it even in check_only mode
                         if LOGGER:
                             LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
-                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False)
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False, target_dir=target_dir)
                         os.makedirs(docs_api_dir, exist_ok=True)
                         with open(out_md_path, "w", encoding="utf-8") as f:
                             f.write(md_content)
@@ -459,8 +696,8 @@ def scan_and_sync(target_dir, check_only=False):
                         with open(out_md_path, "r", encoding="utf-8") as f:
                             existing_content = f.read()
                             
-                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only)
-
+                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only, target_dir=target_dir)
+                        
                         if existing_content != md_content:
                             out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
                             if not check_only:
@@ -490,7 +727,6 @@ def main():
         for path, expected, actual, src in out_of_sync:
             print(f"\n  - {os.path.basename(path)} (source: {src})")
             if actual:
-                # Show differences
                 diff = difflib.unified_diff(
                     actual.splitlines(keepends=True),
                     expected.splitlines(keepends=True),
