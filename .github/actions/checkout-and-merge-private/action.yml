@@ -57,13 +57,21 @@ runs:
 
     - name: Checkout Private Repository
       if: steps.read-private.outputs.repo != ''
-      continue-on-error: true
-      uses: actions/checkout@v6
-      with:
-        repository: ${{ steps.read-private.outputs.repo }}
-        token: ${{ inputs.token_private || inputs.token || github.token }}
-        path: .private-temp
-        fetch-depth: 1
+      shell: bash
+      run: |
+        REPO="${{ steps.read-private.outputs.repo }}"
+        TOKEN="${{ inputs.token_private || inputs.token || github.token }}"
+        echo "Cloning private repository $REPO..."
+        
+        # Configure URL with token
+        URL="https://x-access-token:${TOKEN}@github.com/${REPO}.git"
+        
+        # Clone to .private-temp
+        if git clone --depth 1 "$URL" .private-temp; then
+          echo "Successfully cloned private repository."
+        else
+          echo "::warning::Failed to clone private repository $REPO."
+        fi
 
     - name: Merge Private Repository and Setup Git Exclude
       if: steps.read-private.outputs.repo != ''
