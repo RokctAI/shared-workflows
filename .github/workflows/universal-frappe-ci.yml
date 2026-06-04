@@ -126,10 +126,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.MONOREPO_PAT || github.token }}
 
-      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
-
+      - uses: actions/checkout@v6
+      - name: Fetch and Merge Private Repository
+        shell: bash
+        run: |
+          if [ -f ".private_repo" ]; then
+            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            if [ -n "$REPO_NAME" ]; then
+              echo "Private repository configured: $REPO_NAME"
+              TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
+              URL="https://x-access-token:${TOKEN}@github.com/${REPO_NAME}.git"
+              if git clone --depth 1 "$URL" .private-temp; then
+                echo "Excluding private files from git tracking..."
+                mkdir -p .git/info
+                (cd .private-temp && find . -type f) | sed 's|^\./||' >> .git/info/exclude
+                echo "Merging private files..."
+                rm -rf .private-temp/.git .private-temp/.github
+                rsync -a .private-temp/ ./
+                rm -rf .private-temp
+              else
+                echo "::warning::Failed to clone private repository $REPO_NAME."
+              fi
+            fi
+          fi
       - name: Debug Secret Presence
         run: |
           if [ -n "${{ secrets.APP_ID }}" ]; then echo "✅ APP_ID reached this workflow."; else echo "❌ APP_ID is MISSING."; fi
