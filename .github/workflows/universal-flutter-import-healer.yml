@@ -39,12 +39,10 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           # Need full history so we can commit back
           fetch-depth: 0
-
       # Set identity immediately after checkout so every subsequent step
       # and subprocess (including flutter-import-healer.sh) can commit.
       # --global ensures subshells inherit it without needing $GITHUB_ENV.

@@ -28,9 +28,7 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+      - uses: actions/checkout@v6
       - name: Check License Headers
         uses: apache/skywalking-eyes/header@v0.4.0
         env:

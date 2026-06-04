@@ -81,12 +81,10 @@ jobs:
         run: apt-get update --fix-missing || (sleep 2 && apt-get update) && apt-get install -y --fix-missing git sudo curl python3 && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
           submodules: recursive
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -236,11 +234,9 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -281,11 +277,9 @@ jobs:
         run: apt-get update --fix-missing || (sleep 2 && apt-get update) && apt-get install -y --fix-missing git sudo curl python3 python3-pip && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -572,11 +566,9 @@ jobs:
           chmod +x /usr/local/bin/shfmt
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -729,11 +721,9 @@ jobs:
           apt-get install -y --fix-missing powershell
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -888,11 +878,9 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl unzip && git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -1071,10 +1059,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
-
+        uses: actions/checkout@v6
       - name: Scan for Unverified Data Exports
         run: |
           # Policy: Excel/CSV files should not be committed to the repo, 
@@ -1113,11 +1098,9 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        uses: actions/checkout@v6
         with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
-
       - name: Setup Bot Identity
         run: |
           git config --global user.name "RokctBOT[bot]"
@@ -1292,9 +1275,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+        uses: actions/checkout@v6
       - name: Install markdownlint
         run: npm install -g markdownlint-cli2
       - name: Run markdownlint
@@ -1306,9 +1287,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+        uses: actions/checkout@v6
       - name: Find Dockerfiles
         id: files
         run: |
@@ -1331,9 +1310,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+        uses: actions/checkout@v6
       - name: Check for TODO/FIXME comments
         run: |
           TODOS=$(grep -r -n -i -E "TODO|FIXME|HACK" --include="*.{py,js,ts,jsx,tsx,java,cs,go,rs,sh,ps1,yml,yaml,json,md}" --exclude-dir={.git,node_modules,__pycache__,env,venv,dist,build,.github} . || true)
@@ -1350,9 +1327,7 @@ jobs:
     name: 📋 Issue Template Validator
     runs-on: ubuntu-latest
     steps:
-      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+      - uses: actions/checkout@v6
       - name: Validate Issue Template Syntax
         run: |
           if [ -d ".github/ISSUE_TEMPLATE" ]; then
@@ -1380,9 +1355,7 @@ jobs:
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
+      - uses: actions/checkout@v6
       - name: Check README Version Consistency
         run: |
           if [ -f "version.json" ]; then

@@ -40,10 +40,7 @@ jobs:
         working-directory: platform
     steps:
       - name: Checkout Code
-        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
-        with:
-          token_private: ${{ secrets.MONOREPO_PAT }}
-
+        uses: actions/checkout@v6
       - name: Log in to Registry
         uses: docker/login-action@v3
         with:
