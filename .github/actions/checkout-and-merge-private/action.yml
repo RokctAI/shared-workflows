@@ -4,7 +4,7 @@ inputs:
   repository:
     description: 'Repository name'
     required: false
-    default: ${{ github.repository }}
+    default: ''
   ref:
     description: 'Ref to checkout'
     required: false
@@ -12,7 +12,7 @@ inputs:
   token:
     description: 'GitHub token'
     required: false
-    default: ${{ github.token }}
+    default: ''
   fetch-depth:
     description: 'Fetch depth'
     required: false
@@ -32,9 +32,9 @@ runs:
     - name: Checkout Host Repository
       uses: actions/checkout@v6
       with:
-        repository: ${{ inputs.repository }}
+        repository: ${{ inputs.repository || github.repository }}
         ref: ${{ inputs.ref }}
-        token: ${{ inputs.token }}
+        token: ${{ inputs.token || github.token }}
         fetch-depth: ${{ inputs.fetch-depth }}
         path: ${{ inputs.path }}
 
@@ -61,7 +61,7 @@ runs:
       uses: actions/checkout@v6
       with:
         repository: ${{ steps.read-private.outputs.repo }}
-        token: ${{ inputs.token_private || inputs.token }}
+        token: ${{ inputs.token_private || inputs.token || github.token }}
         path: .private-temp
         fetch-depth: 1
 
