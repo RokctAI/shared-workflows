@@ -96,8 +96,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
 
       - name: Run Gitleaks
@@ -218,7 +219,9 @@ jobs:
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+      with:
+        token_private: ${{ secrets.MONOREPO_PAT }}
 
     - name: Generate App Token
       id: app-token
@@ -332,7 +335,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
 
       - name: Generate App Token
         id: app-token

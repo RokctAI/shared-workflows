@@ -145,8 +145,9 @@ jobs:
            git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
 
       - name: Determine base commit
@@ -242,8 +243,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout target codebase
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
 
       - name: Checkout shared compliance action script

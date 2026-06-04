@@ -48,7 +48,9 @@ jobs:
             echo "authorized=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v6
+      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
 
       - name: Check Files + Trivial Diff
         id: check_files

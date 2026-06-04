@@ -39,8 +39,9 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           # Need full history so we can commit back
           fetch-depth: 0
 

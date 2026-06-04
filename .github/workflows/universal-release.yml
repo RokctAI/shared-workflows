@@ -161,7 +161,9 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl nodejs npm && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/checkout@v6
+      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
       - name: Setup Node
         run: |
           if [ "${{ inputs.project_type }}" = "frappe" ]; then
@@ -190,8 +192,9 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/checkout@v6
+      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
           filter: blob:none
 
@@ -354,8 +357,9 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
           filter: blob:none
 
@@ -560,8 +564,9 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
 
       - name: Regenerate AI Release Notes
@@ -673,7 +678,9 @@ jobs:
     if: inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')))
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -754,8 +761,9 @@ jobs:
           fi
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
         with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
           fetch-depth: 0
           filter: blob:none
 

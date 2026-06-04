@@ -28,7 +28,9 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: RokctAI/shared-workflows/.github/actions/checkout-and-merge-private@main
+        with:
+          token_private: ${{ secrets.MONOREPO_PAT }}
       - name: Link Checker
         uses: lycheeverse/lychee-action@v1
         with:
