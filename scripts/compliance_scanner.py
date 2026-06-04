@@ -98,11 +98,35 @@ def main():
         print(f"ARCHITECTURAL COMPLIANCE FAILED: {total_violations} violations found.")
         print("All changes must adhere to ROKCT production-grade standards before merging.")
         print("=" * 80)
+        log_compliance_evidence("FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.")
         sys.exit(1)
     else:
         print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
         print("=" * 80)
+        log_compliance_evidence("PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.")
         sys.exit(0)
+
+def log_compliance_evidence(status, detail):
+    try:
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        # Navigate 2 levels up to common workspace root (C:\Users\sinya\Desktop\RokctAI)
+        workspace_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
+        logger_script = os.path.join(workspace_root, "PlatformStack", ".rokct", "scripts", "log_evidence.py")
+        
+        if os.path.exists(logger_script):
+            import subprocess
+            subprocess.run([
+                sys.executable, logger_script,
+                "--control-id", "SOC2-CC7.1-COMPLIANCE",
+                "--status", status,
+                "--system", "compliance-scanner",
+                "--detail", detail
+            ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print("Compliance scan evidence logged to PlatformStack successfully.")
+        else:
+            print(f"Compliance evidence logger not found at: {logger_script}")
+    except Exception as e:
+        print(f"Error logging compliance evidence: {e}")
 
 if __name__ == "__main__":
     main()
