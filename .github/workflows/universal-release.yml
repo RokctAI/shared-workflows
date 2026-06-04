@@ -166,7 +166,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -220,7 +220,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -397,7 +397,6 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -406,7 +405,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -625,7 +624,6 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -633,7 +631,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -760,13 +758,12 @@ jobs:
     if: inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')))
     steps:
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -863,7 +860,6 @@ jobs:
           fi
 
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -872,7 +868,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"

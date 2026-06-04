@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"

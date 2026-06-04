@@ -98,13 +98,12 @@ jobs:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -546,13 +545,12 @@ jobs:
     permissions: write-all
     steps:
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
@@ -754,13 +752,12 @@ jobs:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
-      - name: Checkout Code
         uses: actions/checkout@v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
-            REPO_NAME=$(cat .private_repo | tr -d '\r\n[:space:]')
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
             if [ -n "$REPO_NAME" ]; then
               echo "Private repository configured: $REPO_NAME"
               TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
