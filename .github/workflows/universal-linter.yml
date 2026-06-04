@@ -1390,6 +1390,8 @@ jobs:
       - name: Commit & Push README changes
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.MONOREPO_PAT || github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -f "version.json" ]; then
             if ! git diff --exit-code README.md; then
@@ -1404,7 +1406,7 @@ jobs:
               git add README.md
               git commit -m "docs: auto-update README badges and version references [skip ci]"
               
-              BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+              BRANCH_NAME="${HEAD_REF:-$REF_NAME}"
               echo "Pushing to $BRANCH_NAME..."
               if git push origin HEAD:"$BRANCH_NAME"; then
                 echo "✅ README.md auto-updated and successfully pushed."
