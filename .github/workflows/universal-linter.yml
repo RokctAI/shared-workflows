@@ -1354,22 +1354,68 @@ jobs:
     needs: telemetry
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
+    permissions: write-all
     steps:
       - uses: actions/checkout@v6
-      - name: Check README Version Consistency
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MONOREPO_PAT || github.token }}
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Checkout Shared Workflows
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ secrets.MONOREPO_PAT || github.token }}
+          path: .github/shared-workflows
+
+      - name: Run Auto-Update Badge & Version
         run: |
           if [ -f "version.json" ]; then
-            CURRENT_VERSION=$(head -n 5 version.json | grep -v '{' | head -n 1 | cut -d'"' -f4 || true)
-            CURRENT_VERSION=$(echo "$CURRENT_VERSION" | xargs)
-            if [ -n "$CURRENT_VERSION" ]; then
-              echo "Current release version is: $CURRENT_VERSION"
-              if ! grep -q "$CURRENT_VERSION" README.md; then
-                echo "❌ README.md does not reference the current version $CURRENT_VERSION!"
-                exit 1
-              else
-                echo "✅ README.md successfully references current version $CURRENT_VERSION."
+             python3 .github/shared-workflows/scripts/update_readme_badges.py
+          fi
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always()
+        run: rm -rf .github/shared-workflows
+        shell: bash
+
+      - name: Commit & Push README changes
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.MONOREPO_PAT || github.token }}
+        run: |
+          if [ -f "version.json" ]; then
+            if ! git diff --exit-code README.md; then
+              echo "📝 README.md is out of sync. Committing auto-update..."
+              
+              # Set up Git identity if not set
+              if [ -z "$(git config user.name)" ]; then
+                git config user.name "RokctBOT[bot]"
+                git config user.email "2956274+RokctBOT[bot]@users.noreply.github.com"
               fi
+
+              git add README.md
+              git commit -m "docs: auto-update README badges and version references [skip ci]"
+              
+              BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+              echo "Pushing to $BRANCH_NAME..."
+              if git push origin HEAD:"$BRANCH_NAME"; then
+                echo "✅ README.md auto-updated and successfully pushed."
+              else
+                echo "❌ Failed to push updated README.md to branch."
+                exit 1
+              fi
+            else
+              echo "✅ README.md is already up to date."
             fi
           else
-            echo "No version.json found. Skipping README version check."
+            echo "No version.json found. Skipping."
           fi
+
