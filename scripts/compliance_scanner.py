@@ -35,7 +35,7 @@ def main():
                     dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__", ".rokct", "Compliance"]]
                     for file in files:
                         fp = os.path.join(root, file)
-                        if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
+                        if (file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower()) and not file.endswith(".g.dart") and not file.endswith(".gr.dart") and not file.endswith(".freezed.dart"):
                             files_to_scan.append(fp)
                             changed_files_list.append(fp)
     else:
@@ -47,7 +47,7 @@ def main():
             dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android", ".rokct", "Compliance"]]
             for file in files:
                 fp = os.path.join(root, file)
-                if file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower():
+                if (file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower()) and not file.endswith(".g.dart") and not file.endswith(".gr.dart") and not file.endswith(".freezed.dart"):
                     files_to_scan.append(fp)
                 if file.endswith(".json") and "doctype" in fp:
                     changed_files_list.append(fp)
