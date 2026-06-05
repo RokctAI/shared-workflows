@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 # Universal Upgrade & Integration Test
 # Validates Blue/Green handover from previous version to current version
 
@@ -17,7 +17,7 @@ on:
       registry:
         required: false
         type: string
-        default: "ghcr.io/rokctai/monorepo"
+        default: "ghcr.io/rokctai/occultation"
       app_name:
         required: false
         type: string
@@ -54,23 +54,23 @@ jobs:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
         run: |
           # Fetch tags from GitHub Container Registry (GHCR) using GH CLI
-          # The package name in GHCR for our monorepo artifacts
+          # The package name in GHCR for our occultation artifacts
           PKG_NAME="${{ inputs.app_name }}-control"
           ORG_NAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           
-          echo "Fetching tags for package: $ORG_NAME/monorepo/$PKG_NAME"
+          echo "Fetching tags for package: $ORG_NAME/occultation/$PKG_NAME"
           
           # Use GH API to fetch versions for the container package
           # Note: We use the 'orgs' or 'users' endpoint based on owner type.
           # For RokctAI it is an org.
           TAGS=$(gh api -H "Accept: application/vnd.github+json" \
-            "/orgs/$ORG_NAME/packages/container/monorepo%2F$PKG_NAME/versions" \
+            "/orgs/$ORG_NAME/packages/container/occultation%2F$PKG_NAME/versions" \
             --jq '.[] | .metadata.container.tags[]' 2>/dev/null | grep -v 'latest' | sort -V -r || echo "")
 
           if [ -z "$TAGS" ]; then
              echo "No tags found via GH API, trying fallback user endpoint..."
              TAGS=$(gh api -H "Accept: application/vnd.github+json" \
-               "/users/$ORG_NAME/packages/container/monorepo%2F$PKG_NAME/versions" \
+               "/users/$ORG_NAME/packages/container/occultation%2F$PKG_NAME/versions" \
                --jq '.[] | .metadata.container.tags[]' 2>/dev/null | grep -v 'latest' | sort -V -r || echo "")
           fi
 

@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Universal Flutter Build
 
@@ -263,8 +263,8 @@ jobs:
           echo "Build failed. Check the android-build-error-log artifact or the opened PR for details."
           exit 1
 
-      # --- Fetch Google Services JSON from Monorepo (Smart Mandatory) ---
-      - name: "Fetch/Decode Google Services JSON (Priority: Local > Monorepo > Secret)"
+      # --- Fetch Google Services JSON from Occultation (Smart Mandatory) ---
+      - name: "Fetch/Decode Google Services JSON (Priority: Local > Occultation > Secret)"
         if: github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
@@ -278,12 +278,12 @@ jobs:
              FILE_NAME="google-services.json"
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
 
-             # 1. Try Monorepo
-             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
-                echo "✅ Successfully synced $FILE_NAME from Monorepo."
+             # 1. Try Occultation
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+                echo "✅ Successfully synced $FILE_NAME from Occultation."
              else
                 # 2. Try Secrets
-                echo "⚠️ Not in Monorepo. Falling back to secrets..."
+                echo "⚠️ Not in Occultation. Falling back to secrets..."
                 JSON_CONTENT="$DEFAULT_JSON"
                 if [ -n "$CLIENT_JSON" ]; then
                    echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"
@@ -300,8 +300,8 @@ jobs:
           fi
         continue-on-error: false
 
-      # --- Fetch Environment from Monorepo (Smart Mandatory) ---
-      - name: Fetch Production Environment from Monorepo (Skip on develop)
+      # --- Fetch Environment from Occultation (Smart Mandatory) ---
+      - name: Fetch Production Environment from Occultation (Skip on develop)
         if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
@@ -315,8 +315,8 @@ jobs:
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
 
-          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
-          gh api "/repos/RokctAI/Monorepo/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Occultation..."
+          gh api "/repos/RokctAI/Occultation/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
           echo "✅ .env/production.env written."
 
           # Truncate at Flutter marker
@@ -690,16 +690,16 @@ jobs:
           echo "Build failed. Check the windows-build-error-log artifact or the opened PR for details."
           exit 1
 
-      # --- Fetch Environment from Monorepo ---
-      - name: Fetch Production Environment from Monorepo
+      # --- Fetch Environment from Occultation ---
+      - name: Fetch Production Environment from Occultation
         if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         shell: bash
         run: |
           mkdir -p .env
-          echo "🔍 Fetching production.env from RokctAI/Monorepo..."
-          gh api "/repos/RokctAI/Monorepo/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+          echo "🔍 Fetching production.env from RokctAI/Occultation..."
+          gh api "/repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
 
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
@@ -787,8 +787,8 @@ jobs:
           echo "client_upper=$CLIENT" >> "$GITHUB_OUTPUT"
           [ -n "$CLIENT" ] && echo "🔍 Detected Client: $CLIENT" || echo "ℹ️ Standard build (no client detected)"
 
-      # --- Fetch GoogleService-Info.plist from Monorepo (Smart Mandatory) ---
-      - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Monorepo > Secret)"
+      # --- Fetch GoogleService-Info.plist from Occultation (Smart Mandatory) ---
+      - name: "Fetch/Decode GoogleService-Info.plist (Priority: Local > Occultation > Secret)"
         if: github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
@@ -802,12 +802,12 @@ jobs:
              FILE_NAME="GoogleService-Info.plist"
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
 
-             # 1. Try Monorepo
-             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
-                echo "✅ Successfully synced $FILE_NAME from Monorepo."
+             # 1. Try Occultation
+             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
+                echo "✅ Successfully synced $FILE_NAME from Occultation."
              else
                 # 2. Try Secrets
-                echo "⚠️ Not in Monorepo. Falling back to secrets..."
+                echo "⚠️ Not in Occultation. Falling back to secrets..."
                 PLIST_CONTENT="$DEFAULT_PLIST"
                 if [ -n "$CLIENT_PLIST" ]; then
                    echo "✅ Using client-specific secret: IOS_GOOGLE_SERVICE_INFO_PLIST_$CLIENT_PREFIX"
@@ -824,8 +824,8 @@ jobs:
           fi
         continue-on-error: false
 
-      # --- Fetch Environment from Monorepo ---
-      - name: Fetch Production Environment from Monorepo (Dynamic Resolution)
+      # --- Fetch Environment from Occultation ---
+      - name: Fetch Production Environment from Occultation (Dynamic Resolution)
         if: env.MONOREPO_PAT != '' && github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
@@ -837,8 +837,8 @@ jobs:
              LOWER_PREFIX=$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
-          echo "🔍 Fetching $FILE_NAME from RokctAI/Monorepo..."
-          gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
+          echo "🔍 Fetching $FILE_NAME from RokctAI/Occultation..."
+          gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
 
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then

@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Frappe App Test
 
@@ -200,7 +200,7 @@ jobs:
               echo "Starting PostgreSQL..."
               # rpanel-db:latest is always available — the rollback job explicitly excludes
               # the DB image so :latest is never accidentally deleted on upgrade test failures.
-              DB_IMAGE="ghcr.io/rokctai/monorepo/rpanel-db:latest"
+              DB_IMAGE="ghcr.io/rokctai/occultation/rpanel-db:latest"
               echo "Logging into GHCR..."
               echo "${{ secrets.MONOREPO_PAT || github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
               echo "Pulling $DB_IMAGE..."
@@ -275,14 +275,14 @@ jobs:
           # Packages already installed in System Essentials: wkhtmltopdf, mariadb-client, postgresql-client
           echo "System dependencies already satisfied in previous steps."
 
-      - name: Checkout Monorepo for Overrides
+      - name: Checkout Occultation for Overrides
         if: inputs.bootstrap == true
-        # Graceful Skip: Don't fail if Monorepo is inaccessible (e.g. Forks or Token errors)
+        # Graceful Skip: Don't fail if Occultation is inaccessible (e.g. Forks or Token errors)
         continue-on-error: true
         uses: actions/checkout@v6
         with:
-          repository: RokctAI/Monorepo
-          path: monorepo_overrides
+          repository: RokctAI/Occultation
+          path: occultation_overrides
           token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Setup CI Identity & Services 🔐⚙️
@@ -342,12 +342,12 @@ jobs:
           BENCH_BIN=$(which bench)
           BENCH_BIN=$BENCH_BIN python3 -c "import os, pwd, getpass; path = os.getenv('BENCH_BIN'); content = open(path).read().splitlines(); patch = 'import os, pwd, getpass\ntry:\n    f_uid = pwd.getpwnam(\"frappe\").pw_uid\nexcept Exception:\n    f_uid = 1000\nos.getuid = lambda: f_uid\nos.geteuid = lambda: f_uid\ngetpass.getuser = lambda: \"frappe\"'; content.insert(1, patch); open(path, 'w').write('\n'.join(content) + '\n')"
 
-          # PATCH: Override bench source code with Monorepo version
-          if [ -d "monorepo_overrides/bench" ]; then
-             echo "🔥 Applying Bench Overrides from Monorepo..."
+          # PATCH: Override bench source code with Occultation version
+          if [ -d "occultation_overrides/bench" ]; then
+             echo "🔥 Applying Bench Overrides from Occultation..."
              BENCH_PATH="$(python3 -c "import bench; import os; print(os.path.dirname(bench.__file__))")"
              echo "Target Bench Path: $BENCH_PATH"
-             cp -r monorepo_overrides/bench/bench/* "$BENCH_PATH/"
+             cp -r occultation_overrides/bench/bench/* "$BENCH_PATH/"
              echo "✅ Bench patches applied."
           fi
           
@@ -395,7 +395,7 @@ jobs:
           echo "Syncing workspace code into apps/$TARGET_DIR..."
           # Source is the GITHUB_WORKSPACE root
           # We use a trailing slash to copy contents, and ensure absolute path resolution
-          rsync -a --delete --exclude 'frappe-bench' --exclude 'monorepo_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
+          rsync -a --delete --exclude 'frappe-bench' --exclude 'occultation_overrides' --exclude '.git' --exclude '.github' "$GITHUB_WORKSPACE/" "./apps/$TARGET_DIR/"
           
           echo "Verifying sync results in apps/$TARGET_DIR/:"
           ls -la "apps/$TARGET_DIR/" || true

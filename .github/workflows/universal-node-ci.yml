@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Universal Node.js CI
 
@@ -140,7 +140,7 @@ jobs:
              echo "ℹ️ Standard build (no client detected)"
           fi
 
-      - name: "Decode Production Environment (Priority: Monorepo > Secret)"
+      - name: "Decode Production Environment (Priority: Occultation > Secret)"
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
           CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
@@ -154,12 +154,12 @@ jobs:
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
 
-          # 1. Try Monorepo
-          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
-             echo "✅ Successfully synced $FILE_NAME from Monorepo."
+          # 1. Try Occultation
+          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+             echo "✅ Successfully synced $FILE_NAME from Occultation."
           else
              # 2. Try Secrets
-             echo "⚠️ Not in Monorepo. Falling back to secrets..."
+             echo "⚠️ Not in Occultation. Falling back to secrets..."
              ENV_CONTENT="$DEFAULT_ENV"
              if [ -n "$CLIENT_ENV" ]; then
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"

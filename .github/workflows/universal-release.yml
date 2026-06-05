@@ -1,4 +1,4 @@
-# Copyright 2024 RokctAI
+﻿# Copyright 2024 RokctAI
 
 name: Universal Release Workflow
 
@@ -1340,7 +1340,7 @@ jobs:
           cache: true
 
       # --- ENV SETUP (Critical for Client Config) ---
-      - name: "Decode Production Environment (Priority: Monorepo > Secret)"
+      - name: "Decode Production Environment (Priority: Occultation > Secret)"
         if: (inputs.build_android == true || inputs.build_windows == true) && github.ref_name != 'develop'
         env:
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
@@ -1355,12 +1355,12 @@ jobs:
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
 
-          # 1. Try Monorepo
-          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env 2>/dev/null; then
-             echo "✅ Successfully synced $FILE_NAME from Monorepo."
+          # 1. Try Occultation
+          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env 2>/dev/null; then
+             echo "✅ Successfully synced $FILE_NAME from Occultation."
           else
              # 2. Try Secrets
-             echo "⚠️ Not in Monorepo. Falling back to secrets..."
+             echo "⚠️ Not in Occultation. Falling back to secrets..."
              ENV_CONTENT="$DEFAULT_ENV"
              if [ -n "$CLIENT_ENV" ]; then
                 echo "✅ Using client-specific secret: PRODUCTION_ENV_$CLIENT_PREFIX"
@@ -1387,7 +1387,7 @@ jobs:
              echo "✅ .env/production.env ready for Flutter release."
           fi
 
-      # Decode Google Services JSON (Priority: Local > Monorepo > Secret)
+      # Decode Google Services JSON (Priority: Local > Occultation > Secret)
       - name: Decode Google Services JSON
         if: inputs.build_android == true && github.ref_name != 'develop'
         env:
@@ -1407,12 +1407,12 @@ jobs:
                    FILE_NAME="${LOWER_PREFIX}_google-services.json"
                  fi
 
-                 # 1. Try Monorepo
-                 if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
-                    echo "✅ Successfully synced $FILE_NAME from Monorepo."
+                 # 1. Try Occultation
+                 if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+                    echo "✅ Successfully synced $FILE_NAME from Occultation."
                  else
                     # 2. Try Secrets
-                    echo "⚠️ Not in Monorepo. Falling back to secrets..."
+                    echo "⚠️ Not in Occultation. Falling back to secrets..."
                     JSON_CONTENT="$DEFAULT_JSON"
                     if [ -n "$CLIENT_JSON" ]; then
                        echo "✅ Using client-specific secret: GOOGLE_SERVICES_JSON_$CLIENT_PREFIX"

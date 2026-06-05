@@ -1,4 +1,4 @@
-# Universal Shared Workflows
+﻿# Universal Shared Workflows
 
 <!-- usage-badge-start -->
 ![Total Builds](https://img.shields.io/badge/Total%20Builds-^15k-blue)
@@ -125,20 +125,20 @@ To maintain a healthy balance between **speed** and **stability**, we use a tier
 
 ---
 
-## 🔐 Secrets & Monorepo Strategy
+## 🔐 Secrets & Occultation Strategy
 
-To simplify fleet management, we prioritize fetching configuration (`.env`, `google-services.json`) from a central **Monorepo** instead of managing dozens of duplicate GitHub Secrets.
+To simplify fleet management, we prioritize fetching configuration (`.env`, `google-services.json`) from a central **Occultation** instead of managing dozens of duplicate GitHub Secrets.
 
-### 🏢 Monorepo Fetching (The New Standard)
-All core workflows now follow a **"Priority: Local > Monorepo > Secret"** resolution strategy:
+### 🏢 Occultation Fetching (The New Standard)
+All core workflows now follow a **"Priority: Local > Occultation > Secret"** resolution strategy:
 1.  **Local**: If the file (e.g., `android/app/google-services.json`) is already committed to the repo, it is used.
-2.  **Monorepo**: If not local, the CI attempts to fetch `${CLIENT}_production.env` or `${CLIENT}_google-services.json` from `RokctAI/Monorepo/.env/` using the `MONOREPO_PAT`.
-3.  **Secret**: If the Monorepo fetch fails, it falls back to the legacy `PRODUCTION_ENV` or `GOOGLE_SERVICES_JSON` secrets.
+2.  **Occultation**: If not local, the CI attempts to fetch `${CLIENT}_production.env` or `${CLIENT}_google-services.json` from `RokctAI/Occultation/.env/` using the `MONOREPO_PAT`.
+3.  **Secret**: If the Occultation fetch fails, it falls back to the legacy `PRODUCTION_ENV` or `GOOGLE_SERVICES_JSON` secrets.
 
 ### 🔑 Required Secrets
 Ensure these are set in your Repository (or Org) settings. **All workflows use `secrets: inherit`**.
 
-*   **`MONOREPO_PAT`**: (Recommended) A GitHub Personal Access Token with read access to the `RokctAI/Monorepo` repository.
+*   **`MONOREPO_PAT`**: (Recommended) A GitHub Personal Access Token with read access to the `RokctAI/Occultation` repository.
 *   **`APP_ID` / `APP_PRIVATE_KEY`**: (Recommended) Used by the CI to bypass `GITHUB_TOKEN` rate limits and perform authenticated actions (like PR creation).
 
 ### 1. Android Signing 🤖

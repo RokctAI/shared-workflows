@@ -1,4 +1,4 @@
-# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
+﻿# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
 import os
@@ -439,22 +439,22 @@ def sync_submodules(check_only=False):
     return False
 
 
-def fix_monorepo_secrets(content):
+def fix_occultation_secrets(content):
     if "# rokct-ignore" in content:
         return content
 
-    # 1. Inject Monorepo fetch into Node CI if it's missing (legacy secret-only mode)
+    # 1. Inject Occultation fetch into Node CI if it's missing (legacy secret-only mode)
     if "universal-node-ci.yml" in content or "package.json" in content:
-        if "gh api /repos/RokctAI/Monorepo/contents/.env/" not in content:
+        if "gh api /repos/RokctAI/Occultation/contents/.env/" not in content:
             # We look for the step that decodes the production environment
             pattern = r"(- name: Decode Production Environment.*?run: \|.*?\n)(.*?)(?=\n\s*- name:|\Z)"
             def repl(m):
                 header = m.group(1)
                 indent = re.match(r"^(\s*)", m.group(2)).group(1) if m.group(2).strip() else "          "
                 new_step = f"""{header}{indent}FILE_NAME="production.env"
-{indent}# 1. Try Monorepo
-{indent}if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Monorepo/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
-{indent}   echo "✅ Successfully synced $FILE_NAME from Monorepo."
+{indent}# 1. Try Occultation
+{indent}if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+{indent}   echo "✅ Successfully synced $FILE_NAME from Occultation."
 {indent}else
 {indent}   # 2. Try Secrets Fallback...
 """
@@ -591,7 +591,7 @@ def main():
                 new_content = fix_workflow_permissions(content)
                 new_content = fix_workflow_node_version(new_content)
                 new_content = fix_workflow_inputs(new_content)
-                new_content = fix_monorepo_secrets(new_content)
+                new_content = fix_occultation_secrets(new_content)
                 new_content = fix_workflow_triggers(new_content, file)
                 new_content = fix_bot_identity(new_content)
                 new_content = fix_git_identity(new_content)
