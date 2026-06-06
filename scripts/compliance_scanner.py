@@ -4,7 +4,10 @@
 
 import sys
 import os
+import json
+import re
 import subprocess
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -87,16 +90,52 @@ def main():
         print(f"ARCHITECTURAL COMPLIANCE FAILED: {total_violations} violations found.")
         print("All changes must adhere to ROKCT production-grade standards before merging.")
         print("=" * 80)
-        log_compliance_evidence("FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.")
+        log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.")
         sys.exit(1)
     else:
         print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
         print("=" * 80)
-        log_compliance_evidence("PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.")
+        log_compliance_evidence(target_dirs, "PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.")
         sys.exit(0)
 
 def is_ci_environment():
     return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+def sanitize_text(text):
+    if not isinstance(text, str):
+        return text
+    text = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '[REDACTED_IP]', text)
+    text = re.sub(r'[A-Za-z]:\\[Uu]sers\\[^\\]+', r'[WORKSPACE_ROOT]', text)
+    text = re.sub(r'/home/[^/]+', r'[WORKSPACE_ROOT]', text)
+    text = re.sub(r'(?i)(password|passwd|secret|token|key|auth|credential|api_key|pkey)\s*[:=]\s*[^\s,;]+', r'\1=[REDACTED]', text)
+    return text
+
+def resolve_evidence_repo(target_dirs):
+    override = os.environ.get("EVIDENCE_REPO_DIR")
+    if override and os.path.isdir(os.path.join(override, ".rokct")):
+        return os.path.abspath(override)
+    for d in target_dirs:
+        d = os.path.abspath(d)
+        if os.path.isdir(os.path.join(d, ".rokct")):
+            return d
+    return os.getcwd()
+
+def write_evidence_file(repo_dir, control_id, status, detail):
+    evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", control_id)
+    os.makedirs(evidence_dir, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{timestamp}_{status}.json"
+    filepath = os.path.join(evidence_dir, filename)
+    payload = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "control_id": control_id,
+        "status": status,
+        "system": "compliance-scanner",
+        "detail": sanitize_text(detail)
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    return filepath
 
 def gh_push_evidence_pr(repo_dir, evidence_filepath, control_id, status, detail):
     branch = f"compliance/evidence/{control_id.lower()}"
@@ -117,33 +156,16 @@ def gh_push_evidence_pr(repo_dir, evidence_filepath, control_id, status, detail)
     except Exception as e:
         print(f"Unexpected error in evidence PR flow: {e}", file=sys.stderr)
 
-def log_compliance_evidence(status, detail):
+def log_compliance_evidence(target_dirs, status, detail):
+    repo_dir = resolve_evidence_repo(target_dirs)
+    if not repo_dir:
+        print("No repo with .rokct directory found for evidence logging.")
+        return
     try:
-        current_file_dir = os.path.dirname(os.path.abspath(__file__))
-        workspace_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
-        logger_script = os.path.join(workspace_root, "PlatformStack", ".rokct", "scripts", "log_evidence.py")
-
-        if not os.path.exists(logger_script):
-            print(f"Compliance evidence logger not found at: {logger_script}")
-            return
-
-        result = subprocess.run([
-            sys.executable, logger_script,
-            "--control-id", "SOC2-CC7.1-COMPLIANCE",
-            "--status", status,
-            "--system", "compliance-scanner",
-            "--detail", detail
-        ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print(result.stdout.strip() or "Compliance scan evidence logged.")
-
+        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail)
+        print(f"Compliance evidence written to: {evidence_path}")
         if is_ci_environment():
-            from datetime import datetime
-            timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-            filename = f"{timestamp}_{status}.json"
-            evidence_path = os.path.join(workspace_root, ".rokct", "evidence", "SOC2-CC7.1-COMPLIANCE", filename)
-            gh_push_evidence_pr(workspace_root, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
-    except subprocess.CalledProcessError as e:
-        print(f"Error logging compliance evidence: {e.stderr.strip() if e.stderr else str(e)}", file=sys.stderr)
+            gh_push_evidence_pr(repo_dir, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
     except Exception as e:
         print(f"Error logging compliance evidence: {e}", file=sys.stderr)
 
