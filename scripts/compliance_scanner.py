@@ -6,7 +6,6 @@ import sys
 import os
 import subprocess
 
-# Append current script folder to path so local 'compliance' package is resolvable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from compliance import scan_file, check_database_migrations
@@ -17,11 +16,10 @@ def main():
     print("ROKCT PLATFORM ECOSYSTEM - ARCHITECTURAL COMPLIANCE GATEWAY")
     print("=" * 80)
 
-    # 1. Resolve files to scan: either passed directly or changed in git diff
     files_to_scan = []
     changed_files_list = []
     target_dirs = []
-    
+
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
             if os.path.isfile(arg):
@@ -31,7 +29,6 @@ def main():
             elif os.path.isdir(arg):
                 target_dirs.append(arg)
                 for root, dirs, files in os.walk(arg):
-                    # Prune third-party dependency, build, and platform cache directories
                     dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__", ".rokct", "Compliance"]]
                     for file in files:
                         fp = os.path.join(root, file)
@@ -39,11 +36,9 @@ def main():
                             files_to_scan.append(fp)
                             changed_files_list.append(fp)
     else:
-        # Default: scan recursively from current directory to force strict codebase-wide compliance
         print("Scanning all python/config/nextjs/flutter files in current workspace for full compliance...")
         target_dirs.append(".")
         for root, dirs, files in os.walk("."):
-            # Prune third-party and platform build cache folders
             dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android", ".rokct", "Compliance"]]
             for file in files:
                 fp = os.path.join(root, file)
@@ -52,7 +47,6 @@ def main():
                 if file.endswith(".json") and "doctype" in fp:
                     changed_files_list.append(fp)
 
-    # Deduplicate target directories
     target_dirs = list(set(os.path.abspath(d) for d in target_dirs))
 
     if not files_to_scan and not changed_files_list:
@@ -62,7 +56,6 @@ def main():
     print(f"Auditing {len(files_to_scan)} source files...")
     total_violations = 0
 
-    # 2. Run AST and File Scanning
     for filepath in files_to_scan:
         errors = scan_file(filepath)
         if errors:
@@ -71,7 +64,6 @@ def main():
                 print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
                 total_violations += 1
 
-    # 3. Run Layer 3 Schema Compliance Checks
     migration_errors = check_database_migrations(changed_files_list)
     if migration_errors:
         print("\nCOMPLIANCE VIOLATION in: Git Schema Diff")
@@ -79,11 +71,8 @@ def main():
             print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
             total_violations += 1
 
-    # 4. Run Layer 20 Documentation Sync Compliance Checks
     if total_violations == 0:
         for target_dir in target_dirs:
-            # Run in write mode so missing AI docs are generated and written to disk.
-            # The CI will auto-commit these changes instead of failing.
             drifted = scan_and_sync(target_dir, check_only=False)
             if drifted:
                 print(f"\nDOCUMENTATION AUTO-HEALED: Documentation drift detected and fixed in {target_dir}")
@@ -106,27 +95,57 @@ def main():
         log_compliance_evidence("PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.")
         sys.exit(0)
 
+def is_ci_environment():
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+def gh_push_evidence_pr(repo_dir, evidence_filepath, control_id, status, detail):
+    branch = f"compliance/evidence/{control_id.lower()}"
+    title = f"compliance(evidence): log SOC 2 evidence for {control_id} ({status}) [skip ci]"
+    try:
+        subprocess.run(["git", "-C", repo_dir, "checkout", "-b", branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "-C", repo_dir, "add", evidence_filepath], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-m", title], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "-C", repo_dir, "push", "-u", "origin", branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pr_body = f"Automated compliance evidence for `{control_id}`.\n\n- **Status:** {status}\n- **Detail:** {detail}"
+        res = subprocess.run(["gh", "-C", repo_dir, "pr", "create", "--title", title, "--body", pr_body, "--base", "main", "--head", branch], capture_output=True, text=True)
+        if res.returncode != 0 and "already exists" not in (res.stderr or "").lower():
+            print(f"gh pr create warning: {res.stderr.strip()}", file=sys.stderr)
+        elif res.returncode == 0:
+            print(f"Opened evidence PR: {res.stdout.strip()}")
+    except subprocess.CalledProcessError as e:
+        print(f"Evidence PR flow failed: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"Unexpected error in evidence PR flow: {e}", file=sys.stderr)
+
 def log_compliance_evidence(status, detail):
     try:
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
-        # Navigate 2 levels up to common workspace root (C:\Users\sinya\Desktop\RokctAI)
         workspace_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
         logger_script = os.path.join(workspace_root, "PlatformStack", ".rokct", "scripts", "log_evidence.py")
-        
-        if os.path.exists(logger_script):
-            import subprocess
-            subprocess.run([
-                sys.executable, logger_script,
-                "--control-id", "SOC2-CC7.1-COMPLIANCE",
-                "--status", status,
-                "--system", "compliance-scanner",
-                "--detail", detail
-            ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            print("Compliance scan evidence logged to PlatformStack successfully.")
-        else:
+
+        if not os.path.exists(logger_script):
             print(f"Compliance evidence logger not found at: {logger_script}")
+            return
+
+        result = subprocess.run([
+            sys.executable, logger_script,
+            "--control-id", "SOC2-CC7.1-COMPLIANCE",
+            "--status", status,
+            "--system", "compliance-scanner",
+            "--detail", detail
+        ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print(result.stdout.strip() or "Compliance scan evidence logged.")
+
+        if is_ci_environment():
+            from datetime import datetime
+            timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+            filename = f"{timestamp}_{status}.json"
+            evidence_path = os.path.join(workspace_root, ".rokct", "evidence", "SOC2-CC7.1-COMPLIANCE", filename)
+            gh_push_evidence_pr(workspace_root, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
+    except subprocess.CalledProcessError as e:
+        print(f"Error logging compliance evidence: {e.stderr.strip() if e.stderr else str(e)}", file=sys.stderr)
     except Exception as e:
-        print(f"Error logging compliance evidence: {e}")
+        print(f"Error logging compliance evidence: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
