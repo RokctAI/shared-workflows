@@ -7,7 +7,7 @@ def check_layer16_tenant_isolation(filepath):
     base = os.path.basename(filepath).lower()
     path_lower = filepath.lower()
     if filepath.endswith(".py"):
-        if not any(x in path_lower for x in ["rcore", "paas", "rpanel", "control/control"]):
+        if not any(x in path_lower for x in ["rcore", "paas", "rpanel", "control/control", "betassist"]):
             return errors
 
         if "test" in path_lower:

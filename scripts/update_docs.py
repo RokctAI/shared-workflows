@@ -164,6 +164,8 @@ def get_node_source_hash(source, node):
 
 def strip_comments_except_docs(content, is_ts=True):
     """Strip standard comments (commented-out code) while preserving docs (JSDoc or DartDoc)."""
+    # A cleaner, less catastrophic backtracking regex pattern or line-by-line helper.
+    # To prevent MemoryError (regex stack overflow / catastrophic backtracking), let's process carefully.
     if is_ts:
         pattern = re.compile(
             r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`)|'
@@ -172,11 +174,12 @@ def strip_comments_except_docs(content, is_ts=True):
             re.DOTALL | re.MULTILINE
         )
     else:  # Dart
+        # Dart multi-line comments don't nest arbitrarily in this parser's context, but let's make it simpler and avoid DOTALL/large block recursion if we can.
         pattern = re.compile(
             r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')|'
-            r'(///.*?$)|'
-            r'(/\*.*?\*/|//.*?$)',
-            re.DOTALL | re.MULTILINE
+            r'(///[^\r\n]*)|'
+            r'(/\*.*?\*/|//[^\r\n]*)',
+            re.DOTALL
         )
     
     def replace(match):
@@ -187,7 +190,11 @@ def strip_comments_except_docs(content, is_ts=True):
         else:
             return ""
             
-    return pattern.sub(replace, content)
+    try:
+        return pattern.sub(replace, content)
+    except (MemoryError, OverflowError, RuntimeError):
+        # Fallback to line by line or return content if regex fails
+        return content
 
 def clean_jsdoc(jsdoc):
     """Remove /**, */, and leading asterisks from JSDoc lines."""

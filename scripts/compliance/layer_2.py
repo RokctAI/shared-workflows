@@ -19,7 +19,25 @@ def check_layer2_function_def(visitor, node):
     
     if is_whitelisted:
         path_normalized = visitor.filename.replace("\\", "/").lower()
-        if not any(x in path_normalized for x in ["/api/auth/", "/api/brain/", "/api/plan_builder/", "/api/setup/"]):
+        known_api_paths = [
+            "/api/auth/",
+            "/api/brain/",
+            "/api/plan_builder/",
+            "/api/setup/",
+            "/betassist/api",     # BetAssist REST API
+        ]
+        if not any(x in path_normalized for x in known_api_paths):
+            # FIX: Do NOT silently pass. Warn that this whitelisted function
+            # is in an unrecognised path and has not been layer-2 verified.
+            visitor.errors.append({
+                "line": node.lineno,
+                "type": "Layer 2 (Unknown API Path)",
+                "message": (
+                    f"@frappe.whitelist function '{node.name}()' is defined outside all known "
+                    f"API paths {known_api_paths}. Layer 2 type-safety checks were skipped. "
+                    f"Move this function into a registered API path or add its path to layer_2.py."
+                )
+            })
             is_whitelisted = False
     
     if is_whitelisted:

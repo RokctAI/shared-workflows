@@ -19,7 +19,25 @@ def check_layer12_observability(visitor, node):
     
     if is_whitelisted:
         path_normalized = visitor.filename.replace("\\", "/").lower()
-        if not any(x in path_normalized for x in ["/api/auth/", "/api/brain/", "/api/plan_builder/", "/api/setup/"]):
+        known_api_paths = [
+            "/api/auth/",
+            "/api/brain/",
+            "/api/plan_builder/",
+            "/api/setup/",
+            "/betassist/api",     # BetAssist REST API
+        ]
+        if not any(x in path_normalized for x in known_api_paths):
+            # FIX: Do NOT silently pass. Warn that this whitelisted function
+            # is in an unrecognised path and has not been layer-12 verified.
+            visitor.errors.append({
+                "line": node.lineno,
+                "type": "Layer 12 (Unknown API Path - Observability Skipped)",
+                "message": (
+                    f"@frappe.whitelist function '{node.name}()' is outside all known API paths "
+                    f"{known_api_paths}. Layer 12 observability checks were skipped. "
+                    f"Move this function into a registered API path or add its path to layer_12.py."
+                )
+            })
             is_whitelisted = False
             
     if is_whitelisted:
@@ -97,16 +115,95 @@ def check_layer12_db_tracing(visitor, node):
 def check_layer12_flutter_observability(filepath):
     errors = []
     if filepath.endswith(".dart"):
-        if "api" in filepath.lower() or "service" in filepath.lower():
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
+        # Old check: only triggered on files named *api* or *service* — too narrow.
+        # Fixed: trigger on ANY Dart file that makes outgoing HTTP calls.
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            makes_http_calls = any(pkg in content for pkg in [
+                "package:http/", "package:dio/", "HttpClient", "Uri.https", "Uri.http"
+            ])
+            is_api_or_service = any(x in filepath.lower() for x in ["api", "service", "repository", "remote"])
+            if makes_http_calls or is_api_or_service:
                 if "x-trace-id" not in content.lower() and "trace" not in content.lower() and "requestid" not in content.lower():
                     errors.append({
                         "line": 1,
-                        "type": "Layer 12 (Observability - Flutter)",
-                        "message": f"Flutter API/Service layer '{os.path.basename(filepath)}' fails to propagate structured Trace/Request IDs in outgoing network header maps."
+                        "type": "Layer 12 (Observability - Flutter Trace ID)",
+                        "message": f"Flutter file '{os.path.basename(filepath)}' makes outgoing HTTP calls but fails to propagate a structured Trace/Request ID in outgoing network headers."
                     })
-            except Exception as e:
-                errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
+
+@register_file_checker
+def check_layer12_flutter_crash_reporting(filepath):
+    """Enforce crash/error reporting SDK integration in Flutter app entrypoints."""
+    errors = []
+    if filepath.endswith(".dart") and os.path.basename(filepath) == "main.dart":
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            has_crash_reporting = any(x in content.lower() for x in [
+                "firebase_crashlytics", "sentry", "crashlytics", "fluttererror",
+                "platformdispatcher", "recorderror", "captureerception"
+            ])
+            if not has_crash_reporting:
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 12 (Observability - Crash Reporting)",
+                    "message": f"Flutter entrypoint '{os.path.basename(filepath)}' lacks crash/error reporting integration. Integrate Firebase Crashlytics or Sentry to capture unhandled exceptions in production."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+@register_file_checker
+def check_layer12_flutter_analytics(filepath):
+    """Enforce analytics event tracking in Flutter screens and key user action handlers."""
+    errors = []
+    if filepath.endswith(".dart") and os.path.basename(filepath) == "main.dart":
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            has_analytics = any(x in content.lower() for x in [
+                "firebase_analytics", "analytics", "logevent", "log_event",
+                "amplitude", "mixpanel", "posthog", "segment"
+            ])
+            if not has_analytics:
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 12 (Observability - Analytics)",
+                    "message": f"Flutter entrypoint '{os.path.basename(filepath)}' lacks analytics event tracking. Integrate Firebase Analytics or equivalent to track key user actions (bet placed, AR launched, onboarding completed)."
+                })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+@register_file_checker
+def check_layer15_flutter_http_timeout(filepath):
+    """Enforce timeout configuration on Dart/Flutter HTTP clients."""
+    errors = []
+    if filepath.endswith(".dart"):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Skip interceptor files — they import Dio but don't configure the client.
+            # Timeouts must be set on the Dio BaseOptions in HttpService, not here.
+            if "interceptor" in os.path.basename(filepath).lower():
+                return errors
+            uses_http = any(pkg in content for pkg in ["package:http/", "package:dio/", "HttpClient("])
+            if uses_http:
+                has_timeout = any(x in content.lower() for x in [
+                    "timeout", "connectiontimeout", "receivetimeout", "sendtimeout"
+                ])
+                if not has_timeout:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 15 (Webhook & Integration - Flutter HTTP Timeout)",
+                        "message": f"Flutter file '{os.path.basename(filepath)}' uses an HTTP client (http/dio) but configures no timeout. Set connectTimeout and receiveTimeout to prevent hanging requests."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+

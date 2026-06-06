@@ -67,7 +67,14 @@ def check_layer4_5_file_safety(filepath):
             for idx, line in enumerate(lines, 1):
                 line_lower = line.lower()
                 if any(k in line_lower for k in ["key", "secret", "token", "password"]):
-                    if ('"' in line or "'" in line) and not any(p in line_lower for p in ["dotenv", "environment", "placeholder", "key:"]):
+                    # Skip: storage lookups, interceptor headers, comments, and safe patterns
+                    if any(p in line_lower for p in [
+                        "dotenv", "environment", "placeholder", "key:",
+                        "read(key", "write(key", "storage", "headers[",
+                        "//", "///", "*", "interceptor"
+                    ]):
+                        continue
+                    if ('"' in line or "'" in line):
                         parts = line.split("=")
                         if len(parts) > 1:
                             val = parts[1].strip()
