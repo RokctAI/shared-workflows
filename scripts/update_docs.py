@@ -645,6 +645,16 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
     content = "\n".join(lines).strip() + "\n"
     return content
 
+def is_excluded(target_dir):
+    exclude_path = os.path.join(target_dir, ".exclude")
+    if os.path.isfile(exclude_path):
+        with open(exclude_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        if not content.strip():
+            return True
+        return "update_docs" in content
+    return False
+
 def scan_and_sync(target_dir, check_only=False):
     """Scan directory and sync docs to target_dir/docs/api/."""
     global LOGGER
@@ -653,6 +663,11 @@ def scan_and_sync(target_dir, check_only=False):
     
     if LOGGER is None:
         LOGGER = setup_logger(target_dir)
+
+    if is_excluded(target_dir):
+        if LOGGER:
+            LOGGER.info(f"Repo exclusion found (.exclude). Skipping auto-creation for {target_dir}")
+        return []
 
     project_type = detect_project_type(target_dir)
     if LOGGER:
