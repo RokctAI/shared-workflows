@@ -88,3 +88,18 @@ def check_layer2_flutter_dynamic(filepath):
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
+
+@register_file_checker
+def check_layer2_no_python_in_special_dirs(filepath):
+    errors = []
+    if filepath.endswith(".py"):
+        normalized = filepath.replace("\\", "/")
+        for forbidden in [".github/", ".rokct/"]:
+            if forbidden in normalized:
+                errors.append({
+                    "line": 1,
+                    "type": "Layer 2 (Structural)",
+                    "message": f"Python files are forbidden under {forbidden}. Move scripts to allowed directories."
+                })
+                break
+    return errors
