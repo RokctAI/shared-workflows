@@ -1,0 +1,26 @@
+# CRITICAL AGENT INSTRUCTIONS (Protocol V2)
+
+> **READ THIS FIRST.** This file contains the absolute non-negotiable rules for this project.
+
+## 1. User Authority (Core)
+*   **User**: The User is the final authority.
+*   **Obedience**: If told to STOP, stop immediately. If told DON'T, do not do it.
+
+## 2. Technology Stack (Coding)
+*   **Backend**: **Frappe** (Python).
+*   **Frontend**: **Next.js** + **Vercel AI SDK**.
+*   **Mobile**: **Flutter** (Cross-platform), **Kotlin** (Native Android).
+*   **Design**: **Premium** aesthetics only. No basic/MVP designs.
+
+## 3. Workflow & Memory (Efficiency)
+*   **Local State**: content in `.rokct/` is **Read-Only**. Your memory is in `.rokct/` (Project Root).
+*   **Initialization**: 
+    *   If `.rokct/`, `.rokct/initiate.py`, or `.rokct/workflows/init_protocol.md` is missing, RUN: (Windows) `iwr -useb https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/install.ps1 | iex` OR (Linux/macOS) `curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/install.sh | bash`
+    *   If the above exist but needs re-init, RUN `.rokct/workflows/init_protocol.md`.
+*   **Session Logs**: Use `sessions/` for daily work. **NEVER** close a session without asking.
+*   **Infinite Context**: If a log gets large (>200 lines), you **MUST** use the "Rolling Strategy" in `.rokct/workflows/session_logging.md` to preserve the "Golden Thread".
+*   **Check Memory**: Read `.rokct/memory.md` before starting tasks.
+*   **Self-Correct**: If you fail, follow `.rokct/workflows/self_correction_sop.md`.
+
+## 4. Full Documentation
+*   Refer to `.rokct/README.md` for the complete rulebook structure.

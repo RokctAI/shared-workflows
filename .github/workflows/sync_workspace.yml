@@ -1,0 +1,78 @@
+name: Sync Rokct Workspace
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  sync-to-parent:
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard: skip if session active or no config
+        id: guard
+        run: |
+          if [ -f .rokct/active_session.txt ]; then
+            echo "Active session in progress, skipping sync."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ ! -f .rokct/.workspace_config.json ]; then
+            echo "No workspace config found, skipping sync."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ ! -f .rokct/.sync_ready ]; then
+            echo "No sync_ready marker — end_protocol has not been run. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "parent_repo=$(jq -r .parent_repo .rokct/.workspace_config.json)" >> $GITHUB_OUTPUT
+          echo "parent_branch=$(jq -r .parent_branch // 'main' .rokct/.workspace_config.json)" >> $GITHUB_OUTPUT
+          echo "working_files=$(jq -r .working_files[] .rokct/.workspace_config.json | jq -R -s -c 'split("\n")[:-1]')" >> $GITHUB_OUTPUT
+
+      - name: Checkout parent workspace repo
+        if: ${{ !contains(steps.guard.outputs.skip, 'true') }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.guard.outputs.parent_repo }}
+          ref: ${{ steps.guard.outputs.parent_branch }}
+          path: parent-repo
+          token: ${{ secrets.MONOREPO_PAT }}
+
+      - name: Sync working files to parent (append-only)
+        if: ${{ !contains(steps.guard.outputs.skip, 'true') }}
+        run: |
+          PARENT_DIR="parent-repo"
+          cd "$GITHUB_WORKSPACE"
+          for f in $(echo '${{ steps.guard.outputs.working_files }}' | jq -r '.[]'); do
+            if [ -f ".rokct/$f" ] && [ -f "$PARENT_DIR/.rokct/$f" ]; then
+              python3 .rokct/sync_workspace.py --file ".rokct/$f" --parent "$PARENT_DIR/.rokct/$f" --repo "${{ github.repository }}" --session "${{ github.run_id }}"
+              echo "Synced .rokct/$f -> parent [append-only]"
+            elif [ -f ".rokct/$f" ]; then
+              mkdir -p "$PARENT_DIR/.rokct/$(dirname "$f")"
+              cp ".rokct/$f" "$PARENT_DIR/.rokct/$f"
+              echo "Created .rokct/$f in parent"
+            fi
+          done
+
+      - name: Commit and push to parent
+        if: ${{ !contains(steps.guard.outputs.skip, 'true') }}
+        run: |
+          cd "parent-repo"
+          git config user.name "rokct-bot"
+          git config user.email "rokct-bot@users.noreply.github.com"
+          git add .rokct/
+          if git diff --cached --quiet; then
+            echo "No changes to sync"
+            exit 0
+          fi
+          git commit -m "chore(workspace): sync working files from ${{ github.repository }} [skip ci]"
+          git push origin HEAD

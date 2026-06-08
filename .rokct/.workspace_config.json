@@ -1,0 +1,10 @@
+{
+  "parent_repo": "RokctAI/occultation",
+  "parent_branch": "main",
+  "working_files": [
+    "memory.md",
+    "decision_log.md",
+    "project_map.md",
+    "active_session.txt"
+  ]
+}
