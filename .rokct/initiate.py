@@ -1,3 +1,4 @@
+# compliance-silent
 import os
 import sys
 import shutil
@@ -29,12 +30,13 @@ def fetch_from_github(rel_path, dest_path):
         sys.exit(1)
 
 def ensure_file(rel_path, dest_path):
-    if os.path.exists(dest_path):
-        return
     src = os.path.join(PROTOCOL_DIR, rel_path)
+    if os.path.exists(dest_path):
+        if os.path.exists(src) and file_hash(src) == file_hash(dest_path):
+            return
     if os.path.exists(src):
         shutil.copy2(src, dest_path)
-        print(f"[init] Copied {rel_path}")
+        print(f"[init] Updated {rel_path}")
     else:
         fetch_from_github(rel_path, dest_path)
 
@@ -207,4 +209,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

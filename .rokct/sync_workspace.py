@@ -1,3 +1,4 @@
+# compliance-silent
 import os
 import sys
 import json
@@ -15,7 +16,9 @@ HEADER = "<!-- ROKCT-SYNC-START: {repo}/{session}/{ts} -->\n"
 FOOTER = "<!-- ROKCT-SYNC-END: {repo}/{session}/{ts} -->\n"
 
 def load_config():
+    # Load the workspace configuration to identify parent repo and working files
     if not os.path.exists(CONFIG_PATH):
+
         print("[sync] No .workspace_config.json found")
         return None
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -28,6 +31,8 @@ def file_hash(path):
         return hashlib.sha256(f.read()).hexdigest()[:16]
 
 def extract_new_sections(child_path, parent_path, repo, session):
+    # Extract only the unique content from child that isn't already in parent
+    # to prevent duplication during additive sync
     if not os.path.exists(child_path):
         return None
     child_content = open(child_path, "r", encoding="utf-8").read()
@@ -182,3 +187,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
