@@ -1,0 +1,156 @@
+name: Universal Media Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        required: true
+        description: "One of: opportunity, summary, brief, reel"
+      runs-on:
+        type: string
+        required: false
+        default: 'ubuntu-latest'
+      python-version:
+        type: string
+        required: false
+        default: '3.10'
+    secrets:
+      JULES_API_KEY:
+        required: false
+
+permissions: write-all
+
+jobs:
+  media:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv python-dateutil
+
+      # --- MODE: opportunity ---
+      - name: Cleanup Expired Cards Locally
+        if: inputs.mode == 'opportunity'
+        run: |
+          echo "🧹 Cleaning up expired opportunity cards..."
+          cat << 'PYEOF' > cleanup_expired.py
+          import os
+          import re
+          from datetime import datetime
+          from dateutil import parser
+
+          now = datetime.now()
+          for root, _, files in os.walk('opportunities/'):
+              for file in files:
+                  if file.endswith('.md'):
+                      path = os.path.join(root, file)
+                      with open(path, 'r') as f:
+                          content = f.read()
+                      match = re.search(r'^closing_date:\s*(.*)', content, re.MULTILINE)
+                      if match:
+                          date_str = match.group(1).strip()
+                          try:
+                              closing = parser.parse(date_str)
+                              if closing < now:
+                                  print(f"🗑️ Deleting expired card: {path} (Expired on {date_str})")
+                                  os.remove(path)
+                          except:
+                              pass
+          PYEOF
+          python cleanup_expired.py
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add opportunities/
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: remove expired opportunity cards"
+            git push origin main
+          else
+            echo "No expired cards to remove."
+          fi
+
+      - name: Trigger Jules to pull new Opportunities for Reels
+        if: inputs.mode == 'opportunity'
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+        run: |
+          echo "🚀 Triggering Jules to select top 5 opportunities..."
+          python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+            --repo "sources/github/RokctAI/opportunities" \
+            --prompt "TASK: Review opportunity cards across grants, tenders, and equity. Select top 5 active opportunities prioritizing those furthest from expiry (plenty of time left). Generate a job card in the factory 'opportunities/' directory for each. The card must include: type (e.g., opportunity.grants), closing_date, and a reel brief containing: element_type, hook_text, call_to_action ('Find more at rokct.ai'). Refer to factory metarules for reel_rules.md." \
+            --title "Weekly Opportunity Reels Generation" \
+            --automation-mode "AUTO_CREATE_PR"
+
+      # --- MODE: summary ---
+      - name: Identify Book and Trigger Summary (summary)
+        if: inputs.mode == 'summary'
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep 'books/drafts/.*/metadata.md' || true)
+          for FILE in $FILES; do
+            if [ ! -f "$FILE" ]; then continue; fi
+            STATUS=$(grep '^status:' "$FILE" | cut -d':' -f2 | xargs)
+            VISUALS=$(grep '^visuals_status:' "$FILE" | cut -d':' -f2 | xargs)
+            if [ "$STATUS" == "publishing" ] && [ "$VISUALS" == "pending" ]; then
+              ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+              echo "🚀 Triggering Visual Summary for $ID..."
+              python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/RokctAI/factory" \
+                --prompt "TASK: Read the entire folder for book '$ID'. Summarize emotional world, dominant themes, recurring images, tone, target feeling, and age guardrail. Save to visuals/book_summary.md inside the book folder. Then update visuals_status to 'summarizing' via update_status.py." \
+                --title "Level 6a: Visual Summary - $ID"
+            fi
+          done
+
+      # --- MODE: brief ---
+      - name: Identify Book and Trigger Briefs (brief)
+        if: inputs.mode == 'brief'
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep 'books/drafts/.*/metadata.md' || true)
+          for FILE in $FILES; do
+            if [ ! -f "$FILE" ]; then continue; fi
+            VISUALS=$(grep '^visuals_status:' "$FILE" | cut -d':' -f2 | xargs)
+            if [ "$VISUALS" == "briefing" ]; then
+              ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+              echo "🚀 Triggering Visual Briefs for $ID..."
+              python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/RokctAI/factory" \
+                --prompt "TASK: Generate cover.json from visuals/book_summary.md and metadata.md for book '$ID'. JSON only. Follow the schema: element_type, book_id, title, mood, palette, composition, focal_point, style, typography, imagery, guardrail_applied." \
+                --title "Level 6b: Cover Brief - $ID"
+
+              ILLUS=$(grep '^visuals_illustrations:' "$FILE" | cut -d':' -f2 | xargs)
+              if [ "$ILLUS" == "true" ]; then
+                python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                  --repo "sources/github/RokctAI/factory" \
+                  --prompt "TASK: Generate illustration JSON files for each poem/chapter in book '$ID'. Use book_summary.md and age guardrail. JSON only. Follow schema: element_type, book_id, reference_file, page_layout, mood, palette, composition, focal_point, style, text_overlay, guardrail_applied." \
+                  --title "Level 6b: Illustration Briefs - $ID"
+              fi
+            fi
+          done
+
+      # --- MODE: reel ---
+      - name: Identify Book and Trigger Reel Brief (reel)
+        if: inputs.mode == 'reel'
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep 'books/published/.*/metadata.md' || true)
+          for FILE in $FILES; do
+            if [ ! -f "$FILE" ]; then continue; fi
+            REEL=$(grep '^visuals_reel:' "$FILE" | cut -d':' -f2 | xargs)
+            STATUS=$(grep '^visuals_reel_status:' "$FILE" | cut -d':' -f2 | xargs)
+            if [ "$REEL" == "true" ] && [ "$STATUS" == "pending" ]; then
+              ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+              echo "🚀 Triggering Social Media Reel Brief for $ID..."
+              python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/RokctAI/factory" \
+                --prompt "TASK: Generate reel.json for book '$ID'. Inputs: visuals/book_summary.md and all content files. Select hook based on impact_metrics. Schema: element_type, book_id, book_title, hook_text, hook_source_file, hook_type, visual_style, mood, pacing, text_animation, background_brief, call_to_action, platform, duration_seconds, guardrail_applied. JSON ONLY." \
+                --title "Level 6c: Reel Brief - $ID"
+
+              python .rokct/skills/agent_delegation/scripts/update_status.py --file "$FILE" --visuals-status reel_briefing --agent "system"
+            fi
+          done

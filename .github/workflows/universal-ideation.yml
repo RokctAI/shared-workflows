@@ -1,0 +1,277 @@
+name: Universal Ideation Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        required: true
+        description: "One of: theme-check, idea-gen, concept-expand, rule-gen"
+      runs-on:
+        type: string
+        required: false
+        default: 'ubuntu-latest'
+      python-version:
+        type: string
+        required: false
+        default: '3.10'
+    secrets:
+      JULES_API_KEY:
+        required: false
+      GROQ_API_KEY:
+        required: false
+      MONOREPO_PAT:
+        required: false
+
+permissions: write-all
+
+jobs:
+  ideation:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      # --- MODE: theme-check ---
+      - name: Check Queue and Trigger (theme-check)
+        if: inputs.mode == 'theme-check'
+        run: |
+          TYPES=("book.poetry" "book.fiction" "book.short_story" "book.children" "film.documentary")
+          for TYPE in "${TYPES[@]}"; do
+            PENDING_COUNT=$(ls .rokct/agent/jobs/pending/*_${TYPE}_*.md 2>/dev/null | grep -v "template.md" | wc -l)
+            echo "Current pending themes for $TYPE: $PENDING_COUNT"
+            if [ "$PENDING_COUNT" -lt 5 ]; then
+              echo "🚀 Triggering Level 0 Theme Discovery for $TYPE..."
+              PROMPT="Generate 5 new unique themes for $TYPE. Return only the list in the format: theme | type"
+              jq --arg p "$PROMPT" '.prompt = $p | .immediate = "true"' .rokct/agent/prompts/in_progress/level0_theme_discovery.json > tmp.json && mv tmp.json .rokct/agent/prompts/in_progress/level0_theme_discovery.json
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+              git add .rokct/agent/prompts/in_progress/level0_theme_discovery.json
+              git commit -m "🤖 [CI] Trigger Theme Discovery for $TYPE [skip ci]" || true
+              git push origin main
+              break
+            fi
+          done
+
+      # --- MODE: idea-gen ---
+      - name: Idea Generation (idea-gen)
+        if: inputs.mode == 'idea-gen'
+        id: idea_generation
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          ALL_CARDS=$(ls -rt .rokct/agent/jobs/pending/*.md 2>/dev/null | grep -v 'template.md' || true)
+          FILE=""
+          for f in $ALL_CARDS; do
+            STATUS=$(grep '^status:' "$f" | cut -d':' -f2 | xargs)
+            if [ "$STATUS" == "theme_generated" ]; then
+              FILE="$f"
+              break
+            fi
+          done
+          if [ -z "$FILE" ]; then
+            echo "ℹ️ No cards pending idea generation found."
+          else
+            ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+            TYPE=$(grep '^type:' "$FILE" | cut -d':' -f2 | xargs)
+            THEME=$(grep '^theme:' "$FILE" | cut -d':' -f2 | xargs)
+
+            if ! python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$FILE" --action claim --agent "groq" --session "GS-IDEA-$GITHUB_RUN_ID"; then
+              echo "Card $FILE is locked. Skipping."
+              exit 0
+            fi
+
+            echo "🚀 Requesting Ideas from Groq for $ID..."
+            PROMPT="Generate 5 unique one-line book ideas for the theme '$THEME' and type '$TYPE'. Return only the ideas."
+            RESPONSE=$(python .rokct/skills/agent_delegation/scripts/call_groq.py groq --prompt "$PROMPT")
+
+            if [ -n "$RESPONSE" ]; then
+              echo "✅ Groq responded. Updating card..."
+              python .rokct/skills/agent_delegation/scripts/handle_groq_output.py --level 1 --file "$FILE" --content "$RESPONSE"
+              
+              # Append to Ledger
+              TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+              mkdir -p .rokct/agent/log
+              echo "| $ID | $TYPE | $THEME | pending_approval | groq | GROQ-$GITHUB_RUN_ID | — | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+              git add "$FILE" .rokct/agent/log/transitions.log .rokct/agent/log/ledger.md
+              git commit -m "🤖 [CI] Level 1: Idea Expansion for $ID [skip ci]"
+              git push origin main
+              echo "card_file=$FILE" >> "$GITHUB_OUTPUT"
+            else
+              echo "❌ Groq call failed."
+              exit 1
+            fi
+          fi
+
+      # --- MODE: concept-expand ---
+      - name: Concept Expansion (concept-expand)
+        if: inputs.mode == 'concept-expand'
+        id: concept_expansion
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep '.rokct/agent/jobs/pending/.*.md' | grep -v 'template.md' || true)
+          if [ -z "$FILES" ]; then
+            echo "ℹ️ No modified job cards found."
+          else
+            for FILE in $FILES; do
+              if [ ! -f "$FILE" ]; then continue; fi
+              ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+              TYPE=$(grep '^type:' "$FILE" | cut -d':' -f2 | xargs)
+              THEME=$(grep '^theme:' "$FILE" | cut -d':' -f2 | xargs)
+              IDEA_STATUS=$(grep '^idea_status:' "$FILE" | cut -d':' -f2 | xargs)
+              STATUS=$(grep '^status:' "$FILE" | cut -d':' -f2 | xargs)
+
+              if [ "$IDEA_STATUS" != "approved" ]; then continue; fi
+              if [ "$STATUS" != "pending_approval" ]; then continue; fi
+
+              if ! python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$FILE" --action claim --agent "groq" --session "GS-CONCEPT-$GITHUB_RUN_ID"; then
+                echo "Card $FILE is locked. Skipping."
+                continue
+              fi
+
+              echo "🚀 Delegating Concept Expansion for $ID..."
+              RESULT=$(python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/RokctAI/factory" \
+                --prompt "TASK: Develop a full concept for the book '$ID' (Type: $TYPE, Theme: $THEME). Include angle, emotional world, target feeling, and structural approach. Reference metarules for $TYPE. Update the card $FILE and set status to 'concept_expanding'." \
+                --title "Level 2: Concept Expansion - $ID" \
+                --automation-mode "AUTO_CREATE_PR")
+
+              SESSION_ID=$(echo "$RESULT" | jq -r '.id // "unknown"')
+              
+              # Append to Ledger
+              TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+              mkdir -p .rokct/agent/log
+              echo "| $ID | $TYPE | $THEME | concept_expanding | groq | $SESSION_ID | — | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+              git add .rokct/agent/log/ledger.md
+              git commit -m "🤖 [CI] Level 2: Concept Expansion Ledger for $ID [skip ci]" || true
+              git push origin main
+
+              echo "card_file=$FILE" >> "$GITHUB_OUTPUT"
+              break
+            done
+          fi
+
+      # --- MODE: rule-gen ---
+      - name: Rule Generation (rule-gen)
+        if: inputs.mode == 'rule-gen'
+        id: rule_generation
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+        run: |
+          FILES=$(git diff --name-only HEAD~1 HEAD | grep '.rokct/agent/jobs/pending/.*.md' | grep -v 'template.md' || true)
+          if [ -z "$FILES" ]; then
+            echo "ℹ️ No modified job cards found."
+          else
+            for FILE in $FILES; do
+              if [ ! -f "$FILE" ]; then continue; fi
+              ID=$(grep '^id:' "$FILE" | cut -d':' -f2 | xargs)
+              TYPE=$(grep '^type:' "$FILE" | cut -d':' -f2 | xargs)
+              THEME=$(grep '^theme:' "$FILE" | cut -d':' -f2 | xargs)
+              CONCEPT_STATUS=$(grep '^concept_status:' "$FILE" | cut -d':' -f2 | xargs)
+              STATUS=$(grep '^status:' "$FILE" | cut -d':' -f2 | xargs)
+
+              if [ "$CONCEPT_STATUS" != "approved" ]; then continue; fi
+              if [ "$STATUS" != "concept_generated" ]; then continue; fi
+
+              if ! python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$FILE" --action claim --agent "jules" --session "JS-RULES-$GITHUB_RUN_ID"; then
+                echo "Card $FILE is locked. Skipping."
+                continue
+              fi
+
+              echo "🚀 Delegating Rule Generation for $ID..."
+              RESULT=$(python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/RokctAI/factory" \
+                --prompt "TASK: Generate hierarchical rules for the book '$ID' (Type: $TYPE, Theme: $THEME). Generate: World rules -> Book rules -> Poem/Chapter rules -> Stanza/Scene rules -> Line rules. Reference metarules for $TYPE. Update the card $FILE and set status to 'rules_generating'." \
+                --title "Level 3: Rule Generation - $ID" \
+                --automation-mode "AUTO_CREATE_PR")
+
+              SESSION_ID=$(echo "$RESULT" | jq -r '.id // "unknown"')
+
+              # Append to Ledger
+              TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+              mkdir -p .rokct/agent/log
+              echo "| $ID | $TYPE | $THEME | rules_generating | jules | $SESSION_ID | — | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+              git config --global user.name "github-actions[bot]"
+              git config --global user.email "github-actions[bot]@users.noreply.github.com"
+              git add .rokct/agent/log/ledger.md
+              git commit -m "🤖 [CI] Level 3: Rule Generation Ledger for $ID [skip ci]" || true
+              git push origin main
+
+              echo "card_file=$FILE" >> "$GITHUB_OUTPUT"
+              break
+            done
+          fi
+
+      # --- POST-EXECUTION LOCK RELEASE ---
+      - name: Release Job Lock (Success)
+        if: success()
+        run: |
+          CARD_FILE=""
+          if [ "${{ inputs.mode }}" == "idea-gen" ]; then CARD_FILE="${{ steps.idea_generation.outputs.card_file }}"; fi
+          if [ "${{ inputs.mode }}" == "concept-expand" ]; then CARD_FILE="${{ steps.concept_expansion.outputs.card_file }}"; fi
+          if [ "${{ inputs.mode }}" == "rule-gen" ]; then CARD_FILE="${{ steps.rule_generation.outputs.card_file }}"; fi
+          if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+            python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$CARD_FILE" --action release
+          fi
+
+      # --- FAILURE HANDLER ---
+      - name: Handle Failure
+        if: failure()
+        run: |
+          CARD_FILE=""
+          CARD_ID="unknown"
+          LEVEL="0"
+          if [ "${{ inputs.mode }}" == "idea-gen" ]; then
+            CARD_FILE="${{ steps.idea_generation.outputs.card_file }}"
+            LEVEL="1"
+          fi
+          if [ "${{ inputs.mode }}" == "concept-expand" ]; then
+            CARD_FILE="${{ steps.concept_expansion.outputs.card_file }}"
+            LEVEL="2"
+          fi
+          if [ "${{ inputs.mode }}" == "rule-gen" ]; then
+            CARD_FILE="${{ steps.rule_generation.outputs.card_file }}"
+            LEVEL="3"
+          fi
+
+          if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+            CARD_ID=$(grep '^id:' "$CARD_FILE" | cut -d':' -f2 | xargs)
+            ATTEMPTS=$(grep '^attempts:' "$CARD_FILE" | cut -d':' -f2 | xargs || echo "0")
+            NEW_ATTEMPTS=$((ATTEMPTS + 1))
+            sed -i "s/^attempts: .*/attempts: $NEW_ATTEMPTS/" "$CARD_FILE"
+            sed -i "s/^last_error: .*/last_error: ${{ github.run_id }} failed at $(date -u)/" "$CARD_FILE"
+
+            echo "[$(date -u +'%Y-%m-%d %H:%M:%S')] $CARD_ID | Level $LEVEL | ${{ github.run_id }} | Agent call failed" >> .rokct/agent/log/errors.log
+
+            if [ "$NEW_ATTEMPTS" -ge 3 ]; then
+              echo "3 attempts failed. Marking as stalled."
+              python .rokct/skills/agent_delegation/scripts/update_status.py --file "$CARD_FILE" --status stalled
+            else
+              python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$CARD_FILE" --action release
+            fi
+
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$CARD_FILE" .rokct/agent/log/errors.log
+            git commit -m "fail: recorded error for $CARD_ID [skip ci]" || true
+            git push origin main
+          fi
