@@ -1,4 +1,4 @@
-﻿# Copyright 2024 RokctAI
+# Copyright 2024 RokctAI
 
 name: Universal Release Workflow
 
@@ -1259,7 +1259,8 @@ jobs:
             git diff -w --name-only --diff-filter=ACMRT "$PREV_TAG".."${TARGET}" | grep -vE '^(\.env\/|\.github\/)' > content_changed.txt
             # Only include files with actual content changes (not just whitespace)
             if [ -s content_changed.txt ]; then
-               zip -r update_package.zip -@ < content_changed.txt
+               # Use git archive to pull files directly from the target commit (ignoring dirty workspace/merged private files)
+               git archive -o update_package.zip "$TARGET" -- $(cat content_changed.txt)
                echo "zip_path=update_package.zip" >> "$GITHUB_OUTPUT"
             else
                echo "No files changed."
