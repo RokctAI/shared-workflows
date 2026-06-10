@@ -1,0 +1,214 @@
+name: Universal Agent Orchestrator
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+permissions: write-all
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        required: false
+        default: 'ubuntu-latest'
+      python-version:
+        type: string
+        required: false
+        default: '3.10'
+      process-queue:
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      JULES_API_KEY:
+        required: false
+      GROQ_API_KEY:
+        required: false
+      MONOREPO_PAT:
+        required: false
+
+jobs:
+  agent-run:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Initiate Protocol
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      - name: Process Queue
+        if: ${{ inputs.process-queue }}
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          FILES=$(ls .rokct/agent/queue/*.json .rokct/agent/prompts/in_progress/*.json 2>/dev/null || true)
+
+          if [ -z "$FILES" ]; then
+            echo "ℹ️ No task files found to process."
+            exit 0
+          fi
+
+          CURRENT_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          HAS_UPDATES=false
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+
+          for FILE in $FILES; do
+            if [ ! -f "$FILE" ]; then continue; fi
+
+            echo "📂 Analyzing: $FILE"
+
+            SCHEDULED_AT=$(jq -r '.scheduled_at // empty' "$FILE")
+            if [ -n "$SCHEDULED_AT" ] && [[ "$CURRENT_TIME" < "$SCHEDULED_AT" ]]; then
+              echo "⏳ Task is scheduled for $SCHEDULED_AT. Skipping."
+              continue
+            fi
+
+            AGENT=$(jq -r '.agent // "jules"' "$FILE")
+            REPO=$(jq -r '.repo' "$FILE")
+            PROMPT=$(jq -r '.prompt' "$FILE")
+            TITLE=$(jq -r '.title // "AI-Automation"' "$FILE")
+            LEVEL=$(jq -r '.level // 0' "$FILE")
+            CARD_FILE=$(jq -r '.card_file // empty' "$FILE")
+
+            if [ "$LEVEL" == "1" ]; then
+               OLDEST_CARD=$(ls -rt .rokct/agent/jobs/pending/*.md 2>/dev/null | xargs grep -l "status: theme_generated" | head -n 1 || true)
+               if [ -n "$OLDEST_CARD" ]; then
+                  TYPE=$(grep '^type:' "$OLDEST_CARD" | cut -d':' -f2 | xargs)
+                  THEME=$(grep '^theme:' "$OLDEST_CARD" | cut -d':' -f2 | xargs)
+                  PROMPT=$(echo "$PROMPT" | sed "s/{theme}/$THEME/g" | sed "s/{type}/$TYPE/g")
+                  CARD_FILE="$OLDEST_CARD"
+                  echo "🎯 Injected card data: $THEME ($TYPE) from $CARD_FILE"
+               else
+                  echo "ℹ️ No pending cards for Level 1. Skipping task $FILE."
+                  continue
+               fi
+            fi
+
+            if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+              if ! python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$CARD_FILE" --action claim --agent "$AGENT" --session "AUTO-$GITHUB_RUN_ID"; then
+                 echo "Card $CARD_FILE is locked. Skipping task $FILE."
+                 continue
+              fi
+            fi
+
+            SUCCESS=false
+            SESSION_ID="—"
+            if [ "$AGENT" == "groq" ]; then
+              echo "🚀 Calling Groq for $TITLE..."
+              if RESPONSE=$(python .rokct/skills/agent_delegation/scripts/call_groq.py groq --prompt "$PROMPT" 2>&1) && [ -n "$RESPONSE" ] && [[ ! "$RESPONSE" == *"Error:"* ]]; then
+                echo "✅ Groq responded. Handling output..."
+                python .rokct/skills/agent_delegation/scripts/handle_groq_output.py --level "$LEVEL" --content "$RESPONSE" ${CARD_FILE:+--file "$CARD_FILE"}
+                SUCCESS=true
+                HAS_UPDATES=true
+              else
+                echo "❌ Groq call failed."
+                REASON=$(echo "$RESPONSE" | tail -n 1 | sed 's/|/\\|/g')
+              fi
+            else
+              echo "🚀 Delegating to Jules for $TITLE..."
+              if RESULT=$(python .rokct/skills/agent_delegation/scripts/call_jules.py create \
+                --repo "sources/github/$REPO" \
+                --prompt "$PROMPT" \
+                --title "$TITLE" 2>&1); then
+                echo "✅ Jules delegation successful."
+                SESSION_ID=$(echo "$RESULT" | jq -r '.id' 2>/dev/null || echo "—")
+                SUCCESS=true
+                HAS_UPDATES=true
+              else
+                echo "❌ Jules delegation failed."
+                REASON=$(echo "$RESULT" | tail -n 1 | sed 's/|/\\|/g')
+              fi
+            fi
+
+            if [ "$SUCCESS" = true ]; then
+              mkdir -p .rokct/agent/logs
+              echo "| $TIMESTAMP | $TITLE | $AGENT | ✅ SUCCESS | $SESSION_ID | Task processed successfully. |" >> .rokct/agent/logs/ai_delegation.md
+              HAS_UPDATES=true
+
+              if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+                 ID=$(grep '^id:' "$CARD_FILE" | cut -d':' -f2 | xargs)
+                 TYPE=$(grep '^type:' "$CARD_FILE" | cut -d':' -f2 | xargs)
+                 THEME=$(grep '^theme:' "$CARD_FILE" | cut -d':' -f2 | xargs)
+                 STATUS=$(grep '^status:' "$CARD_FILE" | cut -d':' -f2 | xargs)
+                 echo "| $ID | $TYPE | $THEME | $STATUS | $AGENT | $SESSION_ID | — | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+                 python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$CARD_FILE" --action release
+              fi
+
+              RECURRENCE=$(jq -r '.recurrence // "Once"' "$FILE")
+              if [ "$RECURRENCE" == "Daily" ]; then
+                NEXT_RUN=$(date -u -d "tomorrow" +"%Y-%m-%dT%H:%M:%SZ")
+                jq --arg next "$NEXT_RUN" '.scheduled_at = $next | .immediate = "false"' "$FILE" > tmp.json && mv tmp.json "$FILE"
+                HAS_UPDATES=true
+              elif [ "$RECURRENCE" == "Once" ]; then
+                mkdir -p .rokct/agent/prompts/completed
+                mv "$FILE" ".rokct/agent/prompts/completed/$(basename "$FILE")"
+                HAS_UPDATES=true
+              fi
+            else
+              ATTEMPTS=0
+              if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+                 ATTEMPTS=$(grep '^attempts:' "$CARD_FILE" | cut -d':' -f2 | xargs || echo "0")
+              fi
+              NEW_ATTEMPTS=$((ATTEMPTS + 1))
+              mkdir -p .rokct/agent/logs
+              echo "| $TIMESTAMP | $TITLE | $AGENT | ❌ FAILED | ${{ github.run_id }} | Attempt $NEW_ATTEMPTS. Reason: $REASON |" >> .rokct/agent/logs/ai_delegation.md
+              HAS_UPDATES=true
+
+              if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then
+                 sed -i "s/^attempts: .*/attempts: $NEW_ATTEMPTS/" "$CARD_FILE"
+                 sed -i "s/^last_error: .*/last_error: ${{ github.run_id }} failed at $(date -u)/" "$CARD_FILE"
+
+                 mkdir -p .rokct/agent/log
+                 echo "[$TIMESTAMP] Automated | $TITLE | ${{ github.run_id }} | Failure" >> .rokct/agent/log/errors.log
+
+                 if [ "$NEW_ATTEMPTS" -ge 3 ]; then
+                   python .rokct/skills/agent_delegation/scripts/update_status.py --file "$CARD_FILE" --status stalled
+                 else
+                   python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$CARD_FILE" --action release
+                 fi
+                 HAS_UPDATES=true
+              fi
+            fi
+          done
+
+          echo "HAS_UPDATES=$HAS_UPDATES" >> $GITHUB_ENV
+
+      - name: End Protocol
+        run: |
+          if [ -f ".rokct/end_protocol.py" ]; then
+            echo "🧹 Running end_protocol.py..."
+            python .rokct/end_protocol.py
+          fi
+
+      - name: Commit and Push Updates
+        if: env.HAS_UPDATES == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "🤖 [CI] Agent Automation Updates & Ledger [skip ci]" || echo "No changes"
+          git push origin main
