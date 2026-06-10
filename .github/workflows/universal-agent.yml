@@ -21,6 +21,11 @@ on:
         type: boolean
         required: false
         default: true
+      mode:
+        type: string
+        required: false
+        default: 'run'
+        description: "Execution mode: 'run' (process queue) or 'cleanup' (lifecycle cleanup)"
     secrets:
       JULES_API_KEY:
         required: false
@@ -31,6 +36,7 @@ on:
 
 jobs:
   agent-run:
+    if: inputs.mode == 'run'
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -211,4 +217,58 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "🤖 [CI] Agent Automation Updates & Ledger [skip ci]" || echo "No changes"
+          git push origin main
+
+  agent-cleanup:
+    if: inputs.mode == 'cleanup'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Extract Session ID
+        id: extract_id
+        env:
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [[ "$BRANCH_NAME" =~ ([0-9]{18,20}) ]]; then
+            SESSION_ID="${BASH_REMATCH[1]}"
+            echo "session_id=$SESSION_ID" >> "$GITHUB_OUTPUT"
+            echo "✅ Found Agent Session ID: $SESSION_ID"
+          else
+            echo "ℹ️ No Agent Session ID in branch: $BRANCH_NAME"
+            exit 0
+          fi
+
+      - name: Delete Session
+        if: steps.extract_id.outputs.session_id != ''
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          SESSION_ID: ${{ steps.extract_id.outputs.session_id }}
+        run: |
+          python .rokct/skills/agent_delegation/scripts/call_jules.py delete \
+            --id "$SESSION_ID"
+
+      - name: Update Agent Memory
+        if: steps.extract_id.outputs.session_id != ''
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          mkdir -p .rokct/agent/log
+          echo "* **[$DATE]** - Completed Agent Task: $PR_TITLE ($PR_URL)" >> .rokct/agent/log/memory.md
+
+      - name: Commit Knowledge Updates
+        if: steps.extract_id.outputs.session_id != ''
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .rokct/agent/log/memory.md
+          git commit -m "🤖 chore: sync agent memory after PR merge [skip ci]" || echo "No changes to commit"
           git push origin main
