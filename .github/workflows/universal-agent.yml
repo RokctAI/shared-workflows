@@ -25,7 +25,29 @@ on:
         type: string
         required: false
         default: 'run'
-        description: "Execution mode: 'run' (process queue) or 'cleanup' (lifecycle cleanup)"
+        description: "Execution mode: 'run' (process queue), 'cleanup' (lifecycle cleanup), 'scheduler' (session auditor), 'ledger' (ledger updater)"
+      # Ledger update inputs
+      ledger_id:
+        type: string
+        required: false
+      ledger_type:
+        type: string
+        required: false
+      ledger_theme:
+        type: string
+        required: false
+      ledger_status:
+        type: string
+        required: false
+      ledger_agent:
+        type: string
+        required: false
+      ledger_session:
+        type: string
+        required: false
+      ledger_pr:
+        type: string
+        required: false
     secrets:
       JULES_API_KEY:
         required: false
@@ -271,4 +293,54 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .rokct/agent/log/memory.md
           git commit -m "🤖 chore: sync agent memory after PR merge [skip ci]" || echo "No changes to commit"
+          git push origin main
+
+  agent-scheduler:
+    if: inputs.mode == 'scheduler'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: pip install PyYAML
+
+      - name: Update Session State
+        run: python .rokct/skills/agent_delegation/scripts/manage_sessions.py
+
+      - name: Commit State Update
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .rokct/agent/session_state.md
+          if git diff --staged --quiet; then
+            echo "No state changes."
+          else
+            git commit -m "chore: update session state [skip ci]"
+            git push origin main
+          fi
+
+  agent-ledger:
+    if: inputs.mode == 'ledger'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append to Ledger
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+          PR_VALUE="${{ inputs.ledger_pr }}"
+          if [ -z "$PR_VALUE" ]; then PR_VALUE="—"; fi
+          echo "| ${{ inputs.ledger_id }} | ${{ inputs.ledger_type }} | ${{ inputs.ledger_theme }} | ${{ inputs.ledger_status }} | ${{ inputs.ledger_agent }} | ${{ inputs.ledger_session }} | $PR_VALUE | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+      - name: Commit Ledger Update
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .rokct/agent/log/ledger.md
+          git commit -m "chore: update ledger for ${{ inputs.ledger_id }} [skip ci]" || exit 0
           git push origin main
