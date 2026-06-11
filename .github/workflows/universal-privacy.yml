@@ -17,12 +17,32 @@ on:
         type: string
         required: false
         default: '3.10'
+      mode:
+        type: string
+        required: false
+        default: 'check'
+        description: "Privacy enforcement mode: 'check' or 'fix'"
+      script-path:
+        type: string
+        required: true
+        description: "Path to the python script that executes the privacy check/fix"
+      commit-pattern:
+        type: string
+        required: false
+        default: ''
+        description: "Glob pattern of files to stage and commit when fixes are applied"
+    secrets:
+      EMAIL_ENCRYPTION_KEY:
+        required: false
 
 jobs:
-  privacy-check:
+  privacy-enforcement:
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # If fixing, fetch with head_ref to push back to the branch
+          ref: ${{ github.head_ref || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,6 +52,36 @@ jobs:
       - name: Install dependencies
         run: pip install python-dotenv pycryptodome
 
+      # --- MODE: check ---
       - name: Run Privacy Enforcement Check
+        if: inputs.mode == 'check'
         run: |
-          python .rokct/skills/agent_delegation/scripts/privacy_sync.py --check
+          python ${{ inputs.script-path }} --check
+
+      # --- MODE: fix ---
+      - name: Apply Privacy Redactions & Fixes
+        if: inputs.mode == 'fix'
+        env:
+          EMAIL_ENCRYPTION_KEY: ${{ secrets.EMAIL_ENCRYPTION_KEY }}
+        run: |
+          python ${{ inputs.script-path }}
+
+      - name: Commit and Push Privacy Fixes
+        if: success() && inputs.mode == 'fix'
+        run: |
+          git config --global user.name "privacy-bot"
+          git config --global user.email "privacy-bot@users.noreply.github.com"
+          
+          # Stage files using the provided commit pattern if specified, otherwise stage everything modified
+          if [ -n "${{ inputs.commit-pattern }}" ]; then
+            git add ${{ inputs.commit-pattern }} || true
+          else
+            git add . || true
+          fi
+          
+          if git diff --staged --quiet; then
+            echo "No privacy fixes needed."
+          else
+            git commit -m "chore: automated privacy redaction and anonymization"
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          fi
