@@ -31,6 +31,11 @@ on:
         required: false
         default: ''
         description: "Glob pattern of files to stage and commit when fixes are applied"
+      args:
+        type: string
+        required: false
+        default: ''
+        description: "Additional command-line arguments to pass to the python script"
     secrets:
       EMAIL_ENCRYPTION_KEY:
         required: false
@@ -56,7 +61,7 @@ jobs:
       - name: Run Privacy Enforcement Check
         if: inputs.mode == 'check'
         run: |
-          python ${{ inputs.script-path }} --check
+          python ${{ inputs.script-path }} --check ${{ inputs.args }}
 
       # --- MODE: fix ---
       - name: Apply Privacy Redactions & Fixes
@@ -64,7 +69,7 @@ jobs:
         env:
           EMAIL_ENCRYPTION_KEY: ${{ secrets.EMAIL_ENCRYPTION_KEY }}
         run: |
-          python ${{ inputs.script-path }}
+          python ${{ inputs.script-path }} ${{ inputs.args }}
 
       - name: Commit and Push Privacy Fixes
         if: success() && inputs.mode == 'fix'
