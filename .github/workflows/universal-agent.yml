@@ -3,6 +3,7 @@ name: Universal Agent Orchestrator
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
+  LEDGER: .rokct/agent/ledger.json
 
 permissions: write-all
 
@@ -25,7 +26,7 @@ on:
         type: string
         required: false
         default: 'run'
-        description: "Execution mode: 'run' (process queue), 'cleanup' (lifecycle cleanup), 'scheduler' (session auditor), 'ledger' (ledger updater)"
+        description: "Execution mode: 'run' (process queue), 'cleanup' (lifecycle cleanup), 'scheduler' (session auditor), 'ledger' (ledger updater), 'idea-session', 'process-queue', 'protocol-delegation', 'protocol-review', 'protocol-publisher'"
       # Ledger update inputs
       ledger_id:
         type: string
@@ -54,6 +55,8 @@ on:
       GROQ_API_KEY:
         required: false
       MONOREPO_PAT:
+        required: false
+      GITHUB_TOKEN:
         required: false
 
 jobs:
@@ -344,3 +347,415 @@ jobs:
           git add .rokct/agent/log/ledger.md
           git commit -m "chore: update ledger for ${{ inputs.ledger_id }} [skip ci]" || exit 0
           git push origin main
+
+  # ─────────────────────────────────────────────
+  # NEW: PROTOCOL AGENT MODES
+  # ─────────────────────────────────────────────
+
+  idea-session:
+    if: inputs.mode == 'idea-session'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Check if queue and running are empty
+        id: check_empty
+        run: |
+          QUEUE=$(find .rokct/agent/queue -maxdepth 1 -name "*.json" 2>/dev/null | wc -l)
+          RUNNING=$(find .rokct/agent/running -maxdepth 1 -name "*.json" 2>/dev/null | wc -l)
+          echo "queue=$QUEUE" >> "$GITHUB_OUTPUT"
+          echo "running=$RUNNING" >> "$GITHUB_OUTPUT"
+          if [ "$QUEUE" -eq 0 ] && [ "$RUNNING" -eq 0 ]; then
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "empty=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Call Jules — Idea Session
+        if: steps.check_empty.outputs.empty == 'true'
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+        run: |
+          PROMPT="Read and follow The-Rokct-Protocol/workflows/start_session.md first.
+          For the session:
+          - Name: Protocol Idea Session
+          - Mode: Planning
+          - Agent: Jules
+          - Workspace: FALSE
+          Do not ask questions — use the values above directly.
+          Then read and follow the instructions in .rokct/agent/idea_prompt.md exactly."
+
+          python .rokct/skills/agent_delegation/scripts/delegate_to_agent.py create \
+            --repo "sources/github/RokctAI/the-rokct-protocol" \
+            --prompt "$PROMPT" \
+            --branch "main" \
+            --title "Protocol: Idea Session" \
+            --automation-mode "AUTO_CREATE_PR"
+
+  process-queue:
+    if: inputs.mode == 'process-queue'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Process Protocol Queue
+        run: |
+          mkdir -p .rokct/agent/rejected
+          mkdir -p .rokct/agent/running
+          mkdir -p .rokct/agent/log
+          LEDGER_FILE="$LEDGER"
+          [ -f "$LEDGER_FILE" ] || echo "[]" > "$LEDGER_FILE"
+
+          HAS_UPDATES=false
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+
+          # ── Reject low-rated ideas ──
+          for FILE in $(ls .rokct/agent/queue/*.json 2>/dev/null || true); do
+            RATING=$(jq -r '.rating // 10' "$FILE")
+            if [ "$RATING" -lt 4 ]; then
+              echo "🗑️ Rejecting $(basename "$FILE") — rated $RATING/10"
+              jq 'del(.rating)' "$FILE" > ".rokct/agent/rejected/$(basename "$FILE")"
+              rm "$FILE"
+              HAS_UPDATES=true
+            fi
+          done
+
+          # ── Move queue to running ──
+          RUNNING=$(find .rokct/agent/running -maxdepth 1 -name "*.json" 2>/dev/null | wc -l)
+          SLOTS=$(( 4 - RUNNING ))
+          echo "🔢 Available slots: $SLOTS"
+
+          if [ "$SLOTS" -gt 0 ]; then
+            COUNT=0
+            for FILE in $(ls .rokct/agent/queue/*.json 2>/dev/null || true); do
+              if [ "$COUNT" -ge "$SLOTS" ]; then break; fi
+
+              NUMBER=${{ github.run_number }}_$(( COUNT + 1 ))
+              BASENAME=$(basename "$FILE" .json)
+              NEWNAME="${BASENAME}_${NUMBER}.json"
+
+              echo "📦 Moving $BASENAME → running/$NEWNAME"
+              mv "$FILE" ".rokct/agent/running/$NEWNAME"
+              TITLE=$(jq -r '.title' ".rokct/agent/running/$NEWNAME")
+
+              # 1. Update JSON ledger
+              jq --arg number "$NUMBER" \
+                 --arg file "$NEWNAME" \
+                 --arg title "$TITLE" \
+                 '. += [{
+                    "number": $number,
+                    "file": $file,
+                    "title": $title,
+                    "session_id": null,
+                    "branch": null,
+                    "approved": false,
+                    "published": false,
+                    "merged": false
+                 }]' "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+              # 2. Update MD ledger
+              echo "| $NUMBER | protocol | $TITLE | running | jules | — | — | $TIMESTAMP |" >> .rokct/agent/log/ledger.md
+
+              COUNT=$(( COUNT + 1 ))
+              HAS_UPDATES=true
+            done
+          fi
+
+          echo "has_updates=$HAS_UPDATES" >> "$GITHUB_ENV"
+
+      - name: Commit changes
+        if: env.has_updates == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "🤖 [CI] Process Queue — Reject low-rated, move to running/ [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
+  protocol-delegation:
+    if: inputs.mode == 'protocol-delegation'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Check ledger and delegate
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+        run: |
+          LEDGER_FILE="$LEDGER"
+          [ -f "$LEDGER_FILE" ] || { echo "ℹ️ No ledger found."; exit 0; }
+
+          LAST=$(jq '.[-1]' "$LEDGER_FILE")
+          LAST_MERGED=$(echo "$LAST" | jq -r '.merged // empty')
+          NEXT=$(jq '[.[] | select(.session_id == null)] | first' "$LEDGER_FILE")
+
+          if [ "$NEXT" == "null" ] || [ -z "$NEXT" ]; then
+            if [ "$LAST_MERGED" != "true" ] && [ -n "$LAST_MERGED" ]; then
+              echo "⏳ Waiting for current entry to be merged before delegating next."
+              exit 0
+            fi
+            echo "ℹ️ No unstarted entries in ledger."
+            exit 0
+          fi
+
+          NUMBER=$(echo "$NEXT" | jq -r '.number')
+          FILE=$(echo "$NEXT" | jq -r '.file')
+          TITLE=$(echo "$NEXT" | jq -r '.title')
+          TASK_PROMPT=$(jq -r '.prompt' ".rokct/agent/running/$FILE")
+          PROMPT="Read and follow The-Rokct-Protocol/workflows/start_session.md first.
+          For the session:
+          - Name: $TITLE
+          - Mode: Building
+          - Agent: Jules
+          - Workspace: FALSE
+          Do not ask questions — use the values above directly.
+          Then proceed with the following task:
+
+          $TASK_PROMPT"
+
+          echo "🚀 Delegating: $TITLE (#$NUMBER)"
+
+          RESULT=$(python .rokct/skills/agent_delegation/scripts/delegate_to_agent.py create \
+            --repo "sources/github/RokctAI/the-rokct-protocol" \
+            --prompt "$PROMPT" \
+            --branch "main" \
+            --title "Protocol: $TITLE" \
+            --automation-mode "AUTO_CREATE_PR")
+
+          SESSION_ID=$(echo "$RESULT" | jq -r '.name // .id // empty' | sed 's|.*/||')
+
+          if [ -z "$SESSION_ID" ]; then
+            echo "❌ Could not extract session ID from response."
+            exit 1
+          fi
+
+          echo "✅ Session ID: $SESSION_ID"
+
+          # 1. Update JSON ledger
+          jq --arg number "$NUMBER" \
+             --arg session "$SESSION_ID" \
+             'map(if .number == $number then .session_id = $session else . end)' \
+             "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+          # 2. Update MD ledger (Replace session column)
+          sed -i "s/| $NUMBER | protocol | $TITLE | running | jules | — /| $NUMBER | protocol | $TITLE | running | jules | $SESSION_ID /" .rokct/agent/log/ledger.md
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "🤖 [CI] Delegated #$NUMBER to Jules (session: $SESSION_ID) [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
+  protocol-review:
+    if: inputs.mode == 'protocol-review'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Review pending entries
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LEDGER_FILE="$LEDGER"
+          [ -f "$LEDGER_FILE" ] || { echo "ℹ️ No ledger."; exit 0; }
+
+          PENDING=$(jq '[.[] | select(.session_id != null and .approved == false)]' "$LEDGER_FILE")
+          COUNT=$(echo "$PENDING" | jq 'length')
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ℹ️ No entries pending review."
+            exit 0
+          fi
+
+          HAS_UPDATES=false
+
+          echo "$PENDING" | jq -c '.[]' | while read -r ENTRY; do
+            NUMBER=$(echo "$ENTRY" | jq -r '.number')
+            SESSION_ID=$(echo "$ENTRY" | jq -r '.session_id')
+            TITLE=$(echo "$ENTRY" | jq -r '.title')
+
+            echo "🔍 Reviewing #$NUMBER: $TITLE (session: $SESSION_ID)"
+
+            STATUS=$(python .rokct/skills/agent_delegation/scripts/delegate_to_agent.py status \
+              --id "$SESSION_ID" 2>/dev/null || echo "{}")
+
+            BRANCH=$(echo "$STATUS" | jq -r '.sourceContext.githubRepoContext.startingBranch // empty')
+            PR_BRANCH=$(echo "$STATUS" | jq -r '.pullRequestBranch // .branch // empty')
+            REVIEW_BRANCH="${PR_BRANCH:-$BRANCH}"
+
+            if [ -z "$REVIEW_BRANCH" ]; then
+              echo "⚠️ Could not determine branch for #$NUMBER. Skipping."
+              continue
+            fi
+
+            # Update ledger with branch if not set
+            jq --arg number "$NUMBER" \
+               --arg branch "$REVIEW_BRANCH" \
+               'map(if .number == $number and .branch == null then .branch = $branch else . end)' \
+               "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+            REVIEW_PROMPT="You are a protocol reviewer. Your job is to review changes on branch '$REVIEW_BRANCH' in the Rokct Protocol repo.
+
+            1. Read the diff between '$REVIEW_BRANCH' and main carefully.
+            2. Check that the changes:
+               - Do not regress existing protocol rules
+               - Are consistent with the protocol's existing style and structure
+               - Actually implement what was proposed (read .rokct/agent/running/ for the original prompt)
+               - Do not introduce conflicts with other protocol files
+            3. If satisfied → output exactly: APPROVED
+            4. If not satisfied → output exactly: REJECTED and explain why."
+
+            python .rokct/skills/agent_delegation/scripts/delegate_to_agent.py create \
+              --repo "sources/github/RokctAI/the-rokct-protocol" \
+              --prompt "$REVIEW_PROMPT" \
+              --branch "$REVIEW_BRANCH" \
+              --title "Review: $TITLE" \
+              --automation-mode "SUGGEST_CHANGES" 2>/dev/null || true
+
+            echo "✅ Review submitted for #$NUMBER"
+
+            jq --arg number "$NUMBER" \
+               'map(if .number == $number then .approved = true | .reviewed_at = now | todate else . end)' \
+               "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+            # Update MD ledger status to approved
+            sed -i "s/| $NUMBER | protocol | $TITLE | running /| $NUMBER | protocol | $TITLE | approved /" .rokct/agent/log/ledger.md
+
+            HAS_UPDATES=true
+          done
+
+          if [ "$HAS_UPDATES" == "true" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "🤖 [CI] Review completed — ledger updated [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+
+  protocol-publisher:
+    if: inputs.mode == 'protocol-publisher'
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish approved PRs and detect merges
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LEDGER_FILE="$LEDGER"
+          [ -f "$LEDGER_FILE" ] || { echo "ℹ️ No ledger."; exit 0; }
+
+          HAS_UPDATES=false
+
+          # ── Publish approved, unpublished entries ──
+          jq -c '.[] | select(.approved == true and .published == false)' "$LEDGER_FILE" | while read -r ENTRY; do
+            NUMBER=$(echo "$ENTRY" | jq -r '.number')
+            BRANCH=$(echo "$ENTRY" | jq -r '.branch')
+            TITLE=$(echo "$ENTRY" | jq -r '.title')
+
+            echo "📬 Publishing PR for #$NUMBER: $TITLE (branch: $BRANCH)"
+
+            PR=$(curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/RokctAI/the-rokct-protocol/pulls?head=RokctAI:$BRANCH&state=open" \
+              | jq '.[0]')
+
+            PR_NUMBER=$(echo "$PR" | jq -r '.number // empty')
+            IS_DRAFT=$(echo "$PR" | jq -r '.draft // false')
+
+            if [ -z "$PR_NUMBER" ]; then
+              echo "⚠️ No open PR found for branch $BRANCH. Skipping."
+              continue
+            fi
+
+            if [ "$IS_DRAFT" == "true" ]; then
+              curl -sf -X PATCH \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{"draft": false}' \
+                "https://api.github.com/repos/RokctAI/the-rokct-protocol/pulls/$PR_NUMBER"
+              echo "✅ PR #$PR_NUMBER published."
+            fi
+
+            jq --arg number "$NUMBER" \
+               --arg pr "$PR_NUMBER" \
+               'map(if .number == $number then .published = true | .pr_number = ($pr | tonumber) else . end)' \
+               "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+            # Update MD ledger status to published
+            sed -i "s/| $NUMBER | protocol | $TITLE | approved /| $NUMBER | protocol | $TITLE | published /" .rokct/agent/log/ledger.md
+            # Fill the PR column
+            sed -i "s/| $NUMBER | protocol | $TITLE | published | jules | \([a-zA-Z0-9_-]\{1,\}\) | — /| $NUMBER | protocol | $TITLE | published | jules | \1 | PR#$PR_NUMBER /" .rokct/agent/log/ledger.md
+
+            HAS_UPDATES=true
+          done
+
+          # ── Detect merged PRs ──
+          jq -c '.[] | select(.published == true and .merged == false)' "$LEDGER_FILE" | while read -r ENTRY; do
+            NUMBER=$(echo "$ENTRY" | jq -r '.number')
+            PR_NUMBER=$(echo "$ENTRY" | jq -r '.pr_number // empty')
+            FILE=$(echo "$ENTRY" | jq -r '.file')
+            TITLE=$(echo "$ENTRY" | jq -r '.title')
+
+            [ -z "$PR_NUMBER" ] && continue
+
+            PR_STATE=$(curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/RokctAI/the-rokct-protocol/pulls/$PR_NUMBER" \
+              | jq -r '.merged // false')
+
+            if [ "$PR_STATE" == "true" ]; then
+              echo "🎉 PR #$PR_NUMBER merged! Completing #$NUMBER."
+
+              mkdir -p .rokct/agent/completed
+              [ -f ".rokct/agent/running/$FILE" ] && \
+                mv ".rokct/agent/running/$FILE" ".rokct/agent/completed/$FILE"
+
+              jq --arg number "$NUMBER" \
+                 'map(if .number == $number then .merged = true | .merged_at = now | todate else . end)' \
+                 "$LEDGER_FILE" > tmp.json && mv tmp.json "$LEDGER_FILE"
+
+              # Update MD ledger status to merged
+              sed -i "s/| $NUMBER | protocol | $TITLE | published /| $NUMBER | protocol | $TITLE | merged /" .rokct/agent/log/ledger.md
+
+              HAS_UPDATES=true
+            fi
+          done
+
+          if [ "$HAS_UPDATES" == "true" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "🤖 [CI] Publisher — PRs published/merged, ledger updated [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
