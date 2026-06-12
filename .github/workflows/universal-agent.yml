@@ -25,7 +25,7 @@ on:
       mode:
         type: string
         required: false
-        default: 'run'
+        default: 'auto'
         description: "Execution mode: 'run' (process queue), 'cleanup' (lifecycle cleanup), 'scheduler' (session auditor), 'ledger' (ledger updater), 'idea-session', 'process-queue', 'protocol-delegation', 'protocol-review', 'protocol-publisher'"
       # Ledger update inputs
       ledger_id:
@@ -61,7 +61,12 @@ on:
 
 jobs:
   agent-run:
-    if: inputs.mode == 'run'
+    if: |
+      inputs.mode == 'run' ||
+      (inputs.mode == 'auto' &&
+       (github.repository == 'RokctAI/opportunities' || github.repository == 'RokctAI/factory') &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'schedule' && github.event.schedule == '0 20 * * *')))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -245,7 +250,11 @@ jobs:
           git push origin main
 
   agent-cleanup:
-    if: inputs.mode == 'cleanup'
+    if: |
+      inputs.mode == 'cleanup' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/factory' &&
+       github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -299,7 +308,11 @@ jobs:
           git push origin main
 
   agent-scheduler:
-    if: inputs.mode == 'scheduler'
+    if: |
+      inputs.mode == 'scheduler' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/factory' &&
+       (github.event_name == 'schedule' && github.event.schedule == '*/30 * * * *'))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -328,7 +341,10 @@ jobs:
           fi
 
   agent-ledger:
-    if: inputs.mode == 'ledger'
+    if: |
+      inputs.mode == 'ledger' ||
+      (inputs.mode == 'auto' &&
+       github.event_name == 'workflow_call')
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -353,7 +369,11 @@ jobs:
   # ─────────────────────────────────────────────
 
   idea-session:
-    if: inputs.mode == 'idea-session'
+    if: |
+      inputs.mode == 'idea-session' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/the-rokct-protocol' &&
+       (github.event_name == 'schedule' && github.event.schedule == '0 20 1 * *'))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -403,7 +423,11 @@ jobs:
             --automation-mode "AUTO_CREATE_PR"
 
   process-queue:
-    if: inputs.mode == 'process-queue'
+    if: |
+      inputs.mode == 'process-queue' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/the-rokct-protocol' &&
+       (github.event_name == 'schedule' && github.event.schedule == '0 21 * * 0'))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -489,7 +513,14 @@ jobs:
           git push origin main
 
   protocol-delegation:
-    if: inputs.mode == 'protocol-delegation'
+    needs: process-queue
+    if: |
+      always() &&
+      (needs.process-queue.result == 'success' || needs.process-queue.result == 'skipped') &&
+      (inputs.mode == 'protocol-delegation' ||
+       (inputs.mode == 'auto' &&
+        github.repository == 'RokctAI/the-rokct-protocol' &&
+        (github.event_name == 'schedule' && github.event.schedule == '0 21 * * 0')))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -569,7 +600,11 @@ jobs:
           git push origin main
 
   protocol-review:
-    if: inputs.mode == 'protocol-review'
+    if: |
+      inputs.mode == 'protocol-review' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/the-rokct-protocol' &&
+       (github.event_name == 'schedule' && github.event.schedule == '0 22 * * 0'))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -662,7 +697,11 @@ jobs:
           fi
 
   protocol-publisher:
-    if: inputs.mode == 'protocol-publisher'
+    if: |
+      inputs.mode == 'protocol-publisher' ||
+      (inputs.mode == 'auto' &&
+       github.repository == 'RokctAI/the-rokct-protocol' &&
+       (github.event_name == 'schedule' && github.event.schedule == '0 23 * * 0'))
     runs-on: ${{ inputs.runs-on }}
     steps:
       - uses: actions/checkout@v4

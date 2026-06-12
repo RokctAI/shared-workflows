@@ -19,7 +19,8 @@
 ## Lessons Learned
 *(Agent to append new lessons here when a mistake is made or a correction is received)*
 
-*   **[Date]** - [Lesson]
+*   **2026-06-03** - Align step list items in GHA workflows exactly; offset indentation breaks YAML parser steps blocks. Ensure variables in bash run blocks are double-quoted to satisfy shellcheck/actionlint rules.
+*   **2026-06-11** - Local git exclusions (`.git/info/exclude` or `.gitignore`) only apply to untracked files. If a file is already tracked, overwriting it with private/local changes will still register as a modification. To prevent dirty/merged files from leaking into source release assets, package them directly from the target commit using `git archive` instead of zipping from the workspace filesystem.
 
 
 ## Safe ID
