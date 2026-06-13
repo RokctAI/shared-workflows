@@ -134,7 +134,6 @@ def check_layer12_flutter_observability(filepath):
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
-
 @register_file_checker
 def check_layer12_flutter_crash_reporting(filepath):
     """Enforce crash/error reporting SDK integration in Flutter app entrypoints."""
@@ -180,6 +179,29 @@ def check_layer12_flutter_analytics(filepath):
     return errors
 
 @register_file_checker
+def check_layer12_python_observability(filepath):
+    """Enforce Trace ID propagation on Python outgoing HTTP requests."""
+    errors = []
+    if filepath.endswith(".py"):
+        path_parts = filepath.replace("\\", "/").split("/")
+        if "test" in filepath.lower() or "compliance" in filepath.lower() or ".rokct" in path_parts:
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            makes_http = any(x in content for x in ["urllib.request", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.request"])
+            if makes_http:
+                if "x-trace-id" not in content.lower() and "trace-id" not in content.lower() and "trace_id" not in content.lower() and "traceid" not in content.lower():
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 12 (Observability - Python Trace ID)",
+                        "message": f"Python file '{os.path.basename(filepath)}' makes outgoing HTTP calls but fails to propagate a structured Trace/Request ID in outgoing network headers."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+@register_file_checker
 def check_layer15_flutter_http_timeout(filepath):
     """Enforce timeout configuration on Dart/Flutter HTTP clients."""
     errors = []
@@ -187,7 +209,7 @@ def check_layer15_flutter_http_timeout(filepath):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
-            # Skip interceptor files — they import Dio but don't configure the client.
+            # Skip interceptor files – they import Dio but don't configure the client.
             # Timeouts must be set on the Dio BaseOptions in HttpService, not here.
             if "interceptor" in os.path.basename(filepath).lower():
                 return errors

@@ -12,7 +12,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from compliance import scan_file, check_database_migrations
-from update_docs import scan_and_sync
+from update_docs import scan_and_sync, detect_project_type
 
 def main():
     print("=" * 80)
@@ -52,12 +52,24 @@ def main():
 
     target_dirs = list(set(os.path.abspath(d) for d in target_dirs))
 
+    total_violations = 0
+
+    # Validate project type compliance for target directories
+    for target_dir in target_dirs:
+        project_type = detect_project_type(target_dir)
+        if project_type == "unknown":
+            print(f"\nCOMPLIANCE VIOLATION in: {target_dir}")
+            print(f"  [Project Type Detection] -> Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, or Flutter/Dart).")
+            total_violations += 1
+
     if not files_to_scan and not changed_files_list:
+        if total_violations > 0:
+            print(f"\nARCHITECTURAL COMPLIANCE FAILED: Unknown project type violation found.")
+            sys.exit(1)
         print("SUCCESS: No source files resolved for scan. Exiting.")
         sys.exit(0)
 
     print(f"Auditing {len(files_to_scan)} source files...")
-    total_violations = 0
 
     for filepath in files_to_scan:
         errors = scan_file(filepath)
