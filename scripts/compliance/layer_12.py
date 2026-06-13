@@ -228,4 +228,28 @@ def check_layer15_flutter_http_timeout(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
+@register_file_checker
+def check_gravity_error_reporting(filepath):
+    """Enforce that Gravity workspace mutation actions report errors to Control."""
+    errors = []
+    normalized_path = filepath.replace("\\", "/").lower()
+    if normalized_path.endswith(".py") and "/gravity/" in normalized_path:
+        # Exclude setup, test files, configs
+        if any(x in normalized_path for x in ["test", "setup", "config.py", "git_ops.py", "cli.py"]):
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # If the file defines push/write handlers, it must call send_error_to_control on exception
+            if "push_workspace" in content or "write_workspace_file" in content:
+                if "send_error_to_control" not in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 12 (Observability - Gravity Error Reporting)",
+                        "message": f"Gravity source file '{os.path.basename(filepath)}' processes workspace mutations but lacks central error telemetry to Control. Integrate send_error_to_control() inside try/except blocks."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 
