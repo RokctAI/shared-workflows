@@ -53,6 +53,7 @@ def main():
     target_dirs = list(set(os.path.abspath(d) for d in target_dirs))
 
     total_violations = 0
+    violations_list = []
 
     # Validate project type compliance for target directories
     for target_dir in target_dirs:
@@ -61,17 +62,23 @@ def main():
             print(f"\nCOMPLIANCE VIOLATION in: {target_dir}")
             print(f"  [Project Type Detection] -> Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, or Flutter/Dart).")
             total_violations += 1
+            violations_list.append({
+                "file": target_dir,
+                "line": 1,
+                "type": "Project Type Detection",
+                "message": "Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, or Flutter/Dart)."
+            })
 
     if not files_to_scan and not changed_files_list:
         if total_violations > 0:
             print(f"\nARCHITECTURAL COMPLIANCE FAILED: Unknown project type violation found.")
+            log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with unknown project type violation.", violations=violations_list)
             sys.exit(1)
         print("SUCCESS: No source files resolved for scan. Exiting.")
         sys.exit(0)
 
     print(f"Auditing {len(files_to_scan)} source files...")
 
-    violations_list = []
 
     for filepath in files_to_scan:
         errors = scan_file(filepath)
@@ -138,12 +145,10 @@ def sanitize_text(text):
 
 def resolve_evidence_repo(target_dirs):
     override = os.environ.get("EVIDENCE_REPO_DIR")
-    if override and os.path.isdir(os.path.join(override, ".rokct")):
+    if override:
         return os.path.abspath(override)
-    for d in target_dirs:
-        d = os.path.abspath(d)
-        if os.path.isdir(os.path.join(d, ".rokct")):
-            return d
+    if target_dirs:
+        return os.path.abspath(target_dirs[0])
     return os.getcwd()
 
 def write_evidence_file(repo_dir, control_id, status, detail, violations=[]):
