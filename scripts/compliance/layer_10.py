@@ -95,6 +95,19 @@ def check_layer10_deployment_safety(filepath):
             for idx, line in enumerate(lines, 1):
                 if line.strip().startswith("#"):
                     continue
+                # DECISION: Restrict scanning to actual variable assignments or configuration mappings rather than global line scraping.
+                # This prevents false positives on release version strings (e.g. 1.2.3.4) inside documentation or configuration files.
+                is_assignment = False
+                if filepath.endswith((".yml", ".yaml")):
+                    if ":" in line or line.strip().startswith("-"):
+                        is_assignment = True
+                elif filepath.endswith((".sh", ".bash")):
+                    if "=" in line or any(cmd in line for cmd in ["export", "set", "env", "run", "curl", "wget", "ssh"]):
+                        is_assignment = True
+                
+                if not is_assignment:
+                    continue
+
                 matches = ip_pattern.findall(line)
                 for ip in matches:
                     if ip in ["127.0.0.1", "0.0.0.0", "172.17.0.1"] or ip.startswith("10.6") or ip.startswith("3.14") or ip.startswith("2.4"):

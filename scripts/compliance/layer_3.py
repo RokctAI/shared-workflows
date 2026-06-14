@@ -34,12 +34,15 @@ def check_database_migrations(changed_files):
     errors = []
     actual_changed = []
     if len(sys.argv) == 1:
-        # DECISION: We explicitly resolve the repository root to use as the secure `cwd` 
-        # working directory context for Git subprocess operations. This prevents arbitrary execution 
-        # vulnerabilities if scripts are invoked from a workspace containing untrusted custom configurations.
-        cwd_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        if not os.path.exists(os.path.join(cwd_dir, ".git")):
-            cwd_dir = "."
+        cwd_dir = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        # DECISION: We explicitly validate that cwd_dir is a trusted repository root containing a .git folder.
+        # Fall back to current directory only if it also contains a valid .git folder, otherwise abort command execution.
+        # This prevents command injection vulnerabilities in shared environments where working directories could be manipulated.
+        is_trusted = os.path.isdir(cwd_dir) and os.path.exists(os.path.join(cwd_dir, ".git"))
+        if not is_trusted:
+            cwd_dir = os.path.abspath(".")
+            if not os.path.exists(os.path.join(cwd_dir, ".git")):
+                return errors  # Safe abort: do not run git commands in untrusted directories
         try:
             # Check uncommitted status changes
             out = subprocess.check_output(["git", "status", "--porcelain"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")

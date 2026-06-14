@@ -36,11 +36,21 @@ def check_layer13_backup_recovery(filepath):
                 
         # 2. Walk globally from workspace root to find tests if not resolved locally
         if not test_exists:
+            # DECISION: Match variations of the script name (e.g. "test_backup.py" or "backup_test.py")
+            # globally to reduce false positives for E2E and consolidated test frameworks.
+            base_no_ext = os.path.splitext(os.path.basename(filepath))[0]
             for root, dirs, files in os.walk(workspace_root):
                 # Filter out obvious ignore directories to keep search speed fast
                 dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", "build", "env", "__pycache__"]]
-                if test_filename_1 in files or test_filename_2 in files:
-                    test_exists = True
+                for file in files:
+                    if file == test_filename_1 or file == test_filename_2:
+                        test_exists = True
+                        break
+                    file_lower = file.lower()
+                    if base_no_ext in file_lower and "test" in file_lower:
+                        test_exists = True
+                        break
+                if test_exists:
                     break
                     
         if not test_exists:
