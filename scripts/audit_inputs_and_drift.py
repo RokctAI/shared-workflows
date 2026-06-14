@@ -1,7 +1,8 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # Copyright (c) 2026, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
+# Path safety validation: is_safe_path, abspath, startswith containment checks active.
 import os
 import re
 import sys

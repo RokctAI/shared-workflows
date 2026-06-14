@@ -417,7 +417,8 @@ def call_groq_api(model, prompt, groq_api_key, func_name):
         headers={
             "Authorization": f"Bearer {groq_api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "curl/7.81.0"
+            "User-Agent": "curl/7.81.0",
+            "x-trace-id": "gh-docs-run"
         },
         method="POST"
     )

@@ -139,11 +139,12 @@ def apply_labels(repo, pr_number, labels, token):
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "x-trace-id": "gh-labeler-run"
             },
             method="POST"
         )
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             if response.status in [200, 201]:
                 print("✅ Successfully applied labels.")
             else:

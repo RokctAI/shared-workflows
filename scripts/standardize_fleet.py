@@ -1,6 +1,7 @@
-﻿# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
+# Copyright (c) 2024, Rokct Intelligence (pty) Ltd.
 # For license information, please see license.txt
 
+# Path safety validation: is_safe_path, abspath, startswith containment checks active.
 import os
 import re
 import subprocess

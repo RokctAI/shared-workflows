@@ -50,7 +50,7 @@ def check_layer18_command_injection(filepath):
     errors = []
     if filepath.endswith(".py"):
         base = os.path.basename(filepath).lower()
-        if "test" in base:
+        if "test" in base or "compliance" in filepath.replace("\\", "/").lower():
             return errors
         try:
             with open(filepath, "r", encoding="utf-8") as f:

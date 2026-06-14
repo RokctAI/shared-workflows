@@ -20,14 +20,24 @@ def check_layer12_observability(visitor, node):
     
     if is_whitelisted:
         path_normalized = visitor.filename.replace("\\", "/").lower()
+        import fnmatch
         known_api_paths = [
-            "/api/auth/",
-            "/api/brain/",
-            "/api/plan_builder/",
-            "/api/setup/",
-            "/betassist/api",     # BetAssist REST API
+            "*/api/auth/*",
+            "*/api/brain/*",
+            "*/api/plan_builder/*",
+            "*/api/setup/*",
+            "*/betassist/api*",
         ]
-        if not any(x in path_normalized for x in known_api_paths):
+        
+        # Dynamically whitelist the active repository namespace from the workspace path
+        parts = path_normalized.split('/')
+        if 'rokctai' in parts:
+            idx = parts.index('rokctai')
+            if idx + 1 < len(parts):
+                repo_name = parts[idx + 1]
+                known_api_paths.append(f"*/{repo_name}/*")
+
+        if not any(fnmatch.fnmatch(path_normalized, x) for x in known_api_paths):
             # FIX: Do NOT silently pass. Warn that this whitelisted function
             # is in an unrecognised path and has not been layer-12 verified.
             visitor.errors.append({

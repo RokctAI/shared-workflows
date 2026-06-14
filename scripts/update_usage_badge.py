@@ -30,9 +30,12 @@ def get_current_count():
     try:
         req = urllib.request.Request(
             "https://api.counterapi.dev/v2/rokctai/usage/stats",
-            headers={"User-Agent": "Mozilla/5.0"},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "x-trace-id": "gh-badges-run"
+            },
         )
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode())
             return data.get("data", {}).get("up_count", 0)
     except Exception as e:
