@@ -65,3 +65,47 @@ def check_layer18_command_injection(filepath):
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
+
+@register_file_checker
+def check_layer18_thread_safety(filepath):
+    errors = []
+    if filepath.endswith(".py"):
+        base = os.path.basename(filepath).lower()
+        if "test" in base:
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # If mutable global objects exist like dictionaries and threading/fastapi is imported, check that a lock is used
+            if ("fastapi" in content or "threading" in content) and any(x in content for x in ["ACTIVE_TOKENS", "PR_COMMENTS", "PR_NUMBERS_TO_BRANCHES"]):
+                if "Lock()" not in content or "with " not in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 18 (Thread Concurrency Safety)",
+                        "message": f"Module '{os.path.basename(filepath)}' modifies critical global state dictionaries without acquiring a threading lock. Implement and use a Lock context manager."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+@register_file_checker
+def check_layer18_background_task_logging(filepath):
+    errors = []
+    if filepath.endswith(".py"):
+        base = os.path.basename(filepath).lower()
+        if "test" in base:
+            return errors
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Verify background thread targets use structured stderr/logging context to handle unexpected exceptions
+            if "Thread(" in content and "target=" in content:
+                if "sys.stderr.write" not in content and "logger.error" not in content and "except Exception" not in content:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 18 (Background Thread Exception Safety)",
+                        "message": f"Module '{os.path.basename(filepath)}' launches background threads without structured catch-all logging blocks to capture failures on sys.stderr."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
