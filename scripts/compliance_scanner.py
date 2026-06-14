@@ -71,6 +71,8 @@ def main():
 
     print(f"Auditing {len(files_to_scan)} source files...")
 
+    violations_list = []
+
     for filepath in files_to_scan:
         errors = scan_file(filepath)
         if errors:
@@ -78,6 +80,12 @@ def main():
             for err in errors:
                 print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
                 total_violations += 1
+                violations_list.append({
+                    "file": filepath,
+                    "line": err["line"],
+                    "type": err["type"],
+                    "message": err["message"]
+                })
 
     migration_errors = check_database_migrations(changed_files_list)
     if migration_errors:
@@ -85,6 +93,12 @@ def main():
         for err in migration_errors:
             print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
             total_violations += 1
+            violations_list.append({
+                "file": "Git Schema Diff",
+                "line": err["line"],
+                "type": err["type"],
+                "message": err["message"]
+            })
 
     if total_violations == 0:
         for target_dir in target_dirs:
@@ -102,12 +116,12 @@ def main():
         print(f"ARCHITECTURAL COMPLIANCE FAILED: {total_violations} violations found.")
         print("All changes must adhere to ROKCT production-grade standards before merging.")
         print("=" * 80)
-        log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.")
+        log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.", violations=violations_list)
         sys.exit(1)
     else:
         print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
         print("=" * 80)
-        log_compliance_evidence(target_dirs, "PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.")
+        log_compliance_evidence(target_dirs, "PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.", violations=[])
         sys.exit(0)
 
 def is_ci_environment():
@@ -132,7 +146,7 @@ def resolve_evidence_repo(target_dirs):
             return d
     return os.getcwd()
 
-def write_evidence_file(repo_dir, control_id, status, detail):
+def write_evidence_file(repo_dir, control_id, status, detail, violations=[]):
     evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", control_id)
     os.makedirs(evidence_dir, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -143,7 +157,15 @@ def write_evidence_file(repo_dir, control_id, status, detail):
         "control_id": control_id,
         "status": status,
         "system": "compliance-scanner",
-        "detail": sanitize_text(detail)
+        "detail": sanitize_text(detail),
+        "violations": [
+            {
+                "file": sanitize_text(v["file"]),
+                "line": v["line"],
+                "what": sanitize_text(v["type"]),
+                "why": sanitize_text(v["message"])
+            } for v in violations
+        ]
     }
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -173,13 +195,13 @@ def commit_and_push_evidence(repo_dir, evidence_filepath, control_id, status, de
     except Exception as e:
         print(f"Unexpected error in evidence push: {e}", file=sys.stderr)
 
-def log_compliance_evidence(target_dirs, status, detail):
+def log_compliance_evidence(target_dirs, status, detail, violations=[]):
     repo_dir = resolve_evidence_repo(target_dirs)
     if not repo_dir:
         print("No repo with .rokct directory found for evidence logging.")
         return
     try:
-        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail)
+        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail, violations=violations)
         print(f"Compliance evidence written to: {evidence_path}")
         if is_ci_environment():
             commit_and_push_evidence(repo_dir, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
