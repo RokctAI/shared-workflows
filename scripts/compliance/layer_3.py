@@ -44,14 +44,14 @@ def check_database_migrations(changed_files):
             if not os.path.exists(os.path.join(cwd_dir, ".git")):
                 return errors  # Safe abort: do not run git commands in untrusted directories
         try:
-            # Check uncommitted status changes
-            out = subprocess.check_output(["git", "status", "--porcelain"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
+            # DECISION: Pass -c core.hooksPath=/dev/null to git subprocesses to disable custom hook execution and prevent arbitrary code injection.
+            out = subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "status", "--porcelain"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
             for line in out.splitlines():
                 if len(line) > 3:
                     file_path = line[3:].strip()
                     actual_changed.append(file_path)
             # Check latest commit diff (e.g. for CI runs where changes are committed)
-            out_diff = subprocess.check_output(["git", "diff", "--name-only", "HEAD~1"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
+            out_diff = subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", "diff", "--name-only", "HEAD~1"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
             for line in out_diff.splitlines():
                 actual_changed.append(line.strip())
         except Exception:

@@ -110,7 +110,15 @@ def check_layer10_deployment_safety(filepath):
 
                 matches = ip_pattern.findall(line)
                 for ip in matches:
-                    if ip in ["127.0.0.1", "0.0.0.0", "172.17.0.1"] or ip.startswith("10.6") or ip.startswith("3.14") or ip.startswith("2.4"):
+                    try:
+                        import ipaddress
+                        ip_obj = ipaddress.ip_address(ip)
+                        # DECISION: We utilize the standard library ipaddress module to discern local loopback, 
+                        # private networks (e.g., 10.x.x.x, 172.16-31.x.x, 192.168.x.x), and unspecified/multicast IPs 
+                        # from hardcoded production public infrastructure IP configurations, removing ad-hoc string comparisons.
+                        if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_unspecified:
+                            continue
+                    except ValueError:
                         continue
                     errors.append({
                         "line": idx,
