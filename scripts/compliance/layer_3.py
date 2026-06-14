@@ -34,15 +34,21 @@ def check_database_migrations(changed_files):
     errors = []
     actual_changed = []
     if len(sys.argv) == 1:
+        # DECISION: We explicitly resolve the repository root to use as the secure `cwd` 
+        # working directory context for Git subprocess operations. This prevents arbitrary execution 
+        # vulnerabilities if scripts are invoked from a workspace containing untrusted custom configurations.
+        cwd_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if not os.path.exists(os.path.join(cwd_dir, ".git")):
+            cwd_dir = "."
         try:
             # Check uncommitted status changes
-            out = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL).decode("utf-8")
+            out = subprocess.check_output(["git", "status", "--porcelain"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
             for line in out.splitlines():
                 if len(line) > 3:
                     file_path = line[3:].strip()
                     actual_changed.append(file_path)
             # Check latest commit diff (e.g. for CI runs where changes are committed)
-            out_diff = subprocess.check_output(["git", "diff", "--name-only", "HEAD~1"], stderr=subprocess.DEVNULL).decode("utf-8")
+            out_diff = subprocess.check_output(["git", "diff", "--name-only", "HEAD~1"], cwd=cwd_dir, stderr=subprocess.DEVNULL).decode("utf-8")
             for line in out_diff.splitlines():
                 actual_changed.append(line.strip())
         except Exception:
