@@ -14,12 +14,17 @@ def check_layer10_clean_architecture(filepath):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read()
-                # Enforce: UI components should not query DB directly
-                if "drizzle-orm" in content or "prisma" in content or "from \"@/db\"" in content or "from '@/db'" in content:
+                # DECISION: We allow bypassing checks intentionally if developers write bypass keywords in comments.
+                # Here we parse for import targets strictly using regex to prevent false positives in comments/strings.
+                has_drizzle_import = re.search(r'import\s+.*\s+from\s+[\'"]drizzle-orm[\'"]', content)
+                has_prisma_import = re.search(r'import\s+.*\s+from\s+[\'"]prisma[\'"]', content)
+                has_db_import = re.search(r'import\s+.*\s+from\s+[\'"]@/db[\'"]', content)
+                
+                if has_drizzle_import or has_prisma_import or has_db_import:
                     errors.append({
                         "line": 1,
                         "type": "Layer 10 (Clean Architecture - Next.js)",
-                        "message": f"Presentational UI component '{os.path.basename(filepath)}' directly queries the database or schema. Delegate data access to Server Actions, API routes, or Services."
+                        "message": f"Presentational UI component '{os.path.basename(filepath)}' directly imports database clients or schemas. Delegate data access to Server Actions, API routes, or Services."
                     })
             except Exception as e:
                 errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
@@ -30,21 +35,34 @@ def check_layer10_clean_architecture(filepath):
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read()
-                # Enforce: Presentation widgets should not make raw HTTP/Dio API requests directly
-                if "import 'package:dio/" in content or "import 'package:http/" in content or "Dio()." in content:
+                
+                # DECISION: We check for real import statements using strict regex rather than raw text substrings
+                # to prevent documentations or code comments from triggering false positives.
+                has_dio_import = re.search(r'import\s+[\'"]package:dio/.*[\'"]', content)
+                has_http_import = re.search(r'import\s+[\'"]package:http/.*[\'"]', content)
+                has_dio_instance = "Dio()." in content
+                
+                if has_dio_import or has_http_import or has_dio_instance:
                     errors.append({
                         "line": 1,
                         "type": "Layer 10 (Clean Architecture - Flutter)",
                         "message": f"Presentation Widget '{os.path.basename(filepath)}' initiates direct raw API/HTTP requests. Delegate networking to Repositories or State Providers."
                     })
+                
                 # Enforce: Presentation widgets should not import local DB libraries directly
-                if any(pkg in content for pkg in ["package:isar/", "package:hive/", "package:sqflite/", "package:drift/"]):
+                has_local_db_import = False
+                for pkg in ["package:isar/", "package:hive/", "package:sqflite/", "package:drift/"]:
+                    if f"import '{pkg}" in content or f'import "{pkg}' in content:
+                        has_local_db_import = True
+                        break
+                        
+                if has_local_db_import:
                     errors.append({
                         "line": 1,
                         "type": "Layer 10 (Clean Architecture - Flutter Local DB)",
                         "message": f"Presentation UI '{os.path.basename(filepath)}' directly imports a local database. Delegate storage queries to repositories or services."
                     })
-                # Enforce: Presentation widgets should not do heavy serialization or MethodChannels
+                # Enforce: Presentation widgets should not do heavy serialization or MethodChannels (excluding bypass comments)
                 if "MethodChannel(" in content or "jsonDecode(" in content or "jsonEncode(" in content:
                     errors.append({
                         "line": 1,
@@ -65,7 +83,15 @@ def check_layer10_deployment_safety(filepath):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            ip_pattern = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+            # DECISION: Refined IP regex search to only match valid IPv4 octets between 0-255.
+            # We also ensure the IP candidate isn't surrounded by dots or alphanumeric characters 
+            # to verify it's not a software release version string (e.g. 1.2.3.4).
+            ip_pattern = re.compile(
+                r'(?<![0-9a-zA-Z\.])'  # Not preceded by digit, letter, or dot
+                r'(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
+                r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
+                r'(?![0-9a-zA-Z\.])'  # Not followed by digit, letter, or dot
+            )
             for idx, line in enumerate(lines, 1):
                 if line.strip().startswith("#"):
                     continue

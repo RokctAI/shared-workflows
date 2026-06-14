@@ -97,13 +97,16 @@ def check_layer12_db_tracing(visitor, node):
                             has_trace = True
                         else:
                             for subnode in ast.walk(visitor.current_function):
-                                if isinstance(subnode, ast.Name) and subnode.id in ["trace_id", "trace"]:
-                                    has_trace = True
-                                if isinstance(subnode, ast.Constant) and isinstance(subnode.value, str):
-                                    val_lower = subnode.value.lower()
-                                    if any(x in val_lower for x in ["trace_id", "trace-id", "x-trace-id"]):
-                                        has_trace = True
+                                 if isinstance(subnode, ast.Name) and subnode.id == "trace_id":
+                                     has_trace = True
+                                 if isinstance(subnode, ast.Constant) and isinstance(subnode.value, str):
+                                     val_lower = subnode.value.lower()
+                                     if any(x in val_lower for x in ["trace_id", "trace-id", "x-trace-id"]):
+                                         has_trace = True
                     
+                    # DECISION: We verify that the function has trace propagation contexts. 
+                    # We no longer match the broad variable name 'trace' since that triggers false positives 
+                    # for unrelated local booleans or methods, focusing strictly on explicit trace_id mappings.
                     if not has_trace:
                         visitor.errors.append({
                             "line": node.lineno,
