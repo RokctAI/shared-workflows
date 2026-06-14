@@ -60,13 +60,13 @@ def main():
         project_type = detect_project_type(target_dir)
         if project_type == "unknown":
             print(f"\nCOMPLIANCE VIOLATION in: {target_dir}")
-            print(f"  [Project Type Detection] -> Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, or Flutter/Dart).")
+            print(f"  [Project Type Detection] -> Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, Flutter/Dart, or Data/Specifications).")
             total_violations += 1
             violations_list.append({
                 "file": target_dir,
                 "line": 1,
                 "type": "Project Type Detection",
-                "message": "Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, or Flutter/Dart)."
+                "message": "Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, Flutter/Dart, or Data/Specifications)."
             })
 
     if not files_to_scan and not changed_files_list:

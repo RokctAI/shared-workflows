@@ -77,10 +77,11 @@ def is_function_used(func_name, defining_filepath, target_dir):
     return False
 
 def detect_project_type(target_dir):
-    """Detect the dominant project type (flutter, typescript, or python)."""
+    """Detect the dominant project type (flutter, typescript, python, or data)."""
     has_dart = False
     has_ts = False
     has_py = False
+    has_data = False
     
     for root, dirs, files in os.walk(target_dir):
         dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
@@ -91,6 +92,8 @@ def detect_project_type(target_dir):
                 has_ts = True
             elif file.endswith(".py"):
                 has_py = True
+            elif file.endswith((".md", ".json", ".yml", ".yaml")):
+                has_data = True
                 
     if has_dart:
         return "flutter"
@@ -98,6 +101,8 @@ def detect_project_type(target_dir):
         return "typescript"
     elif has_py:
         return "python"
+    elif has_data:
+        return "data"
     return "unknown"
 
 def is_whitelisted(node):
