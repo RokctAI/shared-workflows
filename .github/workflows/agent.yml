@@ -1,0 +1,60 @@
+name: "Agent: Automated Git Delegation"
+
+on:
+  push:
+    paths:
+      - '.rokct/agent/queue/*.json'
+      - '.rokct/agent/prompts/in_progress/*.json'
+    branches:
+      - main
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: '*/30 * * * *'  # 30-min scheduler (factory)
+    - cron: '0 20 * * *'    # Daily queue (factory, opportunities)
+    - cron: '0 20 1 * *'    # Monthly idea session (protocol)
+    - cron: '0 21 * * 0'    # Weekly delegation queue (protocol)
+    - cron: '0 22 * * 0'    # Weekly review (protocol)
+    - cron: '0 23 * * 0'    # Weekly publisher (protocol)
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      id:
+        required: true
+        type: string
+      type:
+        required: true
+        type: string
+      theme:
+        required: true
+        type: string
+      status:
+        required: true
+        type: string
+      agent:
+        required: true
+        type: string
+      session:
+        required: true
+        type: string
+      pr:
+        required: false
+        type: string
+
+concurrency:
+  group: agent-delegation
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-agent.yml@main
+    with:
+      mode: 'auto'
+      ledger_id: ${{ inputs.id }}
+      ledger_type: ${{ inputs.type }}
+      ledger_theme: ${{ inputs.theme }}
+      ledger_status: ${{ inputs.status }}
+      ledger_agent: ${{ inputs.agent }}
+      ledger_session: ${{ inputs.session }}
+      ledger_pr: ${{ inputs.pr }}
+    secrets: inherit

@@ -16,27 +16,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Guard: skip if session active or no config
+      - name: "Guard: skip if session active or no config"
         id: guard
         run: |
+          skip="false"
+          parent_repo=""
+          parent_branch="main"
+          working_files=""
+
           if [ -f .rokct/active_session.txt ]; then
             echo "Active session in progress, skipping sync."
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          if [ ! -f .rokct/.workspace_config.json ]; then
+            skip="true"
+          elif [ ! -f .rokct/.workspace_config.json ]; then
             echo "No workspace config found, skipping sync."
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          if [ ! -f .rokct/.sync_ready ]; then
+            skip="true"
+          elif [ ! -f .rokct/.sync_ready ]; then
             echo "No sync_ready marker — end_protocol has not been run. Skipping."
-            echo "skip=true" >> $GITHUB_OUTPUT
-            exit 0
+            skip="true"
+          else
+            parent_repo=$(jq -r .parent_repo ".rokct/.workspace_config.json")
+            parent_branch=$(jq -r ".parent_branch // \"main\"" ".rokct/.workspace_config.json")
+            working_files=$(jq -r ".working_files[]" ".rokct/.workspace_config.json" | jq -R -s -c 'split("\n")[:-1]')
           fi
-          echo "parent_repo=$(jq -r .parent_repo .rokct/.workspace_config.json)" >> $GITHUB_OUTPUT
-          echo "parent_branch=$(jq -r .parent_branch // 'main' .rokct/.workspace_config.json)" >> $GITHUB_OUTPUT
-          echo "working_files=$(jq -r .working_files[] .rokct/.workspace_config.json | jq -R -s -c 'split("\n")[:-1]')" >> $GITHUB_OUTPUT
+
+          {
+            echo "skip=${skip}"
+            echo "parent_repo=${parent_repo}"
+            echo "parent_branch=${parent_branch}"
+            echo "working_files=${working_files}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout parent workspace repo
         if: ${{ !contains(steps.guard.outputs.skip, 'true') }}

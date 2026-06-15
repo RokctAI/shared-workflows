@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import re
 import hashlib
 import subprocess
 import urllib.request
@@ -35,25 +36,40 @@ def extract_new_sections(child_path, parent_path, repo, session):
     # to prevent duplication during additive sync
     if not os.path.exists(child_path):
         return None
-    child_content = open(child_path, "r", encoding="utf-8").read()
-    
+    child_content = open(child_path, "r", encoding="utf-8").read().strip()
+    if not child_content:
+        return None
+        
+    already_synced = ""
     if os.path.exists(parent_path):
         parent_content = open(parent_path, "r", encoding="utf-8").read()
-        # Only extract what child has that parent doesn't
-        if child_content == parent_content.strip() or child_content.strip() in parent_content:
-            return None
-        # Find lines unique to child (bottom-only append)
-        child_lines = child_content.splitlines()
-        parent_lines = parent_content.splitlines()
-        new_lines = []
-        for line in child_lines:
-            if line not in parent_lines:
-                new_lines.append(line)
-        if not new_lines:
-            return None
-        new_content = "\n".join(new_lines)
+        # Find all synced blocks for this specific repository
+        escaped_repo = re.escape(repo)
+        pattern = r"<!-- ROKCT-SYNC-START: " + escaped_repo + r"/.*? -->\n(.*?)\n<!-- ROKCT-SYNC-END: " + escaped_repo + r"/.*? -->"
+        matches = re.findall(pattern, parent_content, re.DOTALL)
+        if matches:
+            already_synced = "\n".join(m.strip() for m in matches).strip()
+
+    if already_synced and child_content.startswith(already_synced):
+        new_content = child_content[len(already_synced):].strip()
     else:
-        new_content = child_content.strip()
+        # Fallback if child has no synced prefix
+        child_lines = child_content.splitlines()
+        if os.path.exists(parent_path):
+            parent_content = open(parent_path, "r", encoding="utf-8").read()
+            if child_content in parent_content:
+                return None
+            new_lines = []
+            for line in reversed(child_lines):
+                if line in parent_content:
+                    break
+                new_lines.insert(0, line)
+            new_content = "\n".join(new_lines).strip()
+        else:
+            new_content = child_content
+
+    if not new_content:
+        return None
     
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return HEADER.format(repo=repo, session=session, ts=ts) + new_content + "\n" + FOOTER.format(repo=repo, session=session, ts=ts)

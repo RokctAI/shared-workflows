@@ -12,9 +12,27 @@ import zipfile
 
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main"
 GITHUB_ZIP_BASE = "https://github.com/RokctAI/The-Rokct-Protocol/archive/refs/heads/main.zip"
-PROTOCOL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROTOCOL_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) if "profiles" in os.path.abspath(__file__) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.getcwd()
 ROKCT_DIR = os.path.join(PROJECT_ROOT, ".rokct")
+
+def check_self_update():
+    dest_initiate = os.path.join(ROKCT_DIR, "initiate.py")
+    if os.path.exists(dest_initiate) and os.path.abspath(__file__) == os.path.abspath(dest_initiate):
+        url = f"{GITHUB_RAW_BASE}/profiles/local/initiate.py"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req) as r:
+                remote_data = r.read()
+            remote_hash = hashlib.sha256(remote_data).hexdigest()[:16]
+            if remote_hash != file_hash(dest_initiate):
+                print("[init] GitHub has a newer initiate.py (local profile). Self-updating...")
+                with open(dest_initiate, "wb") as f:
+                    f.write(remote_data)
+                print("[init] Reloading initiate.py...")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception as e:
+            print(f"[init] Self-update check failed: {e}", file=sys.stderr)
 
 def fetch_from_github(rel_path, dest_path):
     url = f"{GITHUB_RAW_BASE}/{rel_path}"
@@ -76,7 +94,7 @@ def copy_dir(rel_src, dst):
     os.makedirs(dst, exist_ok=True)
     for item in os.listdir(src):
         # Skip sync files, maintenance, and the init guide - handled separately or not needed in .rokct
-        if item in ("sync_workspace.py", "sync_workspace.yml", "maintenance.yml", "init_protocol.md"):
+        if item in ("sync_workspace.py", "sync_workspace.yml", "maintenance.yml", "init_protocol.md", ".rok"):
             continue
         s = os.path.join(src, item)
         d = os.path.join(dst, item)
@@ -98,7 +116,7 @@ def fetch_dir_from_github(rel_src, dst):
         for name in z.namelist():
             if name.startswith(prefix) and not name.endswith("/"):
                 rel = name[len(prefix):]
-                if rel_src == "workflows" and rel in ("sync_workspace.py", "sync_workspace.yml", "maintenance.yml"):
+                if rel_src == "workflows" and (rel in ("sync_workspace.py", "sync_workspace.yml", "maintenance.yml") or rel.startswith(".rok/")):
                     continue
                 dest = os.path.join(dst, rel)
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -110,11 +128,14 @@ def fetch_dir_from_github(rel_src, dst):
         print(f"[init] Failed to fetch directory {rel_src}: {e}", file=sys.stderr)
 
 def main():
+    check_self_update()
     os.makedirs(ROKCT_DIR, exist_ok=True)
 
     templates = ["memory.md", "decision_log.md", "project_map.md", "active_session.txt"]
     for t in templates:
-        ensure_file(f"core/templates/{t}", os.path.join(ROKCT_DIR, t))
+        dest_t = os.path.join(ROKCT_DIR, t)
+        if not os.path.exists(dest_t):
+            ensure_file(f"core/templates/{t}", dest_t)
 
     ensure_file(".cursorrules", os.path.join(PROJECT_ROOT, ".cursorrules"))
 
@@ -133,6 +154,28 @@ def main():
             shutil.rmtree(rok_path)
             print("[init] Removed .rok skill (non-RokctAI repo)")
 
+    # Distribution of Protocol-only (RokctAI) workflows
+    if "RokctAI/" in origin_url:
+        rok_workflows_src = os.path.join(PROTOCOL_DIR, "workflows", ".rok")
+        temp_rok_workflows = os.path.join(ROKCT_DIR, "workflows", ".rok")
+        if not os.path.isdir(rok_workflows_src):
+            fetch_dir_from_github("workflows/.rok", temp_rok_workflows)
+            src_dir = temp_rok_workflows
+        else:
+            src_dir = rok_workflows_src
+
+        if os.path.isdir(src_dir):
+            dst_workflows = os.path.join(PROJECT_ROOT, ".github", "workflows")
+            os.makedirs(dst_workflows, exist_ok=True)
+            for item in os.listdir(src_dir):
+                src_file = os.path.join(src_dir, item)
+                if os.path.isfile(src_file):
+                    shutil.copy2(src_file, os.path.join(dst_workflows, item))
+                    print(f"[init] Deployed Protocol workflow: {item}")
+            if src_dir == temp_rok_workflows and os.path.isdir(temp_rok_workflows):
+                shutil.rmtree(temp_rok_workflows)
+                print("[init] Cleaned up temporary workflows/.rok directory")
+
     ensure_file("profiles/local/rules.md", os.path.join(ROKCT_DIR, "profiles.md"))
 
     copy_dir("profiles/local/workflows", os.path.join(ROKCT_DIR, "workflows"))
@@ -150,9 +193,14 @@ def main():
         domain_hash = hashlib.md5(domain.encode()).hexdigest()[:6]
         safe_id = f"{prefix}.{domain_hash}"
         mem = os.path.join(ROKCT_DIR, "memory.md")
-        with open(mem, "a", encoding="utf-8") as f:
-            f.write(f"\n\n## Safe ID\n{safe_id}\n")
-        print(f"[init] Registered safe identity: {safe_id}")
+        existing_mem_content = ""
+        if os.path.exists(mem):
+            with open(mem, "r", encoding="utf-8") as f:
+                existing_mem_content = f.read()
+        if safe_id not in existing_mem_content:
+            with open(mem, "a", encoding="utf-8") as f:
+                f.write(f"\n\n## Safe ID\n{safe_id}\n")
+            print(f"[init] Registered safe identity: {safe_id}")
 
     ignore = os.path.join(ROKCT_DIR, ".gitignore")
     if not os.path.exists(ignore):
@@ -171,7 +219,7 @@ def main():
     ensure_file("profiles/local/end_protocol.py", os.path.join(ROKCT_DIR, "end_protocol.py"))
     # Don't copy initiate.py to itself if already running from .rokct/
     dest_initiate = os.path.join(ROKCT_DIR, "initiate.py")
-    src_initiate = os.path.basename(__file__)
+    src_initiate = "profiles/local/initiate.py"
     if os.path.abspath(__file__) != dest_initiate:
         ensure_file(src_initiate, dest_initiate)
     print("[init] Copied initiate.py -> .rokct/initiate.py")
