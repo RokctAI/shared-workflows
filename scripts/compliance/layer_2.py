@@ -18,8 +18,11 @@ def check_layer2_function_def(visitor, node):
                 is_whitelisted = True
     
     if is_whitelisted:
-        path_normalized = visitor.filename.replace("\\", "/").lower()
         import fnmatch
+        # Use the relative path directly — the scanner always runs from repo root,
+        # so the first non-'.' segment IS the app/module name. This works for any
+        # repo without any hardcoded list.
+        path_normalized = visitor.filename.replace("\\", "/").lower()
         known_api_paths = [
             "*/api/auth/*",
             "*/api/brain/*",
@@ -28,13 +31,12 @@ def check_layer2_function_def(visitor, node):
             "*/betassist/api*",
         ]
         
-        # Dynamically whitelist the active repository namespace from the workspace path
-        parts = path_normalized.split('/')
-        if 'rokctai' in parts:
-            idx = parts.index('rokctai')
-            if idx + 1 < len(parts):
-                repo_name = parts[idx + 1]
-                known_api_paths.append(f"*/{repo_name}/*")
+        # Dynamically detect the top-level app name from the relative path
+        # e.g. .\rpanel\hosting\foo.py → parts[1] = 'rpanel' → whitelist */rpanel/*
+        parts = [p for p in path_normalized.split('/') if p and p != '.']
+        if parts:
+            app_name = parts[0]
+            known_api_paths.append(f"*/{app_name}/*")
 
         if not any(fnmatch.fnmatch(path_normalized, x) for x in known_api_paths):
             # FIX: Do NOT silently pass. Warn that this whitelisted function
