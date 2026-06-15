@@ -88,7 +88,7 @@ def check_layer4_5_file_safety(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
 
     # 3. Nginx headers check
-    elif filepath.endswith(".conf") or "nginx" in filepath.lower():
+    elif (filepath.endswith(".conf") or "nginx" in filepath.lower()) and not filepath.endswith(".md"):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()

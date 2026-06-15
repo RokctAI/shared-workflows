@@ -17,7 +17,7 @@ def check_layer7_caching_and_cdn(filepath):
                 })
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
-    elif filepath.endswith(".conf") or "nginx" in filepath.lower():
+    elif (filepath.endswith(".conf") or "nginx" in filepath.lower()) and not filepath.endswith(".md"):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
