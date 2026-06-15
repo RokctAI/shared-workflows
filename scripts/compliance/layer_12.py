@@ -127,46 +127,90 @@ def check_layer12_db_tracing(visitor, node):
                             "message": f"Database query to standard DocType '{doctype_val}' in function '{visitor.current_function.name if visitor.current_function else 'global'}' lacks Trace ID propagation context."
                         })
 
+
+_TRACE_HEADER_PATTERNS = [
+    r'["\']x-trace-id["\']\s*:',
+    r'["\']trace-id["\']\s*:',
+    r'["\']trace_id["\']\s*:',
+    r'["\']x-request-id["\']\s*:',
+    r'\.headers\[["\']x-trace-id["\']\]\s*=',
+    r'\bheaders\b.*\btrace\b',
+]
+
+_INTERCEPTOR_CACHE = {}
+
+def _project_has_trace_interceptor(start_path):
+    """Walk up to lib/ root then search for a Dio Interceptor that injects x-trace-id."""
+    root = start_path
+    for _ in range(8):
+        root = os.path.dirname(root)
+        if os.path.basename(root) in ("lib", "src", ""):
+            break
+    if root in _INTERCEPTOR_CACHE:
+        return _INTERCEPTOR_CACHE[root]
+    found = False
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in [".dart_tool", "build", ".git"]]
+        for fname in files:
+            if not fname.endswith(".dart"):
+                continue
+            try:
+                fc = open(os.path.join(dirpath, fname), encoding="utf-8").read()
+                is_interceptor = ("extends Interceptor" in fc or "implements Interceptor" in fc)
+                has_trace = any(re.search(p, fc, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
+                if is_interceptor and has_trace:
+                    found = True
+                    break
+            except Exception:
+                continue
+        if found:
+            break
+    _INTERCEPTOR_CACHE[root] = found
+    return found
+
+
 @register_file_checker
 def check_layer12_flutter_observability(filepath):
     errors = []
-    if filepath.endswith(".dart"):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read()
-            makes_http_calls = any(pkg in content for pkg in [
-                "package:http/", "package:dio/", "HttpClient", "Uri.https", "Uri.http"
-            ])
-            is_api_or_service = any(x in filepath.lower() for x in ["api", "service", "repository", "remote"])
-            if makes_http_calls or is_api_or_service:
-                # DECISION: Use strict Dart regex validation to ensure trace IDs are explicitly injected into header constructions,
-                # rather than naive substring matching which could be easily bypassed by simple code comments.
-                has_strict_trace = False
-                header_patterns = [
-                    r'["\']x-trace-id["\']\s*:',
-                    r'["\']trace-id["\']\s*:',
-                    r'["\']trace_id["\']\s*:',
-                    r'["\']x-request-id["\']\s*:',
-                    r'\.headers\[["\']x-trace-id["\']\]\s*=',
-                    r'\bheaders\b.*\btrace\b',
-                ]
-                for pat in header_patterns:
-                    if re.search(pat, content, re.IGNORECASE):
-                        has_strict_trace = True
-                        break
-                
-                # Support bypass comments explicitly
-                is_bypassed = any(x in content.lower() for x in ["bypass", "ignore-observability"])
+    if not filepath.endswith(".dart"):
+        return errors
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
 
-                if not has_strict_trace and not is_bypassed:
-                    errors.append({
-                        "line": 1,
-                        "type": "Layer 12 (Observability - Flutter Trace ID)",
-                        "message": f"Flutter file '{os.path.basename(filepath)}' makes outgoing HTTP calls but fails to propagate a structured Trace/Request ID in outgoing network headers."
-                    })
-        except Exception as e:
-            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+        makes_http_calls = any(pkg in content for pkg in [
+            "package:http/", "package:dio/", "HttpClient", "Uri.https", "Uri.http"
+        ])
+        is_api_or_service = any(x in filepath.lower() for x in ["api", "service", "repository", "remote"])
+
+        if not (makes_http_calls or is_api_or_service):
+            return errors
+
+        # 1. File-level header injection check
+        has_strict_trace = any(re.search(p, content, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
+
+        # 2. Project-level: a shared Dio Interceptor that injects x-trace-id covers all files
+        if not has_strict_trace:
+            has_strict_trace = _project_has_trace_interceptor(filepath)
+
+        # 3. Explicit bypass comment
+        is_bypassed = any(x in content.lower() for x in ["bypass", "ignore-observability"])
+
+        if not has_strict_trace and not is_bypassed:
+            errors.append({
+                "line": 1,
+                "type": "Layer 12 (Observability - Flutter Trace ID)",
+                "message": (
+                    f"Flutter file '{os.path.basename(filepath)}' makes outgoing HTTP calls "
+                    f"but fails to propagate a structured Trace/Request ID in outgoing network "
+                    f"headers. Add 'x-trace-id' to request headers or ensure a Dio Interceptor "
+                    f"in this project injects it centrally (extends Interceptor + sets x-trace-id)."
+                )
+            })
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
+
 @register_file_checker
 def check_layer12_flutter_crash_reporting(filepath):
     """Enforce crash/error reporting SDK integration in Flutter app entrypoints."""
