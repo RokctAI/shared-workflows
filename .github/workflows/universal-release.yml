@@ -1260,7 +1260,8 @@ jobs:
             # Only include files with actual content changes (not just whitespace)
             if [ -s content_changed.txt ]; then
                # Use git archive to pull files directly from the target commit (ignoring dirty workspace/merged private files)
-               git archive -o update_package.zip "$TARGET" -- $(cat content_changed.txt)
+               mapfile -t files < content_changed.txt
+               git archive -o update_package.zip "$TARGET" -- "${files[@]}"
                echo "zip_path=update_package.zip" >> "$GITHUB_OUTPUT"
             else
                echo "No files changed."

@@ -133,8 +133,10 @@ jobs:
 
       - name: Increment Loop Counter (evaluation)
         if: success() && inputs.mode == 'evaluation' && steps.claim_locks_evaluation.outputs.card_files != ''
+        env:
+          CARD_FILES: ${{ steps.claim_locks_evaluation.outputs.card_files }}
         run: |
-          for FILE in ${{ steps.claim_locks_evaluation.outputs.card_files }}; do
+          for FILE in $CARD_FILES; do
             CURRENT=$(grep '^loop_iterations:' "$FILE" | cut -d':' -f2 | xargs)
             NEW=$((CURRENT + 1))
             sed -i "s/^loop_iterations: .*/loop_iterations: $NEW/" "$FILE"
@@ -143,6 +145,8 @@ jobs:
       # --- POST-EXECUTION LOCK RELEASE & FAILURE HANDLING ---
       - name: Handle Failure
         if: failure()
+        env:
+          CARD_FILES: ${{ steps.claim_locks_evaluation.outputs.card_files }}
         run: |
           CARD_FILE=""
           if [ "${{ inputs.mode }}" == "writing" ]; then CARD_FILE="${{ steps.claim_lock_writing.outputs.card_file }}"; fi
@@ -159,8 +163,8 @@ jobs:
             fi
           fi
 
-          if [ "${{ inputs.mode }}" == "evaluation" ] && [ -n "${{ steps.claim_locks_evaluation.outputs.card_files }}" ]; then
-            for FILE in ${{ steps.claim_locks_evaluation.outputs.card_files }}; do
+          if [ "${{ inputs.mode }}" == "evaluation" ] && [ -n "$CARD_FILES" ]; then
+            for FILE in $CARD_FILES; do
               ATTEMPTS=$(grep '^attempts:' "$FILE" | cut -d':' -f2 | xargs || echo "0")
               NEW_ATTEMPTS=$((ATTEMPTS + 1))
               sed -i "s/^attempts: .*/attempts: $NEW_ATTEMPTS/" "$FILE"
@@ -176,12 +180,14 @@ jobs:
 
       - name: Release Job Locks (Always)
         if: always()
+        env:
+          CARD_FILES: ${{ steps.claim_locks_evaluation.outputs.card_files }}
         run: |
           if [ "${{ inputs.mode }}" == "writing" ] && [ -n "${{ steps.claim_lock_writing.outputs.card_file }}" ] && [ -f "${{ steps.claim_lock_writing.outputs.card_file }}" ]; then
             python .rokct/skills/agent_delegation/scripts/lock_job.py --file "${{ steps.claim_lock_writing.outputs.card_file }}" --action release
           fi
-          if [ "${{ inputs.mode }}" == "evaluation" ] && [ -n "${{ steps.claim_locks_evaluation.outputs.card_files }}" ]; then
-            for FILE in ${{ steps.claim_locks_evaluation.outputs.card_files }}; do
+          if [ "${{ inputs.mode }}" == "evaluation" ] && [ -n "$CARD_FILES" ]; then
+            for FILE in $CARD_FILES; do
               if [ -f "$FILE" ]; then
                 python .rokct/skills/agent_delegation/scripts/lock_job.py --file "$FILE" --action release
               fi

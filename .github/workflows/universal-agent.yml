@@ -130,7 +130,17 @@ jobs:
             CARD_FILE=$(jq -r '.card_file // empty' "$FILE")
 
             if [ "$LEVEL" == "1" ]; then
-               OLDEST_CARD=$(ls -rt .rokct/agent/jobs/pending/*.md 2>/dev/null | xargs grep -l "status: theme_generated" | head -n 1 || true)
+               OLDEST_CARD=$(python3 -c '
+import os, glob
+files = sorted(glob.glob(".rokct/agent/jobs/pending/*.md"), key=os.path.getmtime)
+for f in files:
+    try:
+        if "status: theme_generated" in open(f, encoding="utf-8").read():
+            print(f)
+            break
+    except Exception:
+        pass
+' || true)
                if [ -n "$OLDEST_CARD" ]; then
                   TYPE=$(grep '^type:' "$OLDEST_CARD" | cut -d':' -f2 | xargs)
                   THEME=$(grep '^theme:' "$OLDEST_CARD" | cut -d':' -f2 | xargs)
@@ -231,7 +241,7 @@ jobs:
             fi
           done
 
-          echo "HAS_UPDATES=$HAS_UPDATES" >> $GITHUB_ENV
+          echo "HAS_UPDATES=$HAS_UPDATES" >> "$GITHUB_ENV"
 
       - name: End Protocol
         run: |

@@ -83,10 +83,12 @@ jobs:
               git commit -m "chore: publish book $BOOK_NAME [skip ci]" || true
               git push origin main
 
-              echo "card_id=$ID" >> "$GITHUB_OUTPUT"
-              echo "card_type=$TYPE" >> "$GITHUB_OUTPUT"
-              echo "card_theme=$THEME" >> "$GITHUB_OUTPUT"
-              echo "card_file=$FILE" >> "$GITHUB_OUTPUT"
+              {
+                echo "card_id=$ID"
+                echo "card_type=$TYPE"
+                echo "card_theme=$THEME"
+                echo "card_file=$FILE"
+              } >> "$GITHUB_OUTPUT"
               break
             done
           fi

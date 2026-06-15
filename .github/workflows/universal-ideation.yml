@@ -47,7 +47,15 @@ jobs:
         run: |
           TYPES=("book.poetry" "book.fiction" "book.short_story" "book.children" "film.documentary")
           for TYPE in "${TYPES[@]}"; do
-            PENDING_COUNT=$(ls .rokct/agent/jobs/pending/*_${TYPE}_*.md 2>/dev/null | grep -v "template.md" | wc -l)
+            shopt -s nullglob
+            files=(.rokct/agent/jobs/pending/*_"${TYPE}"_*.md)
+            PENDING_COUNT=0
+            for f in "${files[@]}"; do
+              if [[ "$f" != *"template.md"* ]]; then
+                PENDING_COUNT=$((PENDING_COUNT + 1))
+              fi
+            done
+            shopt -u nullglob
             echo "Current pending themes for $TYPE: $PENDING_COUNT"
             if [ "$PENDING_COUNT" -lt 5 ]; then
               echo "🚀 Triggering Level 0 Theme Discovery for $TYPE..."
@@ -58,7 +66,6 @@ jobs:
               git add .rokct/agent/prompts/in_progress/level0_theme_discovery.json
               git commit -m "🤖 [CI] Trigger Theme Discovery for $TYPE [skip ci]" || true
               git push origin main
-              break
             fi
           done
 
@@ -71,15 +78,17 @@ jobs:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
         run: |
-          ALL_CARDS=$(ls -rt .rokct/agent/jobs/pending/*.md 2>/dev/null | grep -v 'template.md' || true)
+          shopt -s nullglob
           FILE=""
-          for f in $ALL_CARDS; do
+          for f in .rokct/agent/jobs/pending/*.md; do
+            if [[ "$f" == *"template.md"* ]]; then continue; fi
             STATUS=$(grep '^status:' "$f" | cut -d':' -f2 | xargs)
             if [ "$STATUS" == "theme_generated" ]; then
               FILE="$f"
               break
             fi
           done
+          shopt -u nullglob
           if [ -z "$FILE" ]; then
             echo "ℹ️ No cards pending idea generation found."
           else
