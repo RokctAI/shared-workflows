@@ -141,21 +141,31 @@ _INTERCEPTOR_CACHE = {}
 
 def _project_has_trace_interceptor(start_path):
     """Walk up to lib/ root then search for a Dio Interceptor that injects x-trace-id."""
+    base_dir = os.path.realpath(os.getcwd())
     root = start_path
     for _ in range(8):
         root = os.path.dirname(root)
         if os.path.basename(root) in ("lib", "src", ""):
             break
-    if root in _INTERCEPTOR_CACHE:
-        return _INTERCEPTOR_CACHE[root]
+    root_real = os.path.realpath(root)
+    if not root_real.startswith(base_dir):
+        return False
+    if root_real in _INTERCEPTOR_CACHE:
+        return _INTERCEPTOR_CACHE[root_real]
     found = False
-    for dirpath, dirs, files in os.walk(root):
+    for dirpath, dirs, files in os.walk(root_real):
+        dirpath_real = os.path.realpath(dirpath)
+        if not dirpath_real.startswith(base_dir):
+            continue
         dirs[:] = [d for d in dirs if d not in [".dart_tool", "build", ".git"]]
         for fname in files:
             if not fname.endswith(".dart"):
                 continue
             try:
-                fc = open(os.path.join(dirpath, fname), encoding="utf-8").read()
+                full_path = os.path.realpath(os.path.join(dirpath_real, fname))
+                if not full_path.startswith(base_dir):
+                    continue
+                fc = open(full_path, encoding="utf-8").read()
                 is_interceptor = ("extends Interceptor" in fc or "implements Interceptor" in fc)
                 has_trace = any(re.search(p, fc, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
                 if is_interceptor and has_trace:
@@ -165,7 +175,7 @@ def _project_has_trace_interceptor(start_path):
                 continue
         if found:
             break
-    _INTERCEPTOR_CACHE[root] = found
+    _INTERCEPTOR_CACHE[root_real] = found
     return found
 
 
