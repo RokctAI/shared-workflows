@@ -44,25 +44,23 @@ LOGGER = None
 FILE_CONTENTS_CACHE = {}
 
 def get_other_files_contents(defining_filepath, target_dir):
-    """Load and cache contents of all files in target_dir except defining_filepath."""
-    key = (defining_filepath, target_dir)
-    if key in FILE_CONTENTS_CACHE:
-        return FILE_CONTENTS_CACHE[key]
-        
-    contents = []
-    for root, dirs, files in os.walk(target_dir):
-        dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
-        for file in files:
-            fp = os.path.join(root, file)
-            if fp != defining_filepath:
+    """Yield file contents from target_dir except defining_filepath. Cached per target_dir."""
+    # Cache keyed only on target_dir — all files in a project are read once, not per-function
+    if target_dir not in FILE_CONTENTS_CACHE:
+        cache = {}
+        for root, dirs, files in os.walk(target_dir):
+            dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
+            for file in files:
+                fp = os.path.join(root, file)
                 if file.endswith((".py", ".ts", ".tsx", ".dart", ".js", ".jsx", ".json", ".html")):
                     try:
                         with open(fp, "r", encoding="utf-8") as f:
-                            contents.append(f.read())
+                            cache[fp] = f.read()
                     except Exception:
                         pass
-    FILE_CONTENTS_CACHE[key] = contents
-    return contents
+        FILE_CONTENTS_CACHE[target_dir] = cache
+    project_cache = FILE_CONTENTS_CACHE[target_dir]
+    return (content for fp, content in project_cache.items() if fp != defining_filepath)
 
 def is_function_used(func_name, defining_filepath, target_dir):
     """Check if the function name is referenced in any other file in the target directory."""
@@ -736,6 +734,8 @@ def scan_and_sync(target_dir, check_only=False):
                                 if LOGGER:
                                     LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
 
+    # Free memory after scan — the cache can be very large for big Flutter projects
+    FILE_CONTENTS_CACHE.clear()
     return out_of_sync
 
 def main():
