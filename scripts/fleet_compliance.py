@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 fleet_compliance.py -- Run ROKCT compliance scanner across ALL local repos.
 
@@ -10,7 +10,8 @@ Usage:
     python fleet_compliance.py --verbose              # full per-violation output
     python fleet_compliance.py --only rpanel engram   # specific repos only
 
-Skips: Frappenize (upstream vendor), shared-workflows (the scanner itself)
+Skips: Frappenize (upstream vendor), shared-workflows (the scanner itself),
+        paas_* (paas sub-apps)
 """
 
 import os
@@ -22,7 +23,19 @@ from pathlib import Path
 # -- Config -------------------------------------------------------------------
 REPOS_ROOT = Path(r"C:\Users\sinya\Desktop\RokctAI")
 SCANNER    = REPOS_ROOT / "shared-workflows" / "scripts" / "compliance_scanner.py"
-SKIP_REPOS = {"Frappenize", "shared-workflows", ".rokct"}
+
+# Add exact names or glob-style prefixes ending with * to skip repos.
+# Examples:  "Frappenize"  (exact)   "paas_*"  (any repo starting with paas_)
+SKIP = {
+    "Frappenize",           # upstream vendor
+    "shared-workflows",     # scanner itself
+    ".rokct",
+    "nextjs",
+    "tloumoka",
+    "ROK",
+    "ROK-paperclip-adapter",
+    "paas_*",               # paas sub-apps
+}
 
 # ANSI colours (Windows Terminal / PowerShell 7+)
 GREEN  = "\033[92m"
@@ -33,12 +46,21 @@ BOLD   = "\033[1m"
 RESET  = "\033[0m"
 
 # -- Repo discovery -----------------------------------------------------------
+def _is_skipped(name):
+    for pattern in SKIP:
+        if pattern.endswith("*"):
+            if name.startswith(pattern[:-1]):
+                return True
+        elif name == pattern:
+            return True
+    return False
+
 def discover_repos(root, only):
     repos = []
     for entry in sorted(root.iterdir()):
         if not entry.is_dir():
             continue
-        if entry.name in SKIP_REPOS:
+        if _is_skipped(entry.name):
             continue
         if only and entry.name not in only:
             continue
@@ -106,7 +128,8 @@ def main():
     print(f"  {BOLD}ROKCT FLEET COMPLIANCE SCAN{RESET}")
     print(f"  Repos root : {REPOS_ROOT}")
     print(f"  Repos found: {len(repos)}")
-    print(f"  Skipping   : {', '.join(sorted(SKIP_REPOS))}")
+    print(f"  Skipping   : {', '.join(sorted(SKIP))}")
+
     print(f"{'=' * W}")
 
     results = []
