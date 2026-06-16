@@ -59,8 +59,6 @@ def main():
     for target_dir in target_dirs:
         project_type = detect_project_type(target_dir)
         if project_type == "unknown":
-            print(f"\nCOMPLIANCE VIOLATION in: {target_dir}")
-            print(f"  [Project Type Detection] -> Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, Flutter/Dart, or Data/Specifications).")
             total_violations += 1
             violations_list.append({
                 "file": target_dir,
@@ -77,51 +75,92 @@ def main():
         print("SUCCESS: No source files resolved for scan. Exiting.")
         sys.exit(0)
 
-    print(f"Auditing {len(files_to_scan)} source files...")
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv
+    n_files = len(files_to_scan)
+    print(f"Auditing {n_files} source files...")
 
+    # ── Scan loop — compact progress, no per-violation spam ─────────────────
+    from collections import defaultdict
+    by_layer = defaultdict(list)  # layer_type -> list of violation dicts
 
-    for filepath in files_to_scan:
+    for i, filepath in enumerate(files_to_scan):
         errors = scan_file(filepath)
         if errors:
-            print(f"\nCOMPLIANCE VIOLATION in: {filepath}")
             for err in errors:
-                print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
                 total_violations += 1
-                violations_list.append({
+                v = {
                     "file": filepath,
                     "line": err["line"],
                     "type": err["type"],
                     "message": err["message"]
-                })
+                }
+                violations_list.append(v)
+                by_layer[err["type"]].append(v)
+        # Progress: print a dot every 50 files so the terminal isn't silent
+        if not verbose and (i + 1) % 50 == 0:
+            print(f"  ... {i + 1}/{n_files} files checked ({total_violations} violations so far)", flush=True)
 
     migration_errors = check_database_migrations(changed_files_list)
     if migration_errors:
-        print("\nCOMPLIANCE VIOLATION in: Git Schema Diff")
         for err in migration_errors:
-            print(f"  [Line {err['line']}] [{err['type']}] -> {err['message']}")
             total_violations += 1
-            violations_list.append({
+            v = {
                 "file": "Git Schema Diff",
                 "line": err["line"],
                 "type": err["type"],
                 "message": err["message"]
-            })
+            }
+            violations_list.append(v)
+            by_layer[err["type"]].append(v)
+
+    # ── Output ───────────────────────────────────────────────────────────────
+    if verbose:
+        # Old behaviour: print every violation
+        for layer_type, vs in sorted(by_layer.items()):
+            for v in vs:
+                print(f"\nCOMPLIANCE VIOLATION in: {v['file']}")
+                print(f"  [Line {v['line']}] [{v['type']}] -> {v['message']}")
+    else:
+        # Compact grouped summary
+        if by_layer:
+            print(f"\n{'Layer':<55} {'Count':>5}")
+            print("-" * 62)
+            for layer_type, vs in sorted(by_layer.items(), key=lambda x: -len(x[1])):
+                print(f"  {layer_type:<53} {len(vs):>5}")
+            print("-" * 62)
+            print(f"  {'TOTAL':<53} {total_violations:>5}")
+            # Show top 3 examples per layer
+            print("\nTop examples per layer (see evidence JSON for full list):")
+            for layer_type, vs in sorted(by_layer.items(), key=lambda x: -len(x[1])):
+                print(f"\n  [{layer_type}]")
+                for v in vs[:3]:
+                    fname = os.path.relpath(v['file']).replace('\\', '/')
+                    print(f"    L{v['line']:>4}  {fname}")
+                    print(f"           {v['message'][:100]}{'...' if len(v['message']) > 100 else ''}")
+                if len(vs) > 3:
+                    print(f"    ... and {len(vs) - 3} more (see evidence JSON)")
 
     if total_violations == 0:
+        # One-time notice if AI doc generation is unavailable — not repeated per function
+        if not (os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API")):
+            print("[update_docs] GROQ_API_KEY not set — AI doc generation skipped; using cached docs only.", file=sys.stderr)
+        
         for target_dir in target_dirs:
             drifted = scan_and_sync(target_dir, check_only=False)
             if drifted:
-                print(f"\nDOCUMENTATION AUTO-HEALED: Documentation drift detected and fixed in {target_dir}")
-                for doc_path, _, _, src in drifted:
-                    print(f"  [Layer 20 (Documentation Sync)] -> API Reference doc updated: {os.path.basename(doc_path)} (source: {src})")
-                print("  Note: These changes will be automatically committed to the repository by CI.")
+                print(f"\nDOCUMENTATION AUTO-HEALED: {len(drifted)} file(s) updated in {target_dir}")
+                for doc_path, _, _, src in drifted[:5]:
+                    print(f"  [Layer 20 (Documentation Sync)] -> {os.path.basename(doc_path)} <- {src}")
+                if len(drifted) > 5:
+                    print(f"  ... and {len(drifted) - 5} more doc(s) synced.")
     else:
-        print("\nSkipping Documentation Sync Compliance Checks because prior violations exist.")
+        print("\nSkipping Documentation Sync (fix violations first).")
 
     print("\n" + "=" * 80)
     if total_violations > 0:
         print(f"ARCHITECTURAL COMPLIANCE FAILED: {total_violations} violations found.")
         print("All changes must adhere to ROKCT production-grade standards before merging.")
+        print("Tip: run with --verbose / -v for full per-file output.")
         print("=" * 80)
         log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.", violations=violations_list)
         sys.exit(1)
@@ -154,11 +193,12 @@ def resolve_evidence_repo(target_dirs):
 def write_evidence_file(repo_dir, control_id, status, detail, violations=[]):
     evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", control_id)
     os.makedirs(evidence_dir, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    from datetime import timezone
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"{timestamp}_{status}.json"
     filepath = os.path.join(evidence_dir, filename)
     payload = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "control_id": control_id,
         "status": status,
         "system": "compliance-scanner",

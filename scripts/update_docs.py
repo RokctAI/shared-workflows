@@ -452,14 +452,9 @@ def call_groq_api(model, prompt, groq_api_key, func_name):
 
 def generate_ai_doc(func_source, func_name, args_string):
     """Use Groq API to generate a natural language description for a Python, TS, or Dart function."""
-    if LOGGER:
-        LOGGER.debug(f"Attempting to generate AI doc for function: {func_name}")
-
     groq_api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API")
     if not groq_api_key:
-        if LOGGER:
-            LOGGER.warning(f"Skipping AI doc for {func_name} - GROQ_API key is missing from environment.")
-        return None
+        return None  # Caller handles missing key; no per-function log spam
 
     prompt = (
         f"Write a short, professional description for the following function. "
@@ -622,7 +617,6 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
                         lines.append(f"<!-- {func['hash']} -->")
                         lines.append(cached_doc)
                     elif not check_only:
-                        print(f"Generating AI documentation for {func['name']}...")
                         ai_doc = generate_ai_doc(func["source"], func["name"], func["args"])
                         if ai_doc:
                             lines.append(f"<!-- {func['hash']} -->")
