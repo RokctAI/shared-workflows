@@ -35,8 +35,11 @@ def check_layer4_5_file_safety(filepath):
                 lines = f.readlines()
             for idx, line in enumerate(lines, 1):
                 line_lower = line.lower()
+                
+                # 1. Sensitive Parameter Check (Existing Logic)
                 if any(k in line_lower for k in ["key", "secret", "token", "password"]):
-                    if ('"' in line or "'" in line) and not any(p in line_lower for p in ["process.env", "config", "placeholder", "import", "from"]):
+                    # Force translation for UI strings and security parameters
+                    if ('"' in line or "'" in line) and not any(p in line_lower for p in ["process.env", "config", "placeholder", "import", "from", "t(", "i18n.t("]):
                         parts = line.split("=")
                         if len(parts) > 1:
                             val = parts[1].strip()
@@ -44,8 +47,45 @@ def check_layer4_5_file_safety(filepath):
                                 errors.append({
                                     "line": idx,
                                     "type": "Layer 4 & 5 (Security - Next.js)",
-                                    "message": f"Hardcoded credential parameter detected in '{os.path.basename(filepath)}'. Use dynamic server env variables instead of static front-end strings."
+                                    "message": f"Hardcoded security parameter or UI label detected in '{os.path.basename(filepath)}'. Use translation keys (e.g., t('key')) or dynamic server env variables instead of static front-end strings."
                                 })
+                        elif any(tag in line_lower for tag in ["<label", "<h1>", "<h2>", "<h3>", "<h4>", "<h5>", "<h6>", "<span>", "<div>", "placeholder="]):
+                            errors.append({
+                                "line": idx,
+                                "type": "Layer 4 & 5 (Security - Next.js)",
+                                "message": f"Hardcoded UI string with sensitive keyword detected in '{os.path.basename(filepath)}'. Force translation via t('key') to ensure compliance and localization."
+                            })
+                
+                # 2. General Translation Enforcement (Force i18n)
+                # Flag any non-trivial string literal inside JSX tags that isn't wrapped in t()
+                if (('"' in line or "'" in line) and 
+                    not any(p in line_lower for p in ["t(", "i18n.t(", "process.env", "config", "import", "from", "className=", "id=", "key="])):
+                    
+                    if any(tag in line_lower for tag in ["<", ">", "placeholder=", "label="]):
+                        import re
+                        strings = re.findall(r"['\"](.*?)['\"]", line)
+                        for s in strings:
+                            if len(s) <= 3:
+                                continue
+                            
+                            # HEURISTIC: Ignore strings that look like CSS/Tailwind classes
+                            # CSS classes typically have hyphens, no spaces, or are very specific tokens
+                            if ("-" in s and " " not in s) or (s.lower().startswith(("flex", "grid", "text-", "bg-", "p-", "m-", "w-", "h-", "items-", "justify-", "border-", "rounded-", "font-", "opacity-", "max-", "min-", "shadow-", "top-", "bottom-", "left-", "right-", "absolute-", "relative-", "fixed-", "sticky-", "z-", "gap-", "space-"))):
+                                continue
+                                
+                            # HEURISTIC: Ignore technical paths or identifiers
+                            if s.startswith("/") or (not " " in s and (s.isidentifier() or s.startswith("http"))):
+                                continue
+                                
+                            # Now, only flag strings that actually look like user-facing text
+                            # (Contains spaces, or starts with uppercase, or is a phrase)
+                            if " " in s or s[0].isupper():
+                                errors.append({
+                                    "line": idx,
+                                    "type": "Layer 4 & 5 (Localization - Next.js)",
+                                    "message": f"Hardcoded UI string '{s[:15]}...' detected in '{os.path.basename(filepath)}'. All user-facing text must be wrapped in t('key') for translation compliance."
+                                })
+                                break
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
 

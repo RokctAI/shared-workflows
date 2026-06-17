@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-06-17T11:18:43.191958+00:00Z",
+  "control_id": "SOC2-CC7.1-COMPLIANCE",
+  "status": "PASS",
+  "system": "compliance-scanner",
+  "detail": "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.",
+  "violations": []
+}
