@@ -69,14 +69,19 @@ def check_layer4_5_file_safety(filepath):
                                 continue
                             
                             # HEURISTIC: Ignore strings that look like CSS/Tailwind classes
-                            # CSS classes typically have hyphens, no spaces, or are very specific tokens
-                            if ("-" in s and " " not in s) or (s.lower().startswith(("flex", "grid", "text-", "bg-", "p-", "m-", "w-", "h-", "items-", "justify-", "border-", "rounded-", "font-", "opacity-", "max-", "min-", "shadow-", "top-", "bottom-", "left-", "right-", "absolute-", "relative-", "fixed-", "sticky-", "z-", "gap-", "space-"))):
+                            # 1. Contains common Tailwind prefixes
+                            tailwind_prefixes = ("flex", "grid", "text-", "bg-", "p-", "m-", "w-", "h-", "items-", "justify-", "border-", "rounded-", "font-", "opacity-", "max-", "min-", "shadow-", "top-", "bottom-", "left-", "right-", "absolute-", "relative-", "fixed-", "sticky-", "z-", "gap-", "space-", "col-", "row-", "inset-", "truncate", "hidden", "block", "inline-", "whitespace-", "scale-", "origin-", "animate-", "cursor-", "divide-")
+                            if s.lower().startswith(tailwind_prefixes) or any(f" {p}" in s.lower() for p in tailwind_prefixes):
                                 continue
-                                
+                            
+                            # 2. Looks like a class list (multiple words with hyphens, no uppercase letters unless it's a specific token)
+                            if "-" in s and not any(c.isupper() for c in s):
+                                continue
+
                             # HEURISTIC: Ignore technical paths or identifiers
                             if s.startswith("/") or (not " " in s and (s.isidentifier() or s.startswith("http"))):
                                 continue
-                                
+                            
                             # Now, only flag strings that actually look like user-facing text
                             # (Contains spaces, or starts with uppercase, or is a phrase)
                             if " " in s or s[0].isupper():
