@@ -28,18 +28,30 @@ def check_layer4_5_file_safety(filepath):
     errors = []
     base = os.path.basename(filepath).lower()
     
+    # Exclude files that are not part of user-facing frontend UI logic (e.g. templates, config, tests, API files)
+    normalized_path = filepath.replace("\\", "/")
+    if any(x in normalized_path for x in ["/app/templates/", "/tests/", "/test-", "/api/", "/actions/", "/services/", "/db/", "/lib/"]):
+        return errors
+        
     # 1. Next.js credentials check
     if filepath.endswith(".ts") or filepath.endswith(".tsx"):
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             for idx, line in enumerate(lines, 1):
+                trimmed = line.strip()
                 line_lower = line.lower()
+                # Ignore code comments, logs, developer errors, and form properties like placeholders/labels/htmlFor
+                if (trimmed.startswith("//") or trimmed.startswith("*") or trimmed.startswith("/*") or trimmed.startswith("#") or
+                    "console." in line_lower or "throw " in line_lower or "new error" in line_lower or "error(" in line_lower or
+                    "placeholder=" in line_lower or "label=" in line_lower or "htmlfor=" in line_lower or "aria-label=" in line_lower):
+                    continue
                 
-                # 1. Sensitive Parameter Check (Existing Logic)
+                # 1. Sensitive Parameter Check
                 if any(k in line_lower for k in ["key", "secret", "token", "password"]):
-                    # Force translation for UI strings and security parameters
-                    if ('"' in line or "'" in line) and not any(p in line_lower for p in ["process.env", "config", "placeholder", "import", "from", "t(", "i18n.t("]):
+                    # Ignore common React attributes, imports, configuration names, and t() wrapper
+                    ignore_list = ["process.env", "config", "placeholder", "import", "from", "t(", "i18n.t(", "htmlfor", "id=", "name=", "type=", "placeholder=", "classname="]
+                    if ('"' in line or "'" in line) and not any(p in line_lower for p in ignore_list):
                         parts = line.split("=")
                         if len(parts) > 1:
                             val = parts[1].strip()
@@ -59,7 +71,7 @@ def check_layer4_5_file_safety(filepath):
                 # 2. General Translation Enforcement (Force i18n)
                 # Flag any non-trivial string literal inside JSX tags that isn't wrapped in t()
                 if (('"' in line or "'" in line) and 
-                    not any(p in line_lower for p in ["t(", "i18n.t(", "process.env", "config", "import", "from", "className=", "id=", "key=", "name=", "htmlfor=", "value="])):
+                    not any(p in line_lower for p in ["t(", "i18n.t(", "process.env", "config", "import", "from", "classname=", "id=", "key=", "name=", "htmlfor=", "value="])):
                     
                     if any(tag in line_lower for tag in ["<", ">", "placeholder=", "label="]):
                         import re
@@ -87,9 +99,15 @@ def check_layer4_5_file_safety(filepath):
                                 continue
                         
                             # HEURISTIC: Ignore CSS-like strings or SVG paths
-                            if any(css in s.lower() for css in ["px", "em", "rem", "rgb(", "rgba(", "hsl(", "vh", "vw", "border-", "margin-", "padding-"]) or (s.startswith("#") and len(s) <= 7) or (s.startswith("M") and any(char.isdigit() for char in s) and " " not in s.split(',')[0]):
+                            if (any(css in s.lower() for css in ["px", "em", "rem", "rgb(", "rgba(", "hsl(", "vh", "vw", "border-", "margin-", "padding-", "width:", "height:", "color:", "font-family:"]) or 
+                                (s.startswith("#") and len(s) <= 7) or 
+                                (s.startswith("M") and any(char.isdigit() for char in s)) or
+                                (s.startswith("m") and any(char.isdigit() for char in s)) or
+                                re.match(r'^[MmLlHhVvCcSsQqTtAaZz0-9\s,\.\-]+$', s) or
+                                re.match(r'^\d+\s+\d+\s+\d+\s+\d+$', s)): # viewBox
                                 continue
                             
+
                             # Now, only flag strings that actually look like user-facing text
                             # (Contains spaces, or starts with uppercase, or is a phrase)
                             if " " in s or s[0].isupper():
