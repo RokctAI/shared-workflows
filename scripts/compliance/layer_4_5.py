@@ -59,7 +59,7 @@ def check_layer4_5_file_safety(filepath):
                 # 2. General Translation Enforcement (Force i18n)
                 # Flag any non-trivial string literal inside JSX tags that isn't wrapped in t()
                 if (('"' in line or "'" in line) and 
-                    not any(p in line_lower for p in ["t(", "i18n.t(", "process.env", "config", "import", "from", "className=", "id=", "key="])):
+                    not any(p in line_lower for p in ["t(", "i18n.t(", "process.env", "config", "import", "from", "className=", "id=", "key=", "name=", "htmlfor=", "value="])):
                     
                     if any(tag in line_lower for tag in ["<", ">", "placeholder=", "label="]):
                         import re
@@ -77,9 +77,17 @@ def check_layer4_5_file_safety(filepath):
                             # 2. Looks like a class list (multiple words with hyphens, no uppercase letters unless it's a specific token)
                             if "-" in s and not any(c.isupper() for c in s):
                                 continue
-
+                        
                             # HEURISTIC: Ignore technical paths or identifiers
                             if s.startswith("/") or (not " " in s and (s.isidentifier() or s.startswith("http"))):
+                                continue
+                            
+                            # HEURISTIC: Ignore template variables
+                            if "{{" in s and "}}" in s:
+                                continue
+                        
+                            # HEURISTIC: Ignore CSS-like strings or SVG paths
+                            if any(css in s.lower() for css in ["px", "em", "rem", "rgb(", "rgba(", "hsl(", "vh", "vw", "border-", "margin-", "padding-"]) or (s.startswith("#") and len(s) <= 7) or (s.startswith("M") and any(char.isdigit() for char in s) and " " not in s.split(',')[0]):
                                 continue
                             
                             # Now, only flag strings that actually look like user-facing text
