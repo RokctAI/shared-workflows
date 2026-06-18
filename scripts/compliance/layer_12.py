@@ -379,3 +379,92 @@ def check_gravity_error_reporting(filepath):
     return errors
 
 
+_global_resize_cache = {}
+
+def get_global_resize_status(filepath):
+    # Find the parent project root (where pubspec.yaml exists)
+    dir_path = os.path.dirname(filepath)
+    project_root = None
+    while dir_path and dir_path != os.path.dirname(dir_path):
+        if os.path.exists(os.path.join(dir_path, "pubspec.yaml")):
+            project_root = dir_path
+            break
+        dir_path = os.path.dirname(dir_path)
+    
+    if not project_root:
+        return True # Default to enabled if not a Flutter project or no root found
+        
+    if project_root in _global_resize_cache:
+        return _global_resize_cache[project_root]
+        
+    # Search for custom_scaffold.dart in the project_root
+    disabled_globally = False
+    for root, dirs, files in os.walk(project_root):
+        if "custom_scaffold.dart" in files:
+            scaffold_path = os.path.join(root, "custom_scaffold.dart")
+            try:
+                with open(scaffold_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if "resizeToAvoidBottomInset: false" in content:
+                    disabled_globally = True
+            except Exception:
+                pass
+            break
+            
+    # Cache the result: True if enabled, False if disabled
+    _global_resize_cache[project_root] = not disabled_globally
+    return _global_resize_cache[project_root]
+
+@register_file_checker
+def check_layer12_flutter_keyboard_avoidance(filepath):
+    """Enforce that inputs remain visible on screens when resizeToAvoidBottomInset is false globally."""
+    errors = []
+    if not filepath.endswith(".dart"):
+        return errors
+        
+    fp_lower = filepath.lower().replace("\\", "/")
+    # Skip test files, generated files, custom_scaffold itself, and reusable components/widgets
+    if any(x in fp_lower for x in ["test", "generated", ".g.dart", ".freezed.dart", "custom_scaffold.dart", "/components/", "/component/", "/widgets/", "/widget/"]):
+        return errors
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        # Check if the file contains any input field widgets
+        input_pattern = re.compile(r'\b(TextField|TextFormField|OutlinedBorderTextField|PhoneTextField|SearchTextField)\b')
+        if not input_pattern.search(content):
+            return errors
+            
+        # First check if global resizeToAvoidBottomInset is enabled. If it is, no warning is needed.
+        if get_global_resize_status(filepath):
+            return errors
+            
+        # If disabled globally, check if we manually handle keyboard push-up/viewInsets
+        has_avoidance = "viewInsets" in content
+        
+        # Check for compliance ignore comment
+        has_ignore = bool(re.search(r'//\s*(compliance:\s*ignore-keyboard-avoidance|ignore:\s*keyboard_avoidance|ignore:\s*keyboard-avoidance)', content))
+        
+        if not has_avoidance and not has_ignore:
+            lines = content.splitlines()
+            for i, line in enumerate(lines, 1):
+                match = input_pattern.search(line)
+                if match:
+                    errors.append({
+                        "line": i,
+                        "type": "Layer 12 (Usability - Keyboard Avoidance)",
+                        "message": (
+                            f"Input field '{match.group(1)}' found in '{os.path.basename(filepath)}' line {i} but layout "
+                            f"does not handle keyboard avoidance. Since global resizeToAvoidBottomInset is false, "
+                            f"you must wrap the parent container with a margin/padding using 'MediaQuery.of(context).viewInsets' "
+                            f"or add a compliance override comment: '// compliance: ignore-keyboard-avoidance'."
+                        )
+                    })
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+        
+    return errors
+
+
+
