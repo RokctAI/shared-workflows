@@ -436,11 +436,14 @@ def check_layer12_flutter_keyboard_avoidance(filepath):
         if not input_pattern.search(content):
             return errors
             
-        # First check if global resizeToAvoidBottomInset is enabled. If it is, no warning is needed.
-        if get_global_resize_status(filepath):
+        # Check if resizeToAvoidBottomInset is false globally or locally
+        global_enabled = get_global_resize_status(filepath)
+        has_local_disable = "resizeToAvoidBottomInset: false" in content
+        
+        if global_enabled and not has_local_disable:
             return errors
             
-        # If disabled globally, check if we manually handle keyboard push-up/viewInsets
+        # If disabled globally or locally, check if we manually handle keyboard push-up/viewInsets
         has_avoidance = "viewInsets" in content
         
         # Check for compliance ignore comment
@@ -451,12 +454,13 @@ def check_layer12_flutter_keyboard_avoidance(filepath):
             for i, line in enumerate(lines, 1):
                 match = input_pattern.search(line)
                 if match:
+                    reason = "local override 'resizeToAvoidBottomInset: false'" if has_local_disable else "global scaffold config is set to false"
                     errors.append({
                         "line": i,
                         "type": "Layer 12 (Usability - Keyboard Avoidance)",
                         "message": (
                             f"Input field '{match.group(1)}' found in '{os.path.basename(filepath)}' line {i} but layout "
-                            f"does not handle keyboard avoidance. Since global resizeToAvoidBottomInset is false, "
+                            f"does not handle keyboard avoidance. Since {reason}, "
                             f"you must wrap the parent container with a margin/padding using 'MediaQuery.of(context).viewInsets' "
                             f"or add a compliance override comment: '// compliance: ignore-keyboard-avoidance'."
                         )
