@@ -55,9 +55,8 @@ on:
       GROQ_API_KEY:
         required: false
       MONOREPO_PAT:
-        required: false
-      GITHUB_TOKEN:
-        required: false
+         required: false
+
 
 jobs:
   agent-run:
