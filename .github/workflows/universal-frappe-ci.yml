@@ -1,4 +1,4 @@
-﻿# Copyright 2024 RokctAI
+# Copyright 2024 RokctAI
 
 name: Frappe App Test
 
@@ -127,7 +127,26 @@ jobs:
           password: ${{ secrets.MONOREPO_PAT || github.token }}
 
       - uses: actions/checkout@v6
+      - name: Compose Backend SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing backend SDK modules..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/frappe/compose_backend.py -o compose_backend.py
+            python compose_backend.py
+            rm compose_backend.py
+            
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "🤖 [CI] Compose backend SDK modules [skip ci]" || echo "No changes to commit"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Skipping composition."
+          fi
+
       - name: Fetch and Merge Private Repository
+
         shell: bash
         run: |
           if [ -f ".private_repo" ]; then
