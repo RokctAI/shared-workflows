@@ -1,4 +1,4 @@
-﻿# Copyright 2024 RokctAI
+# Copyright 2024 RokctAI
 
 name: Universal Flutter Build
 
@@ -83,9 +83,61 @@ jobs:
            curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
            -H "Authorization: Bearer $API_KEY"
 
+  compose-app:
+    name: 🎨 Compose SDK Modules
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      - name: Compose Flutter SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
+            
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper..."
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper..."
+              python .rokct/skills/flutter/scripts/compose.py
+            else
+              echo "🌐 Fetching remote composer wrapper..."
+              curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/flutter/scripts/compose.py -o compose_temp.py
+              python compose_temp.py
+              rm compose_temp.py
+            fi
+            
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "🤖 [CI] Compose Flutter SDK modules [skip ci]" || echo "No changes to commit"
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Skipping composition."
+          fi
+
   build-android:
-    needs: telemetry
+    needs: [telemetry, compose-app]
     name: 🤖 Android Build
+
     runs-on: ubuntu-latest
     permissions: write-all
     outputs:
@@ -540,7 +592,9 @@ jobs:
 
   build-windows:
     name: 🪟 Windows Build
+    needs: [telemetry, compose-app]
     runs-on: windows-latest
+
     if: inputs.build-type == 'windows'
     permissions: write-all
     steps:
@@ -741,7 +795,9 @@ jobs:
 
   build-ios:
     name: 🍎 iOS Build
+    needs: [telemetry, compose-app]
     runs-on: macos-latest
+
     if: inputs.build-type == 'ios'
     permissions: write-all
     env:
