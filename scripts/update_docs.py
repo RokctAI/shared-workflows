@@ -15,9 +15,19 @@ import logging
 import re
 from pathlib import Path
 
+def find_git_root(start_path):
+    """Traverse upwards to find the root of the git repository."""
+    curr = Path(start_path).resolve()
+    while curr != curr.parent:
+        if (curr / ".git").is_dir():
+            return str(curr)
+        curr = curr.parent
+    return str(Path(start_path).resolve())
+
 def setup_logger(target_dir):
-    """Set up file logging into .rokct/agent/logs/"""
-    log_dir = os.path.join(target_dir, ".rokct", "agent", "logs")
+    """Set up file logging into .rokct/agent/logs/ at the git root."""
+    git_root = find_git_root(target_dir)
+    log_dir = os.path.join(git_root, ".rokct", "agent", "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "update_docs.log")
 
@@ -535,10 +545,14 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
     fn_prefix = get_fn_prefix(filepath)
     
     ai_cache = extract_cached_ai_docs(existing_md_content) if existing_md_content else {}
-
+    
+    # Use git root for the source file path in the documentation
+    git_root = find_git_root(filepath)
+    git_rel_path = os.path.relpath(filepath, git_root)
+    
     lines.append(f"# API Reference: {module_name}")
     lines.append("")
-    lines.append(f"Source file: `{rel_path.replace(os.sep, '/')}`")
+    lines.append(f"Source file: `{git_rel_path.replace(os.sep, '/')}`")
     lines.append("")
     
     if spec["module_doc"]:
@@ -654,10 +668,11 @@ def is_excluded(target_dir):
     return False
 
 def scan_and_sync(target_dir, check_only=False):
-    """Scan directory and sync docs to target_dir/docs/api/."""
+    """Scan directory and sync docs to git_root/docs/api/."""
     global LOGGER
     target_dir = os.path.abspath(target_dir)
-    docs_api_dir = os.path.join(target_dir, "docs", "api")
+    git_root = find_git_root(target_dir)
+    docs_api_dir = os.path.join(git_root, "docs", "api")
     
     if LOGGER is None:
         LOGGER = setup_logger(target_dir)
@@ -696,12 +711,12 @@ def scan_and_sync(target_dir, check_only=False):
                 if spec:
                     rel_path = os.path.relpath(filepath, target_dir)
                     
-                    rel_dir = os.path.relpath(root, target_dir)
+                    rel_dir = os.path.relpath(root, git_root)
                     if rel_dir == ".":
                         out_md_name = f"{os.path.splitext(file)[0]}.md"
                     else:
                         out_md_name = f"{rel_dir.replace(os.sep, '_')}_{os.path.splitext(file)[0]}.md"
-                        
+                    
                     out_md_path = os.path.join(docs_api_dir, out_md_name)
                     
                     if not os.path.exists(out_md_path):

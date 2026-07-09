@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -167,7 +168,7 @@ def main():
     else:
         print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
         print("=" * 80)
-        log_compliance_evidence(target_dirs, "PASS", "Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.", violations=[])
+        log_compliance_evidence(target_dirs, "PASS", f"Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.", violations=[])
         sys.exit(0)
 
 def is_ci_environment():
@@ -182,15 +183,28 @@ def sanitize_text(text):
     text = re.sub(r'(?i)(password|passwd|secret|token|key|auth|credential|api_key|pkey)\s*[:=]\s*[^\s,;]+', r'\1=[REDACTED]', text)
     return text
 
+def find_git_root(start_path):
+    curr = Path(start_path).resolve()
+    while curr != curr.parent:
+        if (curr / ".git").is_dir():
+            return str(curr)
+        curr = curr.parent
+    return str(Path(start_path).resolve())
+
 def resolve_evidence_repo(target_dirs):
     override = os.environ.get("EVIDENCE_REPO_DIR")
     if override:
         return os.path.abspath(override)
+    
+    # If we have target directories, try to find the git root based on the first one
     if target_dirs:
-        return os.path.abspath(target_dirs[0])
-    return os.getcwd()
+        # Use the target_dir to find the nearest .git root
+        return find_git_root(target_dirs[0])
+    
+    # Fallback to current working directory's git root
+    return find_git_root(os.getcwd())
 
-def write_evidence_file(repo_dir, control_id, status, detail, violations=[]):
+def write_evidence_file(repo_dir, control_id, status, detail, violations=[], target_dir=None):
     evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", control_id)
     os.makedirs(evidence_dir, exist_ok=True)
     from datetime import timezone
@@ -202,6 +216,7 @@ def write_evidence_file(repo_dir, control_id, status, detail, violations=[]):
         "control_id": control_id,
         "status": status,
         "system": "compliance-scanner",
+        "target_dir": sanitize_text(target_dir) if target_dir else "unknown",
         "detail": sanitize_text(detail),
         "violations": [
             {
@@ -245,9 +260,23 @@ def log_compliance_evidence(target_dirs, status, detail, violations=[]):
     if not repo_dir:
         print("No repo with .rokct directory found for evidence logging.")
         return
+    
+    # Use the primary target directory to identify the scan target
+    scanned_path = target_dirs[0] if target_dirs else "unknown"
+    
+    # Calculate path relative to the repository root for the evidence log
+    if scanned_path != "unknown":
+        try:
+            scanned_path_rel = os.path.relpath(scanned_path, repo_dir)
+            target_dir_for_log = f"[WORKSPACE_ROOT]\\\\{scanned_path_rel}"
+        except Exception:
+            target_dir_for_log = sanitize_text(scanned_path)
+    else:
+        target_dir_for_log = "unknown"
+    
     try:
-        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail, violations=violations)
-        print(f"Compliance evidence written to: {evidence_path}")
+        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail, violations=violations, target_dir=target_dir_for_log)
+        print(f"Compliance evidence written to: {evidence_path} (Target: {scanned_path_rel})")
         if is_ci_environment():
             commit_and_push_evidence(repo_dir, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
     except Exception as e:
