@@ -194,7 +194,9 @@ def find_git_root(start_path):
 def resolve_evidence_repo(target_dirs):
     override = os.environ.get("EVIDENCE_REPO_DIR")
     if override:
-        return os.path.abspath(override)
+        # Callers (e.g. sdk_validator.py) may pass an SDK subfolder rather than the
+        # actual monorepo root — walk up to the real .git the same way update_docs.py does.
+        return find_git_root(os.path.abspath(override))
     
     # If we have target directories, try to find the git root based on the first one
     if target_dirs:
@@ -263,12 +265,20 @@ def log_compliance_evidence(target_dirs, status, detail, violations=[]):
     
     # Use the primary target directory to identify the scan target
     scanned_path = target_dirs[0] if target_dirs else "unknown"
-    
-    # Calculate path relative to the repository root for the evidence log
+    scanned_path_rel = scanned_path
+
+    # "target_dir" is reported relative to the parent of the git repo (i.e. the folder that holds
+    # every repo as a sibling), not the repo root itself — so it reads naturally even when the
+    # scanned path is nested a level deeper than the repo (e.g. agent/agent/dart inside the agent
+    # repo shows as "agent/agent/dart", not just "agent/dart"). Derived purely from the git repo
+    # root found above — no hardcoding, works on any machine/workspace layout.
+    display_base = os.path.dirname(repo_dir)
+
+    # Calculate path relative to the display root for the evidence log
     if scanned_path != "unknown":
         try:
-            scanned_path_rel = os.path.relpath(scanned_path, repo_dir)
-            target_dir_for_log = f"[WORKSPACE_ROOT]\\\\{scanned_path_rel}"
+            scanned_path_rel = os.path.relpath(scanned_path, display_base).replace(os.sep, "/")
+            target_dir_for_log = f"[WORKSPACE_ROOT]/{scanned_path_rel}"
         except Exception:
             target_dir_for_log = sanitize_text(scanned_path)
     else:
