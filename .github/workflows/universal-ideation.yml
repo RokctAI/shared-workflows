@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pip install requests python-dotenv
 
+      - name: Initialize Rokct Protocol
+        run: python .rokct/initiate.py
+
       # --- MODE: theme-check ---
       - name: Check Queue and Trigger (theme-check)
         if: inputs.mode == 'theme-check'
