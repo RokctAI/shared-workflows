@@ -134,7 +134,10 @@ jobs:
                  'files = sorted(glob.glob(".rokct/agent/jobs/pending/*.md"), key=os.path.getmtime)' \
                  'for f in files:' \
                  '    try:' \
-                 '        if "status: theme_generated" in open(f, encoding="utf-8").read():' \
+                 '        text = open(f, encoding="utf-8").read()' \
+                 '        if "type: lesson." in text:' \
+                 '            continue  # lesson.* cards belong to the factory lesson pipeline' \
+                 '        if "status: theme_generated" in text:' \
                  '            print(f)' \
                  '            break' \
                  '    except Exception:' \
