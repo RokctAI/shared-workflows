@@ -127,15 +127,37 @@ jobs:
           password: ${{ secrets.MONOREPO_PAT || github.token }}
 
       - uses: actions/checkout@v6
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
       - name: Compose Backend SDK Modules (If Shell App)
         shell: bash
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing backend SDK modules..."
-            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/frappe/compose_backend.py -o compose_backend.py
-            python compose_backend.py
-            rm compose_backend.py
-            
+            if [ -f ".rokct/skills/.rok/frappe/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper from .rokct skills..."
+              python .rokct/skills/.rok/frappe/scripts/compose.py
+            elif [ -f ".rokct/skills/frappe/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper..."
+              python .rokct/skills/frappe/scripts/compose.py
+            else
+              echo "🌐 Fetching remote composer wrapper..."
+              curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/frappe/scripts/compose.py -o compose_temp.py
+              python compose_temp.py
+              rm compose_temp.py
+            fi
+
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add .
