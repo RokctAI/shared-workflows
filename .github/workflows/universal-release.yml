@@ -1255,8 +1255,13 @@ jobs:
             # Use --diff-filter=ACMRT to EXCLUDE Deleted files (D) to prevent zip warnings
             # Filter out .env/ and .github/ folders
             # Also exclude whitespace-only changes (from auto-fix PRs)
-            git diff --name-only --diff-filter=ACMRT "$PREV_TAG".."${TARGET}" | grep -vE '^(\.env\/|\.github\/)' > all_changed.txt
-            git diff -w --name-only --diff-filter=ACMRT "$PREV_TAG".."${TARGET}" | grep -vE '^(\.env\/|\.github\/)' > content_changed.txt
+            # -c core.quotePath=false: without this, git C-quotes non-ASCII filenames as
+            # literal octal escapes (e.g. "...Le\303\263n..." for "León") in --name-only
+            # output. mapfile reads that escaped text verbatim below, and git archive then
+            # treats it as a literal pathspec that matches no real file -- "pathspec ...
+            # did not match any files". Raw UTF-8 output matches the real filename.
+            git -c core.quotePath=false diff --name-only --diff-filter=ACMRT "$PREV_TAG".."${TARGET}" | grep -vE '^(\.env\/|\.github\/)' > all_changed.txt
+            git -c core.quotePath=false diff -w --name-only --diff-filter=ACMRT "$PREV_TAG".."${TARGET}" | grep -vE '^(\.env\/|\.github\/)' > content_changed.txt
             # Only include files with actual content changes (not just whitespace)
             if [ -s content_changed.txt ]; then
                # Use git archive to pull files directly from the target commit (ignoring dirty workspace/merged private files)
