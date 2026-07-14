@@ -209,8 +209,12 @@ jobs:
               fi
 
               RECURRENCE=$(jq -r '.recurrence // "Once"' "$FILE")
-              if [ "$RECURRENCE" == "Daily" ]; then
-                NEXT_RUN=$(date -u -d "tomorrow" +"%Y-%m-%dT%H:%M:%SZ")
+              if [ "$RECURRENCE" == "Daily" ] || [ "$RECURRENCE" == "Weekly" ] || [ "$RECURRENCE" == "Monthly" ]; then
+                case "$RECURRENCE" in
+                  Daily)   NEXT_RUN=$(date -u -d "tomorrow" +"%Y-%m-%dT%H:%M:%SZ") ;;
+                  Weekly)  NEXT_RUN=$(date -u -d "+7 days" +"%Y-%m-%dT%H:%M:%SZ") ;;
+                  Monthly) NEXT_RUN=$(date -u -d "+1 month" +"%Y-%m-%dT%H:%M:%SZ") ;;
+                esac
                 jq --arg next "$NEXT_RUN" '.scheduled_at = $next | .immediate = "false"' "$FILE" > tmp.json && mv tmp.json "$FILE"
                 HAS_UPDATES=true
               elif [ "$RECURRENCE" == "Once" ]; then
