@@ -73,7 +73,7 @@ def check_layer13_volume_persistence(filepath):
                 if "volumes:" not in content or "/var/lib/" not in content:
                     errors.append({
                         "line": 1,
-                        "type": "Layer 13 (Availability & Backup)",
+                        "type": "Layer 13 (Availability & Backup - Volume Persistence)",
                         "message": f"Docker Compose configuration '{os.path.basename(filepath)}' runs a database service but lacks active persistent volume storage mounts."
                     })
         except Exception as e:

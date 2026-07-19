@@ -1,58 +1,37 @@
 import ast
 import os
 import re
-from compliance.base import register_ast_function_def, register_ast_call, register_file_checker
+from compliance.base import (
+    register_ast_function_def,
+    register_ast_call,
+    register_file_checker,
+    is_frappe_whitelisted,
+    matches_known_api_path,
+    get_known_api_paths,
+)
 
 @register_ast_function_def
 def check_layer12_observability(visitor, node):
-    is_whitelisted = False
-    for dec in node.decorator_list:
-        if isinstance(dec, ast.Name) and dec.id == "whitelist":
-            is_whitelisted = True
-        elif isinstance(dec, ast.Attribute) and dec.attr == "whitelist":
-            is_whitelisted = True
-        elif isinstance(dec, ast.Call):
-            func = dec.func
-            if isinstance(func, ast.Name) and func.id == "whitelist":
-                is_whitelisted = True
-            elif isinstance(func, ast.Attribute) and func.attr == "whitelist":
-                is_whitelisted = True
-    
-    if is_whitelisted:
-        import fnmatch
-        # Use the relative path directly — the scanner always runs from repo root,
-        # so the first non-'.' segment IS the app/module name. This works for any
-        # repo without any hardcoded list.
-        path_normalized = visitor.filename.replace("\\", "/").lower()
-        known_api_paths = [
-            "*/api/auth/*",
-            "*/api/brain/*",
-            "*/api/plan_builder/*",
-            "*/api/setup/*",
-            "*/betassist/api*",
-        ]
-        
-        # Dynamically detect the top-level app name from the relative path
-        # e.g. .\rpanel\hosting\foo.py → parts[0] = 'rpanel' → whitelist */rpanel/*
-        parts = [p for p in path_normalized.split('/') if p and p != '.']
-        if parts:
-            app_name = parts[0]
-            known_api_paths.append(f"*/{app_name}/*")
+    is_whitelisted = is_frappe_whitelisted(node)
 
-        if not any(fnmatch.fnmatch(path_normalized, x) for x in known_api_paths):
-            # FIX: Do NOT silently pass. Warn that this whitelisted function
-            # is in an unrecognised path and has not been layer-12 verified.
-            visitor.errors.append({
-                "line": node.lineno,
-                "type": "Layer 12 (Unknown API Path - Observability Skipped)",
-                "message": (
-                    f"@frappe.whitelist function '{node.name}()' is outside all known API paths "
-                    f"{known_api_paths}. Layer 12 observability checks were skipped. "
-                    f"Move this function into a registered API path or add its path to layer_12.py."
-                )
-            })
-            is_whitelisted = False
-            
+    # KNOWN GAP: this path test is self-satisfying and does not validate API
+    # conventions — see the full note in layer_2.py. It gates only whether
+    # layer-12 observability checks run, and must not be read as path validation.
+    if is_whitelisted and not matches_known_api_path(visitor.filename):
+        # Do NOT silently pass: layer-12 observability was skipped for this function.
+        visitor.errors.append({
+            "line": node.lineno,
+            "type": "Layer 12 (Whitelisted Function - Path Not Validated, Observability Skipped)",
+            "message": (
+                f"@frappe.whitelist function '{node.name}()' did not match any path glob "
+                f"{get_known_api_paths(visitor.filename)}, so Layer 12 observability checks were skipped. "
+                f"NOTE: this path test is a structural presence check only — it does not validate "
+                f"the function against real API conventions (see the KNOWN GAP note in layer_2.py)."
+            )
+        })
+        is_whitelisted = False
+
+
     if is_whitelisted:
         has_trace_id = False
         has_stderr = False
@@ -203,8 +182,12 @@ def check_layer12_flutter_observability(filepath):
         if not has_strict_trace:
             has_strict_trace = _project_has_trace_interceptor(filepath)
 
-        # 3. Explicit bypass comment
-        is_bypassed = any(x in content.lower() for x in ["bypass", "ignore-observability"])
+        # 3. Explicit bypass comment.
+        # Unified syntax: '// compliance-ignore-file: obs-flutter-trace'.
+        # Legacy 'ignore-observability' still honoured for one release; the bare
+        # substring 'bypass' is NOT — it silenced any file that merely mentioned
+        # the word anywhere, including in unrelated prose.
+        is_bypassed = "ignore-observability" in content.lower()
 
         if not has_strict_trace and not is_bypassed:
             errors.append({
@@ -327,36 +310,32 @@ def check_layer12_python_observability(filepath):
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
 
-@register_file_checker
-def check_layer15_flutter_http_timeout(filepath):
-    """Enforce timeout configuration on Dart/Flutter HTTP clients."""
-    errors = []
-    if filepath.endswith(".dart"):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read()
-            # Skip interceptor files – they import Dio but don't configure the client.
-            # Timeouts must be set on the Dio BaseOptions in HttpService, not here.
-            if "interceptor" in os.path.basename(filepath).lower():
-                return errors
-            uses_http = any(pkg in content for pkg in ["package:http/", "package:dio/", "HttpClient("])
-            if uses_http:
-                has_timeout = any(x in content.lower() for x in [
-                    "timeout", "connectiontimeout", "receivetimeout", "sendtimeout"
-                ])
-                if not has_timeout:
-                    errors.append({
-                        "line": 1,
-                        "type": "Layer 15 (Webhook & Integration - Flutter HTTP Timeout)",
-                        "message": f"Flutter file '{os.path.basename(filepath)}' uses an HTTP client (http/dio) but configures no timeout. Set connectTimeout and receiveTimeout to prevent hanging requests."
-                    })
-        except Exception as e:
-            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
-    return errors
+# NOTE: check_layer15_flutter_http_timeout used to live here despite its name.
+# It now lives in layer_15.py alongside the other timeout checks.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# APP-SPECIFIC RULE — does NOT generalize.
+#
+# This is not a generic observability check. It is hardcoded to the Gravity
+# app's own conventions: the literal function names push_workspace /
+# write_workspace_file, the literal telemetry helper send_error_to_control(),
+# and paths under /gravity/. It fires on no other repo and proves nothing about
+# any other codebase's error forwarding.
+#
+# It is kept (rather than generalized) because Gravity's workspace mutations are
+# the one place where a silent failure loses user data, and the app has a single
+# named telemetry sink to check for. Any repo wanting an equivalent guarantee
+# needs its own app-specific rule below — do not extend this one by adding more
+# app names to it.
+# ─────────────────────────────────────────────────────────────────────────────
 
 @register_file_checker
-def check_gravity_error_reporting(filepath):
-    """Enforce that Gravity workspace mutation actions report errors to Control."""
+def check_appspecific_gravity_error_reporting(filepath):
+    """APP-SPECIFIC (Gravity only): workspace mutations must report errors to Control.
+
+    Scoped to /gravity/ paths and Gravity's literal helper names. See the banner
+    above — this is deliberately not a general-purpose check.
+    """
     errors = []
     normalized_path = filepath.replace("\\", "/").lower()
     if normalized_path.endswith(".py") and "/gravity/" in normalized_path:
@@ -371,8 +350,13 @@ def check_gravity_error_reporting(filepath):
                 if "send_error_to_control" not in content:
                     errors.append({
                         "line": 1,
-                        "type": "Layer 12 (Observability - Gravity Error Reporting)",
-                        "message": f"Gravity source file '{os.path.basename(filepath)}' processes workspace mutations but lacks central error telemetry to Control. Integrate send_error_to_control() inside try/except blocks."
+                        "type": "Layer 12 (APP-SPECIFIC Gravity - Error Reporting)",
+                        "message": (
+                            f"[app-specific rule, Gravity only] Gravity source file "
+                            f"'{os.path.basename(filepath)}' processes workspace mutations but lacks "
+                            f"central error telemetry to Control. Integrate send_error_to_control() "
+                            f"inside try/except blocks."
+                        )
                     })
         except Exception as e:
             errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
@@ -446,9 +430,14 @@ def check_layer12_flutter_keyboard_avoidance(filepath):
         # If disabled globally or locally, check if we manually handle keyboard push-up/viewInsets
         has_avoidance = "viewInsets" in content
         
-        # Check for compliance ignore comment
-        has_ignore = bool(re.search(r'//\s*(compliance:\s*ignore-keyboard-avoidance|ignore:\s*keyboard_avoidance|ignore:\s*keyboard-avoidance)', content))
-        
+        # Check for compliance ignore comment.
+        # Unified syntax: '// compliance-ignore: flutter-keyboard-avoidance'
+        # (handled centrally in scan_file). The three legacy spellings below stay
+        # honoured for one release.
+        has_ignore = bool(re.search(
+            r'//\s*(compliance:\s*ignore-keyboard-avoidance|ignore:\s*keyboard_avoidance|ignore:\s*keyboard-avoidance)',
+            content))
+
         if not has_avoidance and not has_ignore:
             lines = content.splitlines()
             for i, line in enumerate(lines, 1):

@@ -1,5 +1,6 @@
 import ast
-from compliance.base import PlatformComplianceVisitor, FILE_CHECKERS
+from compliance.base import PlatformComplianceVisitor, FILE_CHECKERS, collect_suppressions, is_suppressed
+from compliance import controls
 
 # Import all modules to trigger decorator registrations
 import compliance.layer_2
@@ -23,7 +24,8 @@ import compliance.layer_19
 # Expose key functions
 from compliance.layer_3 import check_database_migrations
 
-def scan_file(filepath):
+
+def scan_file(filepath, severity_overrides=None):
     errors = []
     if filepath.endswith(".py"):
         try:
@@ -41,5 +43,22 @@ def scan_file(filepath):
         errs = checker(filepath)
         if errs:
             errors.extend(errs)
-            
+
+    # Annotate every finding with its check-id, severity, and control IDs
+    for err in errors:
+        controls.annotate(err, severity_overrides)
+
+    # Apply the unified suppression syntax (# compliance-ignore[-file]: <check-id>)
+    # and drop checks configured "off".
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            file_level, line_level = collect_suppressions(f.read())
+    except Exception:
+        file_level, line_level = set(), {}
+
+    errors = [
+        e for e in errors
+        if e["severity"] != "off"
+        and not is_suppressed(e["check"], e.get("line", 1), file_level, line_level)
+    ]
     return errors

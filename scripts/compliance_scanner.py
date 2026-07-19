@@ -13,7 +13,21 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from compliance import scan_file, check_database_migrations
+from compliance import controls as controls_table
+from compliance import config as compliance_config
 from update_docs import scan_and_sync, detect_project_type
+
+
+def _is_scannable(filename):
+    lowered = filename.lower()
+    if filename.endswith((".g.dart", ".gr.dart", ".freezed.dart")):
+        return False
+    return (
+        filename.endswith((".py", ".ts", ".tsx", ".dart", ".conf", ".yml", ".yaml"))
+        or "nginx" in lowered
+        or "dockerfile" in lowered
+    )
+
 
 def main():
     print("=" * 80)
@@ -24,6 +38,27 @@ def main():
     changed_files_list = []
     target_dirs = []
 
+    # Load per-repo config first — exclusions come from it, not from this source file.
+    arg_dirs = [a for a in sys.argv[1:] if os.path.isdir(a)] or ["."]
+    cfg, cfg_path = compliance_config.load_config(arg_dirs)
+    prune_dirs = compliance_config.excluded_dirs(cfg)
+    if cfg_path:
+        print(f"Config: {os.path.relpath(cfg_path)}")
+
+    def collect(walk_root, also_changed):
+        for root, dirs, files in os.walk(walk_root):
+            dirs[:] = [d for d in dirs if d not in prune_dirs]
+            for file in files:
+                fp = os.path.join(root, file)
+                if compliance_config.is_path_excluded(fp, cfg, walk_root):
+                    continue
+                if _is_scannable(file):
+                    files_to_scan.append(fp)
+                    if also_changed:
+                        changed_files_list.append(fp)
+                if not also_changed and file.endswith(".json") and "doctype" in fp:
+                    changed_files_list.append(fp)
+
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
             if os.path.isfile(arg):
@@ -32,41 +67,36 @@ def main():
                 target_dirs.append(os.path.dirname(os.path.abspath(arg)))
             elif os.path.isdir(arg):
                 target_dirs.append(arg)
-                for root, dirs, files in os.walk(arg):
-                    dirs[:] = [d for d in dirs if d not in [".git", "node_modules", ".next", "dist", ".dart_tool", "build", "ios", "android", "env", "__pycache__", "Compliance", "frappe", "erpnext", "payments", "hrms", "lms"]]
-                    for file in files:
-                        fp = os.path.join(root, file)
-                        if (file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower()) and not file.endswith(".g.dart") and not file.endswith(".gr.dart") and not file.endswith(".freezed.dart"):
-                            files_to_scan.append(fp)
-                            changed_files_list.append(fp)
+                collect(arg, also_changed=True)
     else:
         print("Scanning all python/config/nextjs/flutter files in current workspace for full compliance...")
         target_dirs.append(".")
-        for root, dirs, files in os.walk("."):
-            dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".shared-workflows", ".next", "dist", ".dart_tool", "build", "ios", "android", "Compliance", "frappe", "erpnext", "payments", "hrms", "lms"]]
-            for file in files:
-                fp = os.path.join(root, file)
-                if (file.endswith(".py") or file.endswith(".ts") or file.endswith(".tsx") or file.endswith(".dart") or "nginx" in file.lower() or file.endswith(".conf") or file.endswith(".yml") or file.endswith(".yaml") or "dockerfile" in file.lower()) and not file.endswith(".g.dart") and not file.endswith(".gr.dart") and not file.endswith(".freezed.dart"):
-                    files_to_scan.append(fp)
-                if file.endswith(".json") and "doctype" in fp:
-                    changed_files_list.append(fp)
+        collect(".", also_changed=False)
 
     target_dirs = list(set(os.path.abspath(d) for d in target_dirs))
 
     total_violations = 0
     violations_list = []
 
+    def record(entry):
+        """Annotate a finding with its control IDs + severity and file it."""
+        controls_table.annotate(entry, cfg.get("severity"))
+        if entry["severity"] == "off":
+            return None
+        violations_list.append(entry)
+        return entry
+
     # Validate project type compliance for target directories
     for target_dir in target_dirs:
         project_type = detect_project_type(target_dir)
         if project_type == "unknown":
-            total_violations += 1
-            violations_list.append({
+            record({
                 "file": target_dir,
                 "line": 1,
                 "type": "Project Type Detection",
                 "message": "Unknown project type. Compliance scanning requires a recognized stack (Frappe/Python, Next.js/TypeScript, Flutter/Dart, or Data/Specifications)."
             })
+    total_violations = len(violations_list)
 
     if not files_to_scan and not changed_files_list:
         if total_violations > 0:
@@ -82,66 +112,80 @@ def main():
 
     # ── Scan loop — compact progress, no per-violation spam ─────────────────
     from collections import defaultdict
-    by_layer = defaultdict(list)  # layer_type -> list of violation dicts
+    by_check = defaultdict(list)  # check-id -> list of violation dicts
 
     for i, filepath in enumerate(files_to_scan):
-        errors = scan_file(filepath)
-        if errors:
-            for err in errors:
-                total_violations += 1
-                v = {
-                    "file": filepath,
-                    "line": err["line"],
-                    "type": err["type"],
-                    "message": err["message"]
-                }
-                violations_list.append(v)
-                by_layer[err["type"]].append(v)
-        # Progress: print a dot every 50 files so the terminal isn't silent
-        if not verbose and (i + 1) % 50 == 0:
-            print(f"  ... {i + 1}/{n_files} files checked ({total_violations} violations so far)", flush=True)
-
-    migration_errors = check_database_migrations(changed_files_list)
-    if migration_errors:
-        for err in migration_errors:
-            total_violations += 1
-            v = {
-                "file": "Git Schema Diff",
+        errors = scan_file(filepath, severity_overrides=cfg.get("severity"))
+        for err in errors:
+            v = record({
+                "file": filepath,
                 "line": err["line"],
                 "type": err["type"],
-                "message": err["message"]
-            }
-            violations_list.append(v)
-            by_layer[err["type"]].append(v)
+                "message": err["message"],
+                "check": err.get("check"),
+            })
+            if v:
+                by_check[v["check"]].append(v)
+        total_violations = len(violations_list)
+        # Progress: print a dot every 50 files so the terminal isn't silent
+        if not verbose and (i + 1) % 50 == 0:
+            print(f"  ... {i + 1}/{n_files} files checked ({total_violations} findings so far)", flush=True)
+
+    for err in check_database_migrations(changed_files_list) or []:
+        v = record({
+            "file": "Git Schema Diff",
+            "line": err["line"],
+            "type": err["type"],
+            "message": err["message"],
+        })
+        if v:
+            by_check[v["check"]].append(v)
+
+    errors_list = [v for v in violations_list if v["severity"] == "error"]
+    warnings_list = [v for v in violations_list if v["severity"] == "warning"]
+    total_violations = len(violations_list)
+    # fail_on = "error" (default) means warnings report but do not fail the gate.
+    blocking = violations_list if cfg.get("fail_on") == "warning" else errors_list
+    total_blocking = len(blocking)
 
     # ── Output ───────────────────────────────────────────────────────────────
     if verbose:
-        # Old behaviour: print every violation
-        for layer_type, vs in sorted(by_layer.items()):
+        # Old behaviour: print every finding, now with its control IDs
+        for check_id, vs in sorted(by_check.items()):
             for v in vs:
-                print(f"\nCOMPLIANCE VIOLATION in: {v['file']}")
-                print(f"  [Line {v['line']}] [{v['type']}] -> {v['message']}")
+                print(f"\nCOMPLIANCE {v['severity'].upper()} in: {v['file']}")
+                print(f"  [Line {v['line']}] [{v['check']}] [{v['type']}]")
+                print(f"  SOC 2: {v['soc2']} | ISO 27001: {v['iso27001']}")
+                print(f"  -> {v['message']}")
     else:
-        # Compact grouped summary
-        if by_layer:
-            print(f"\n{'Layer':<55} {'Count':>5}")
-            print("-" * 62)
-            for layer_type, vs in sorted(by_layer.items(), key=lambda x: -len(x[1])):
-                print(f"  {layer_type:<53} {len(vs):>5}")
-            print("-" * 62)
-            print(f"  {'TOTAL':<53} {total_violations:>5}")
-            # Show top 3 examples per layer
-            print("\nTop examples per layer (see evidence JSON for full list):")
-            for layer_type, vs in sorted(by_layer.items(), key=lambda x: -len(x[1])):
-                print(f"\n  [{layer_type}]")
+        # Compact grouped summary, keyed by check-id with both framework IDs
+        if by_check:
+            print(f"\n{'Check':<30} {'Sev':<8} {'SOC 2':<8} {'ISO 27001':<10} {'Count':>5}")
+            print("-" * 66)
+            for check_id, vs in sorted(by_check.items(), key=lambda x: (-len(x[1]), x[0])):
+                v = vs[0]
+                print(f"{check_id:<30} {v['severity']:<8} {v['soc2']:<8} {v['iso27001']:<10} {len(vs):>5}")
+            print("-" * 66)
+            print(f"{'TOTAL':<30} {'':<8} {'':<8} {'':<10} {total_violations:>5}")
+            print(f"  ({len(errors_list)} error / {len(warnings_list)} warning; "
+                  f"fail_on={cfg.get('fail_on')})")
+            # Show top 3 examples per check
+            print("\nTop examples per check (see evidence JSON for full list):")
+            for check_id, vs in sorted(by_check.items(), key=lambda x: (-len(x[1]), x[0])):
+                v0 = vs[0]
+                print(f"\n  [{check_id}] {v0['severity']} — SOC 2 {v0['soc2']} / ISO 27001 {v0['iso27001']}")
+                print(f"    {controls_table.CONTROLS.get(check_id, {}).get('title', v0['type'])}")
                 for v in vs[:3]:
-                    fname = os.path.relpath(v['file']).replace('\\', '/')
+                    try:
+                        fname = os.path.relpath(v['file']).replace('\\', '/')
+                    except ValueError:
+                        fname = v['file']
                     print(f"    L{v['line']:>4}  {fname}")
                     print(f"           {v['message'][:100]}{'...' if len(v['message']) > 100 else ''}")
                 if len(vs) > 3:
                     print(f"    ... and {len(vs) - 3} more (see evidence JSON)")
 
-    if total_violations == 0:
+    if total_blocking == 0:
         # One-time notice if AI doc generation is unavailable — not repeated per function
         if not (os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API")):
             print("[update_docs] GROQ_API_KEY not set — AI doc generation skipped; using cached docs only.", file=sys.stderr)
@@ -158,17 +202,29 @@ def main():
         print("\nSkipping Documentation Sync (fix violations first).")
 
     print("\n" + "=" * 80)
-    if total_violations > 0:
-        print(f"ARCHITECTURAL COMPLIANCE FAILED: {total_violations} violations found.")
+    if total_blocking > 0:
+        print(f"ARCHITECTURAL COMPLIANCE FAILED: {len(errors_list)} error(s), {len(warnings_list)} warning(s).")
         print("All changes must adhere to ROKCT production-grade standards before merging.")
         print("Tip: run with --verbose / -v for full per-file output.")
+        print("Suppress a specific finding with: '# compliance-ignore: <check-id>'")
         print("=" * 80)
-        log_compliance_evidence(target_dirs, "FAIL", f"Architectural compliance scan failed with {total_violations} violations across source code checks.", violations=violations_list)
+        log_compliance_evidence(
+            target_dirs, "FAIL",
+            f"Architectural compliance scan failed with {len(errors_list)} error(s) and "
+            f"{len(warnings_list)} warning(s) across source code checks.",
+            violations=violations_list)
         sys.exit(1)
     else:
-        print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
+        if warnings_list:
+            print(f"ARCHITECTURAL COMPLIANCE SUCCESS (with {len(warnings_list)} non-blocking warning(s)).")
+        else:
+            print("ARCHITECTURAL COMPLIANCE SUCCESS: All systems pass production standards.")
         print("=" * 80)
-        log_compliance_evidence(target_dirs, "PASS", f"Architectural compliance scan completed successfully with 0 violations. Codebase standards verified.", violations=[])
+        log_compliance_evidence(
+            target_dirs, "PASS",
+            f"Architectural compliance scan completed successfully with 0 blocking violations "
+            f"({len(warnings_list)} warning(s) recorded). Codebase standards verified.",
+            violations=violations_list)
         sys.exit(0)
 
 def is_ci_environment():
@@ -206,28 +262,71 @@ def resolve_evidence_repo(target_dirs):
     # Fallback to current working directory's git root
     return find_git_root(os.getcwd())
 
+def _evidence_violation(v):
+    """Serialize one finding with its real per-check control IDs."""
+    check_id = v.get("check") or controls_table.resolve_check(v.get("type", ""))
+    control = controls_table.CONTROLS.get(check_id, controls_table.CONTROLS["unmapped"])
+    return {
+        "file": sanitize_text(v["file"]),
+        "line": v["line"],
+        "check_id": check_id,
+        "title": control["title"],
+        "layer": control["layer"],
+        "severity": v.get("severity", control["severity"]),
+        "controls": {
+            "soc2": v.get("soc2", control["soc2"]),
+            "iso27001": v.get("iso27001", control["iso27001"]),
+        },
+        "what": sanitize_text(v["type"]),
+        "why": sanitize_text(v["message"]),
+    }
+
+
 def write_evidence_file(repo_dir, control_id, status, detail, violations=[], target_dir=None):
-    evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", control_id)
+    # control_id may be a nested id ("checks/<id>__SOC2-..__ISO-..") — keep it
+    # POSIX-style in the payload regardless of host path separators.
+    control_id = control_id.replace("\\", "/")
+    evidence_dir = os.path.join(repo_dir, ".rokct", "evidence", *control_id.split("/"))
     os.makedirs(evidence_dir, exist_ok=True)
     from datetime import timezone
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"{timestamp}_{status}.json"
     filepath = os.path.join(evidence_dir, filename)
+
+    serialized = [_evidence_violation(v) for v in violations]
+
+    # Per-control rollup so an auditor can answer "what fired under CC6.1 /
+    # A.5.17?" without re-deriving it from the finding list.
+    rollup = {}
+    for item in serialized:
+        key = item["check_id"]
+        entry = rollup.setdefault(key, {
+            "check_id": key,
+            "title": item["title"],
+            "layer": item["layer"],
+            "severity": item["severity"],
+            "controls": item["controls"],
+            "count": 0,
+        })
+        entry["count"] += 1
+
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        # The scan run itself is the CC7.1 ongoing-monitoring evidence record;
+        # individual findings carry their own control IDs below.
         "control_id": control_id,
         "status": status,
         "system": "compliance-scanner",
+        "frameworks": ["SOC 2", "ISO/IEC 27001:2022"],
         "target_dir": sanitize_text(target_dir) if target_dir else "unknown",
         "detail": sanitize_text(detail),
-        "violations": [
-            {
-                "file": sanitize_text(v["file"]),
-                "line": v["line"],
-                "what": sanitize_text(v["type"]),
-                "why": sanitize_text(v["message"])
-            } for v in violations
-        ]
+        "summary": {
+            "total": len(serialized),
+            "error": sum(1 for x in serialized if x["severity"] == "error"),
+            "warning": sum(1 for x in serialized if x["severity"] == "warning"),
+        },
+        "controls_triggered": sorted(rollup.values(), key=lambda x: -x["count"]),
+        "violations": serialized,
     }
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -284,11 +383,37 @@ def log_compliance_evidence(target_dirs, status, detail, violations=[]):
     else:
         target_dir_for_log = "unknown"
     
+    run_control_id = controls_table.SCAN_RUN_CONTROL_ID
     try:
-        evidence_path = write_evidence_file(repo_dir, "SOC2-CC7.1-COMPLIANCE", status, detail, violations=violations, target_dir=target_dir_for_log)
+        # 1. Run-level record: the scan itself is the SOC 2 CC7.1 ongoing-monitoring
+        #    evidence trail. This is the file the CI auto-push commits.
+        evidence_path = write_evidence_file(
+            repo_dir, run_control_id, status, detail,
+            violations=violations, target_dir=target_dir_for_log)
         print(f"Compliance evidence written to: {evidence_path} (Target: {scanned_path_rel})")
+
+        # 2. Per-control records: one evidence file per check-id that actually
+        #    fired, filed under its own SOC 2 / ISO 27001 control directory so
+        #    each control has its own auditable trail.
+        by_check = {}
+        for v in violations:
+            check_id = v.get("check") or controls_table.resolve_check(v.get("type", ""))
+            by_check.setdefault(check_id, []).append(v)
+
+        for check_id, items in sorted(by_check.items()):
+            control = controls_table.CONTROLS.get(check_id, controls_table.CONTROLS["unmapped"])
+            control_dir = f"{check_id}__SOC2-{control['soc2']}__ISO-{control['iso27001']}"
+            sub_status = "FAIL" if any(i.get("severity") == "error" for i in items) else "WARN"
+            write_evidence_file(
+                repo_dir, f"checks/{control_dir}", sub_status,
+                f"{control['title']} — {len(items)} finding(s) "
+                f"[SOC 2 {control['soc2']} / ISO 27001 {control['iso27001']}].",
+                violations=items, target_dir=target_dir_for_log)
+        if by_check:
+            print(f"Per-control evidence written for {len(by_check)} control(s) under .rokct/evidence/checks/")
+
         if is_ci_environment():
-            commit_and_push_evidence(repo_dir, evidence_path, "SOC2-CC7.1-COMPLIANCE", status, detail)
+            commit_and_push_evidence(repo_dir, evidence_path, run_control_id, status, detail)
     except Exception as e:
         print(f"Error logging compliance evidence: {e}", file=sys.stderr)
 

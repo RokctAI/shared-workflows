@@ -1,56 +1,49 @@
 import ast
 import os
-from compliance.base import register_ast_function_def, register_file_checker
+from compliance.base import (
+    register_ast_function_def,
+    register_file_checker,
+    is_frappe_whitelisted,
+    matches_known_api_path,
+    get_known_api_paths,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KNOWN GAP — this path test does NOT validate API conventions.
+#
+# matches_known_api_path() appends a glob derived from the file's OWN first path
+# segment (*/<parts[0]>/*), which therefore always matches its own file whenever
+# the path has two or more segments. The test is self-satisfying: it passes for
+# any nested file, including ones in no module and no api/ directory at all.
+# In practice it only fires for a whitelisted function in a file at the repo root.
+#
+# Measured: all 39 whitelisted files in the agent/ repo pass this test, and zero
+# of them match KNOWN_API_PATHS — every one passes on the derived glob alone.
+#
+# The leniency is deliberate for now. Gating on real endpoint conventions is a
+# fleet-wide policy decision pending review, not a scanner fix. Until then this
+# is labelled as a structural presence check so it cannot be read as "this
+# function's API path was verified" — because it was not.
+# ─────────────────────────────────────────────────────────────────────────────
 
 @register_ast_function_def
 def check_layer2_function_def(visitor, node):
-    is_whitelisted = False
-    for dec in node.decorator_list:
-        if isinstance(dec, ast.Name) and dec.id == "whitelist":
-            is_whitelisted = True
-        elif isinstance(dec, ast.Attribute) and dec.attr == "whitelist":
-            is_whitelisted = True
-        elif isinstance(dec, ast.Call):
-            func = dec.func
-            if isinstance(func, ast.Name) and func.id == "whitelist":
-                is_whitelisted = True
-            elif isinstance(func, ast.Attribute) and func.attr == "whitelist":
-                is_whitelisted = True
-    
-    if is_whitelisted:
-        import fnmatch
-        # Use the relative path directly — the scanner always runs from repo root,
-        # so the first non-'.' segment IS the app/module name. This works for any
-        # repo without any hardcoded list.
-        path_normalized = visitor.filename.replace("\\", "/").lower()
-        known_api_paths = [
-            "*/api/auth/*",
-            "*/api/brain/*",
-            "*/api/plan_builder/*",
-            "*/api/setup/*",
-            "*/betassist/api*",
-        ]
-        
-        # Dynamically detect the top-level app name from the relative path
-        # e.g. .\rpanel\hosting\foo.py → parts[1] = 'rpanel' → whitelist */rpanel/*
-        parts = [p for p in path_normalized.split('/') if p and p != '.']
-        if parts:
-            app_name = parts[0]
-            known_api_paths.append(f"*/{app_name}/*")
+    is_whitelisted = is_frappe_whitelisted(node)
 
-        if not any(fnmatch.fnmatch(path_normalized, x) for x in known_api_paths):
-            # FIX: Do NOT silently pass. Warn that this whitelisted function
-            # is in an unrecognised path and has not been layer-2 verified.
-            visitor.errors.append({
-                "line": node.lineno,
-                "type": "Layer 2 (Unknown API Path)",
-                "message": (
-                    f"@frappe.whitelist function '{node.name}()' is defined outside all known "
-                    f"API paths {known_api_paths}. Layer 2 type-safety checks were skipped. "
-                    f"Move this function into a registered API path or add its path to layer_2.py."
-                )
-            })
-            is_whitelisted = False
+    if is_whitelisted and not matches_known_api_path(visitor.filename):
+        # Do NOT silently pass: layer-2 type safety was skipped for this function.
+        visitor.errors.append({
+            "line": node.lineno,
+            "type": "Layer 2 (Whitelisted Function - Path Not Validated)",
+            "message": (
+                f"@frappe.whitelist function '{node.name}()' did not match any path glob "
+                f"{get_known_api_paths(visitor.filename)}, so Layer 2 type-safety checks were skipped. "
+                f"NOTE: this path test is a structural presence check only — it does not validate "
+                f"the function against real API conventions (see the KNOWN GAP note in layer_2.py). "
+                f"A passing path test does NOT mean the endpoint lives somewhere appropriate."
+            )
+        })
+        is_whitelisted = False
     
     if is_whitelisted:
         # Type-safety & Documentation (Layer 2)
@@ -105,6 +98,9 @@ def check_layer2_flutter_dynamic(filepath):
 def check_layer2_no_python_in_special_dirs(filepath):
     errors = []
     if filepath.endswith(".py"):
+        # Unified syntax: '# compliance-ignore-file: structural-special-dirs'
+        # (handled centrally in scan_file). Legacy '# compliance-silent' — which
+        # silenced this check only — stays honoured for one release.
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 if "# compliance-silent" in f.read():
