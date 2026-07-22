@@ -1,0 +1,471 @@
+# Copyright 2024 RokctAI
+#
+# Universal Play Store Deploy
+#
+# Reusable workflow that publishes a Flutter app's Android App Bundle to the
+# Google Play Developer API. App-agnostic — a specific app repo owns the
+# actual triggers (weekly cron + workflow_dispatch) and calls this workflow
+# with `uses: RokctAI/shared-workflows/.github/workflows/universal-play-deploy.yml@main`,
+# matching the pattern already used for universal-release.yml (see
+# datafy/.github/workflows/release.yml).
+#
+# Hard rules enforced here (not just documented — actually checked):
+#   1. Only ever deploys from the `main` branch (checked explicitly, not just
+#      inferred from trigger).
+#   2. At most one release per ISO week, even across repeated manual
+#      dispatches. State is tracked in a committed marker file
+#      (.github/.play-store-release-state.json), not just relied on cron.
+#   3. No-ops cleanly if there is nothing new to ship (no version bump / no
+#      new commits since the last recorded deploy).
+
+name: Universal Play Store Deploy
+
+permissions: write-all
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+on:
+  workflow_call:
+    inputs:
+      version_file:
+        required: false
+        type: string
+        default: "pubspec.yaml"
+        description: "Path to the file holding the app version (pubspec.yaml 'version: X.Y.Z+N')"
+      package_name:
+        required: false
+        type: string
+        default: ""
+        description: "Android applicationId. If empty, it is auto-detected from android/app/build.gradle"
+      track:
+        required: false
+        type: string
+        default: "internal"
+        description: "Play Console track to publish to: internal, alpha, beta, or production"
+      release_status:
+        required: false
+        type: string
+        default: "completed"
+        description: "Release status passed to the Play Developer API: draft, inProgress, halted, or completed"
+      app-type:
+        required: false
+        type: string
+        description: "App role: customer, driver, manager, pos (used to resolve env/package the same way universal-flutter-build does)"
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+      flutter-version:
+        required: false
+        type: string
+        default: ''
+      java-version:
+        required: false
+        type: string
+        default: '17'
+      state_file:
+        required: false
+        type: string
+        default: ".github/.play-store-release-state.json"
+        description: "Path to the committed marker file used for weekly-limit + no-op tracking"
+    secrets:
+      PLAY_STORE_SERVICE_ACCOUNT_JSON:
+        required: true
+        description: "Base64-encoded (or raw) Google Play service account JSON key with Release Manager access"
+      KEY_JKS:
+        required: false
+      KEY_PASSWORD:
+        required: false
+      ALIAS_PASSWORD:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+      MONOREPO_PAT:
+        required: false
+      PRODUCTION_ENV:
+        required: false
+      APP_ID:
+        required: false
+      APP_PRIVATE_KEY:
+        required: false
+
+jobs:
+  # --- 1. THE GATE: branch check + weekly-limit + "is there anything new" check ---
+  gate:
+    name: 🚦 Release Gate
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      reason: ${{ steps.decide.outputs.reason }}
+      version: ${{ steps.decide.outputs.version }}
+      package_name: ${{ steps.decide.outputs.package_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Hard gate: never deploy from anything but main, regardless of how
+      # this workflow was invoked (schedule, workflow_dispatch, whatever the
+      # caller wires up).
+      - name: Verify Branch Is Main
+        id: branch_check
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          echo "🔍 Triggered on branch: $BRANCH"
+          if [ "$BRANCH" != "main" ]; then
+            echo "❌ Play Store deploys only run from 'main'. Refusing to proceed on '$BRANCH'."
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ On main. Continuing."
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve Current Version
+        id: current_version
+        run: |
+          FILE="${{ inputs.version_file }}"
+          if [ ! -f "$FILE" ]; then
+            echo "❌ Version file not found: $FILE"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$FILE" == *.yaml ]] || [[ "$FILE" == *.yml ]]; then
+            VERSION=$(grep -m1 -E '^version:' "$FILE" | awk '{print $2}' | tr -d '"' | tr -d "'")
+          elif [[ "$FILE" == *.json ]]; then
+            VERSION=$(jq -r .version "$FILE")
+          else
+            VERSION=$(cat "$FILE")
+          fi
+
+          echo "📦 Current version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Package Name
+        id: pkg
+        run: |
+          PKG="${{ inputs.package_name }}"
+          if [ -z "$PKG" ] && [ -f "android/app/build.gradle" ]; then
+            PKG=$(grep 'applicationId' android/app/build.gradle | head -n 1 | sed "s/.*applicationId *['\" ]*\([^'\" ]*\)['\" ]*.*/\1/")
+          fi
+          echo "📦 Package: $PKG"
+          echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
+
+      - name: Read Release State Marker
+        id: state
+        run: |
+          STATE_FILE="${{ inputs.state_file }}"
+          if [ -f "$STATE_FILE" ]; then
+            echo "📖 Found existing state marker: $STATE_FILE"
+            cat "$STATE_FILE"
+            LAST_VERSION=$(jq -r '.last_version // ""' "$STATE_FILE")
+            LAST_WEEK=$(jq -r '.last_release_iso_week // ""' "$STATE_FILE")
+            LAST_SHA=$(jq -r '.last_release_sha // ""' "$STATE_FILE")
+          else
+            echo "📖 No prior state marker found. Treating as first-ever deploy."
+            LAST_VERSION=""
+            LAST_WEEK=""
+            LAST_SHA=""
+          fi
+          echo "last_version=$LAST_VERSION" >> "$GITHUB_OUTPUT"
+          echo "last_week=$LAST_WEEK" >> "$GITHUB_OUTPUT"
+          echo "last_sha=$LAST_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Decide
+        id: decide
+        run: |
+          VERSION="${{ steps.current_version.outputs.version }}"
+          PACKAGE="${{ steps.pkg.outputs.package_name }}"
+          CURRENT_WEEK=$(date -u +%G-W%V)
+          CURRENT_SHA="${{ github.sha }}"
+
+          LAST_VERSION="${{ steps.state.outputs.last_version }}"
+          LAST_WEEK="${{ steps.state.outputs.last_week }}"
+          LAST_SHA="${{ steps.state.outputs.last_sha }}"
+
+          echo "🔍 Current ISO week: $CURRENT_WEEK (last release week recorded: ${LAST_WEEK:-none})"
+          echo "🔍 Current version: $VERSION (last released version: ${LAST_VERSION:-none})"
+          echo "🔍 Current SHA: $CURRENT_SHA (last released SHA: ${LAST_SHA:-none})"
+
+          PROCEED=true
+          REASON=""
+
+          # --- Rule: hard branch gate ---
+          if [ "${{ steps.branch_check.outputs.on_main }}" != "true" ]; then
+            PROCEED=false
+            REASON="not-on-main"
+          fi
+
+          # --- Rule: version file must resolve ---
+          if [ -z "$VERSION" ]; then
+            PROCEED=false
+            REASON="no-version-resolved"
+          fi
+
+          # --- Rule: at most one release per ISO week, no matter how many
+          # times this is triggered (manual dispatch cannot bypass it) ---
+          if [ "$PROCEED" = "true" ] && [ -n "$LAST_WEEK" ] && [ "$LAST_WEEK" = "$CURRENT_WEEK" ]; then
+            PROCEED=false
+            REASON="already-released-this-week"
+          fi
+
+          # --- Rule: nothing new to ship — same version already released,
+          # or HEAD hasn't moved since the last release ---
+          if [ "$PROCEED" = "true" ] && [ -n "$LAST_VERSION" ] && [ "$LAST_VERSION" = "$VERSION" ]; then
+            PROCEED=false
+            REASON="version-unchanged-since-last-release"
+          fi
+
+          if [ "$PROCEED" = "true" ] && [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
+            PROCEED=false
+            REASON="no-new-commits-since-last-release"
+          fi
+
+          echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
+
+          if [ "$PROCEED" = "true" ]; then
+            echo "✅ Gate passed. Proceeding to build + deploy."
+          else
+            echo "⏭️ No-op ($REASON). Skipping build + deploy cleanly."
+          fi
+
+  # --- 2. BUILD + DEPLOY (only when the gate passes) ---
+  deploy:
+    name: 🚀 Build & Publish to Play Store
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      KEY_JKS: ${{ secrets.KEY_JKS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      ALIAS_PASSWORD: ${{ secrets.ALIAS_PASSWORD }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Fetch and Merge Private Repository
+        shell: bash
+        run: |
+          if [ -f ".private_repo" ]; then
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
+            if [ -n "$REPO_NAME" ]; then
+              TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
+              URL="https://x-access-token:${TOKEN}@github.com/${REPO_NAME}.git"
+              if git clone --depth 1 "$URL" .private-temp; then
+                mkdir -p .git/info
+                (cd .private-temp && find . -type f) | sed 's|^\./||' >> .git/info/exclude
+                rm -rf .private-temp/.git .private-temp/.github
+                rsync -a .private-temp/ ./
+                rm -rf .private-temp
+              else
+                echo "::warning::Failed to clone private repository $REPO_NAME."
+              fi
+            fi
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Decode Google Services JSON
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: |
+          if [ -d "android" ] && [ ! -f "android/app/google-services.json" ]; then
+            mkdir -p android/app
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+            echo "✅ google-services.json decoded."
+          fi
+
+      - name: Decode Keystore
+        if: env.KEY_JKS != ''
+        run: |
+          if [ ! -f "android/key.properties" ]; then
+            mkdir -p android/app
+            echo "$KEY_JKS" | base64 --decode > android/app/key.jks
+            {
+              echo "storePassword=$KEY_PASSWORD"
+              echo "keyPassword=$ALIAS_PASSWORD"
+              echo "keyAlias=upload"
+              echo "storeFile=key.jks"
+            } > android/key.properties
+            echo "✅ Signing config generated from secrets."
+          fi
+
+      - name: Fetch Production Environment from Occultation
+        if: env.MONOREPO_PAT != ''
+        env:
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+        run: |
+          mkdir -p .env
+          if gh api "/repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env" 2>/dev/null; then
+            if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
+              sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
+            fi
+            sed -i 's/\r$//' ".env/production.env"
+            sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
+            echo "✅ .env/production.env ready."
+          else
+            echo "ℹ️ No production.env found in Occultation. Continuing without it."
+            rm -f .env/production.env
+          fi
+
+      - name: Get Dependencies
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build Android AppBundle
+        id: build_aab
+        run: |
+          BUILD_ARGS=(--release)
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+          fi
+          flutter build appbundle "${BUILD_ARGS[@]}"
+
+          AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "❌ AAB build failed or file not found."
+            exit 1
+          fi
+          echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Decode Play Store Service Account Key
+        id: play_key
+        env:
+          RAW_KEY: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/play-store-service-account.json"
+          # Accept either raw JSON or base64-encoded JSON
+          if echo "$RAW_KEY" | jq . >/dev/null 2>&1; then
+            echo "$RAW_KEY" > "$KEY_PATH"
+          else
+            echo "$RAW_KEY" | base64 --decode > "$KEY_PATH"
+          fi
+          jq . "$KEY_PATH" >/dev/null 2>&1 || { echo "❌ PLAY_STORE_SERVICE_ACCOUNT_JSON did not decode to valid JSON."; exit 1; }
+          echo "key_path=$KEY_PATH" >> "$GITHUB_OUTPUT"
+
+      # r0adkll/upload-google-play wraps the Google Play Developer API — this
+      # is the standard, actively-maintained GitHub Action for this and
+      # matches how this workspace already consumes third-party marketplace
+      # actions for platform-specific steps (subosito/flutter-action,
+      # actions/create-github-app-token) rather than shelling out to a
+      # Ruby/fastlane toolchain that nothing else in this repo uses.
+      - name: Upload to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: ${{ steps.play_key.outputs.key_path }}
+          packageName: ${{ needs.gate.outputs.package_name }}
+          releaseFiles: ${{ steps.build_aab.outputs.aab_path }}
+          track: ${{ inputs.track }}
+          status: ${{ inputs.release_status }}
+
+      - name: Cleanup Play Store Key
+        if: always()
+        run: rm -f "${{ steps.play_key.outputs.key_path }}"
+
+  # --- 3. RECORD STATE (only after a successful publish) ---
+  record-state:
+    name: 📝 Record Release State
+    needs: [gate, deploy]
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_SELF=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
+      - name: Setup Identity (Local)
+        if: env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Identity (Shared)
+        if: env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always() && env.IS_SELF == 'false'
+        run: rm -rf .github/shared-workflows
+
+      - name: Write & Commit State Marker (PR-First)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          STATE_FILE="${{ inputs.state_file }}"
+          mkdir -p "$(dirname "$STATE_FILE")"
+
+          jq -n \
+            --arg version "${{ needs.gate.outputs.version }}" \
+            --arg package "${{ needs.gate.outputs.package_name }}" \
+            --arg week "$(date -u +%G-W%V)" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sha "${{ github.sha }}" \
+            --arg track "${{ inputs.track }}" \
+            '{last_version: $version, package_name: $package, last_release_iso_week: $week, last_release_date: $date, last_release_sha: $sha, track: $track}' \
+            > "$STATE_FILE"
+
+          echo "📄 State marker written:"
+          cat "$STATE_FILE"
+
+          if [[ -z "$(git status -s "$STATE_FILE")" ]]; then
+            echo "⏭️ No change to commit."
+            exit 0
+          fi
+
+          BRANCH_NAME="play-store-release-state-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add "$STATE_FILE"
+          git commit -m "chore(play-store): record release ${{ needs.gate.outputs.version }} [skip ci]"
+
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "🚀 Play Store: recorded release ${{ needs.gate.outputs.version }}" \
+              --body "Automated marker update after publishing ${{ needs.gate.outputs.version }} to the '${{ inputs.track }}' track. Merge to keep the weekly-limit and no-op checks accurate." \
+              --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          else
+            echo "⚠️ Could not push state marker branch."
+          fi

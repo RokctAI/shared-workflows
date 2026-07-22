@@ -1,0 +1,13 @@
+{
+  "_comment": "Per-repo compliance scanner config. See scripts/compliance/README.md. Copy this file to any repo root to tune the gate for that repo; exclusions no longer live in compliance_scanner.py source.",
+
+  "exclude_dirs": [],
+
+  "exclude_paths": [
+    ".rokct/evidence/**"
+  ],
+
+  "severity": {},
+
+  "fail_on": "error"
+}

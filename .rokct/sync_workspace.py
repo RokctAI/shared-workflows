@@ -1,4 +1,4 @@
-# compliance-silent
+# compliance-ignore-file: structural-special-dirs
 import os
 import sys
 import json

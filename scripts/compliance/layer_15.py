@@ -38,6 +38,36 @@ def check_layer15_http_timeout(visitor, node):
             })
 
 @register_file_checker
+def check_layer15_flutter_http_timeout(filepath):
+    """Enforce timeout configuration on Dart/Flutter HTTP clients.
+
+    (Moved here from layer_12.py, where it had been defined despite its name.)
+    """
+    errors = []
+    if filepath.endswith(".dart"):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Skip interceptor files – they import Dio but don't configure the client.
+            # Timeouts must be set on the Dio BaseOptions in HttpService, not here.
+            if "interceptor" in os.path.basename(filepath).lower():
+                return errors
+            uses_http = any(pkg in content for pkg in ["package:http/", "package:dio/", "HttpClient("])
+            if uses_http:
+                has_timeout = any(x in content.lower() for x in [
+                    "timeout", "connectiontimeout", "receivetimeout", "sendtimeout"
+                ])
+                if not has_timeout:
+                    errors.append({
+                        "line": 1,
+                        "type": "Layer 15 (Webhook & Integration - Flutter HTTP Timeout)",
+                        "message": f"Flutter file '{os.path.basename(filepath)}' uses an HTTP client (http/dio) but configures no timeout. Set connectTimeout and receiveTimeout to prevent hanging requests."
+                    })
+        except Exception as e:
+            errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+@register_file_checker
 def check_layer15_webhook_federation(filepath):
     errors = []
     base = os.path.basename(filepath).lower()

@@ -14,6 +14,9 @@ def check_layer3_sql_injection(visitor, node):
                     is_db_sql = True
     
     if is_db_sql:
+        # Unified syntax: '# compliance-ignore: sql-injection' (handled centrally
+        # in scan_file). The legacy docstring keywords below stay honoured for one
+        # release.
         bypassed = False
         if visitor.current_function:
             docstring = ast.get_docstring(visitor.current_function)
@@ -24,7 +27,7 @@ def check_layer3_sql_injection(visitor, node):
             visitor.errors.append({
                 "line": node.lineno,
                 "type": "Layer 3 (Database / ORM Enforcement)",
-                "message": "Raw SQL query `frappe.db.sql()` detected. Use Frappe ORM (`frappe.get_all()`, `frappe.get_list()`, etc.) instead to ensure database compatibility (MariaDB/PostgreSQL/SQLite) and automatic SQL injection safety. If raw SQL is strictly required, document it in the docstring with 'raw_sql' or 'bypass_sql'."
+                "message": "Raw SQL query `frappe.db.sql()` detected. Use Frappe ORM (`frappe.get_all()`, `frappe.get_list()`, etc.) instead to ensure database compatibility (MariaDB/PostgreSQL/SQLite) and automatic SQL injection safety. If raw SQL is strictly required, suppress with '# compliance-ignore: sql-injection'."
             })
 
 def check_database_migrations(changed_files):

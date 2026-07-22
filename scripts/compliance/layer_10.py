@@ -6,7 +6,9 @@ from compliance.base import register_file_checker
 def check_layer10_clean_architecture(filepath):
     errors = []
     base = os.path.basename(filepath).lower()
-    path_lower = filepath.lower()
+    # Normalize separators: the directory-boundary tests below ("/components/",
+    # "/presentation/", ...) silently never matched on Windows without this.
+    path_lower = filepath.replace("\\", "/").lower()
 
     # Next.js Boundaries
     if path_lower.endswith(".ts") or path_lower.endswith(".tsx"):
