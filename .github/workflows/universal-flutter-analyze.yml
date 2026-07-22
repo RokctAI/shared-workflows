@@ -1,0 +1,290 @@
+# Copyright 2024 RokctAI
+
+# Universal Flutter Analyze
+#
+# A clean-checkout static-analysis gate for Flutter SDK/app repos.
+#
+# Why this exists:
+#   `flutter analyze` on a developer's machine can pass against a stale local
+#   cache, half-composed SDK modules, or generated code that was hand-edited or
+#   never regenerated. That hides a whole class of bugs — missing `AppRoutes.I`
+#   wiring after a compose, drift/sqlite3 version mismatches, stale generated
+#   `*.g.dart` — which only surface on a genuinely fresh, fully-composed build.
+#
+# What it does:
+#   Runs the REAL compose pipeline (initiate + SDK module composition, matching
+#   universal-flutter-build.yml) on a fresh checkout, then `flutter pub get`,
+#   regenerates generated code with build_runner, and finally runs
+#   `flutter analyze` as a hard 0-error gate. Unlike the build workflow it never
+#   commits or pushes — it composes in place purely to analyze, so it is safe to
+#   run on PRs and arbitrary branches.
+#
+# Callable from any consuming repo:
+#   jobs:
+#     analyze:
+#       uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-analyze.yml@main
+#       secrets: inherit
+
+name: Universal Flutter Analyze
+
+permissions: write-all
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+on:
+  workflow_call:
+    inputs:
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+        description: "Flutter channel (stable, beta, master)."
+      flutter-version:
+        required: false
+        type: string
+        default: ''
+        description: "Pin an exact Flutter version. Empty = latest on channel."
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: "JDK version (Android tooling / gradle-based codegen)."
+      run-compose:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Run the initiate + SDK-module compose pipeline before analysis.
+          This is the whole point — it reproduces the composed state a real
+          build sees. Set false only for plain leaf apps that never compose.
+      run-build-runner:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Regenerate generated code (build_runner) so stale/missing *.g.dart,
+          drift, freezed, json_serializable output can't mask analyzer errors.
+      fail-on-warnings:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          Also fail on analyzer warnings (--fatal-warnings). Default keeps the
+          gate at 0-errors only; infos never fail the gate.
+      working-directory:
+        required: false
+        type: string
+        default: '.'
+        description: "Path to the Flutter project root (where pubspec.yaml lives)."
+    secrets:
+      MONOREPO_PAT:
+        required: false
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  analyze:
+    name: 🔍 Flutter Analyze (Clean Compose)
+    runs-on: ubuntu-latest
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Track Usage
+        continue-on-error: true
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+            -H "Authorization: Bearer $API_KEY" || true
+
+      - name: Checkout Code (Clean)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch and Merge Private Repository
+        run: |
+          if [ -f ".private_repo" ]; then
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
+            if [ -n "$REPO_NAME" ]; then
+              echo "Private repository configured: $REPO_NAME"
+              TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
+              URL="https://x-access-token:${TOKEN}@github.com/${REPO_NAME}.git"
+              if git clone --depth 1 "$URL" .private-temp; then
+                echo "Excluding private files from git tracking..."
+                mkdir -p .git/info
+                (cd .private-temp && find . -type f) | sed 's|^\./||' >> .git/info/exclude
+                echo "Merging private files..."
+                rm -rf .private-temp/.git .private-temp/.github
+                rsync -a .private-temp/ ./
+                rm -rf .private-temp
+              else
+                echo "::warning::Failed to clone private repository $REPO_NAME."
+              fi
+            fi
+          fi
+
+      - name: Initiate Protocol
+        if: inputs.run-compose == true
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      - name: Compose Flutter SDK Modules (If Shell App)
+        if: inputs.run-compose == true
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper..."
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "✅ Using local composer wrapper..."
+              python .rokct/skills/flutter/scripts/compose.py
+            else
+              echo "🌐 Fetching remote composer wrapper..."
+              curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/flutter/scripts/compose.py -o compose_temp.py
+              python compose_temp.py
+              rm compose_temp.py
+            fi
+            echo "ℹ️ Composed in place for analysis only — not committing (this is a check gate)."
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Skipping composition."
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Flutter Clean (Purge Any Stale Build State)
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          # Fresh checkout is already clean, but this guarantees no stale
+          # .dart_tool / build output leaks into the analysis.
+          flutter clean || true
+
+      - name: Get Dependencies
+        id: deps
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          if flutter pub get 2>&1 | tee pubget_log.txt; then
+            echo "✅ pub get succeeded."
+          else
+            echo "pubget_failed=true" >> "$GITHUB_ENV"
+            echo "❌ flutter pub get failed — dependency resolution broken (e.g. drift/sqlite3 version mismatch)."
+          fi
+
+      - name: Regenerate Generated Code (build_runner)
+        if: inputs.run-build-runner == true && env.pubget_failed != 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          # Only run if build_runner is actually a dependency; otherwise a no-op.
+          if grep -qE '^\s*build_runner\s*:' pubspec.yaml || (flutter pub deps --style=compact 2>/dev/null | grep -q 'build_runner'); then
+            echo "🛠️  Regenerating generated code with build_runner..."
+            if dart run build_runner build --delete-conflicting-outputs 2>&1 | tee buildrunner_log.txt; then
+              echo "✅ Code generation succeeded."
+            else
+              echo "codegen_failed=true" >> "$GITHUB_ENV"
+              echo "❌ build_runner failed — stale/broken generated code would otherwise be hidden."
+            fi
+          else
+            echo "ℹ️ build_runner not a dependency. Skipping code generation."
+          fi
+
+      - name: Run flutter analyze (0-Error Gate)
+        id: analyze
+        if: env.pubget_failed != 'true' && env.codegen_failed != 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          # --no-fatal-infos: infos never fail the gate.
+          # fatal-warnings toggled by the fail-on-warnings input.
+          ANALYZE_ARGS=(--no-fatal-infos)
+          if [ "${{ inputs.fail-on-warnings }}" = "true" ]; then
+            ANALYZE_ARGS+=(--fatal-warnings)
+            echo "⚙️  Gate: fail on errors AND warnings."
+          else
+            ANALYZE_ARGS+=(--no-fatal-warnings)
+            echo "⚙️  Gate: fail on errors only (0-error gate)."
+          fi
+
+          if flutter analyze "${ANALYZE_ARGS[@]}" 2>&1 | tee analyze_log.txt; then
+            echo "✅ flutter analyze passed the gate."
+          else
+            echo "analyze_failed=true" >> "$GITHUB_ENV"
+            echo "❌ flutter analyze reported blocking issues."
+          fi
+
+      - name: Build Job Summary
+        if: always()
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          {
+            echo "## 🔍 Flutter Analyze — Clean Compose Gate"
+            echo ""
+            if [ "${{ env.pubget_failed }}" = "true" ]; then
+              echo "### ❌ Dependency resolution failed (\`flutter pub get\`)"
+              echo ""
+              echo '```'
+              tail -n 40 pubget_log.txt 2>/dev/null || echo "(no log)"
+              echo '```'
+            elif [ "${{ env.codegen_failed }}" = "true" ]; then
+              echo "### ❌ Code generation failed (\`build_runner\`)"
+              echo ""
+              echo '```'
+              tail -n 60 buildrunner_log.txt 2>/dev/null || echo "(no log)"
+              echo '```'
+            elif [ "${{ env.analyze_failed }}" = "true" ]; then
+              echo "### ❌ Analyzer gate failed"
+              echo ""
+              echo '```'
+              cat analyze_log.txt 2>/dev/null || echo "(no log)"
+              echo '```'
+            else
+              echo "### ✅ Passed — clean checkout composes, generates, and analyzes with 0 blocking issues."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Analysis Logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: flutter-analyze-logs
+          path: |
+            ${{ inputs.working-directory }}/pubget_log.txt
+            ${{ inputs.working-directory }}/buildrunner_log.txt
+            ${{ inputs.working-directory }}/analyze_log.txt
+          if-no-files-found: ignore
+
+      - name: Fail if Gate Did Not Pass
+        if: always()
+        run: |
+          if [ "${{ env.pubget_failed }}" = "true" ] \
+            || [ "${{ env.codegen_failed }}" = "true" ] \
+            || [ "${{ env.analyze_failed }}" = "true" ]; then
+            echo "❌ Flutter analyze gate failed. See the job summary and flutter-analyze-logs artifact."
+            exit 1
+          fi
+          echo "✅ Flutter analyze gate passed on a clean, fully-composed checkout."

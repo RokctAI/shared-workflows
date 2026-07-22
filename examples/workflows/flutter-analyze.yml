@@ -1,0 +1,57 @@
+# Example caller for `universal-flutter-analyze.yml`
+#
+# This is a GENERIC template — copy it into your own Flutter repo at
+# `.github/workflows/flutter-analyze.yml`. It is not specific to any one app.
+#
+# What `universal-flutter-analyze.yml` does for you (see shared-workflows'
+# .github/workflows/universal-flutter-analyze.yml for the full implementation):
+#   - Checks out a GENUINELY CLEAN copy of HEAD (no dev machine's stale cache).
+#   - Runs the real compose pipeline (initiate + SDK-module composition), the
+#     same one universal-flutter-build.yml uses, so `AppRoutes.I` wiring and
+#     every other composed symbol actually exists.
+#   - Runs `flutter pub get` (catches drift/sqlite3 and other version
+#     mismatches that a warm local pub cache would paper over).
+#   - Regenerates generated code with build_runner (catches stale *.g.dart).
+#   - Runs `flutter analyze` as a hard 0-error gate.
+#   - NEVER commits or pushes — it composes only to analyze, so it's safe on
+#     PRs and any branch.
+#
+# Optional secrets (all optional, pass through automatically with
+# `secrets: inherit`):
+#   MONOREPO_PAT       PAT for pulling a private companion repo, if `.private_repo`
+#                      is present in your repo.
+#   COUNTER_API_KEY    Usage telemetry, if you use it.
+#
+# Adapting this file:
+#   - Set `working-directory` if your pubspec.yaml isn't at the repo root.
+#   - Set `run-compose: false` for a plain leaf app that never composes SDK
+#     modules (it'll just do pub get + build_runner + analyze).
+#   - Set `fail-on-warnings: true` to also block on analyzer warnings.
+#   - Pin `flutter-version` if you need a specific SDK.
+
+name: Flutter Analyze
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    permissions:
+      contents: read
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-analyze.yml@main
+    with:
+      # Defaults shown — uncomment/adjust as needed:
+      # flutter-channel: stable
+      # flutter-version: '3.24.0'
+      # java-version: '17'
+      # run-compose: true
+      # run-build-runner: true
+      # fail-on-warnings: false
+      # working-directory: .
+      run-compose: true
+    # `secrets: inherit` passes this repo's configured secrets (MONOREPO_PAT,
+    # COUNTER_API_KEY if present) through to the reusable workflow.
+    secrets: inherit

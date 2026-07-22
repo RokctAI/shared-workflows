@@ -353,6 +353,7 @@ Once configured, the shared workflows will automatically have the necessary iden
 
 *   **`universal-pipeline.yml`**: The Orchestrator. Chains Security, Lint, CI, and Release.
 *   **`universal-flutter-build.yml`**: The heavy lifter for Dart/Flutter.
+*   **`universal-flutter-analyze.yml`**: Clean-checkout `flutter analyze` 0-error gate. Runs the real compose pipeline (initiate + SDK modules) + `pub get` + `build_runner` on a fresh checkout so a stale local cache can't hide broken `AppRoutes.I` wiring, drift/sqlite3 version mismatches, or stale generated code.
 *   **`universal-node-ci.yml`**: The lightweight builder for Next.js/React.
 *   **`universal-frappe-ci.yml`**: The environment builder for Python/Bench.
 *   **`universal-release.yml`**: The release and tagging engine.
