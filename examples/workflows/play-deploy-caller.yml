@@ -1,0 +1,74 @@
+# Example caller for `universal-play-deploy.yml`
+#
+# This is a GENERIC template — copy it into your own repo at
+# `.github/workflows/play-deploy.yml` and adjust the `with:` values for your
+# app. It is not specific to any one product.
+#
+# What `universal-play-deploy.yml` does for you (see shared-workflows'
+# .github/workflows/universal-play-deploy.yml for the full implementation):
+#   - Only ever deploys from `main`, regardless of trigger.
+#   - Enforces at most one release per ISO week via a committed state marker
+#     (.github/.play-store-release-state.json by default).
+#   - No-ops cleanly if the version hasn't changed and there are no new
+#     commits since the last recorded release.
+#   - Builds the Android App Bundle and publishes it via
+#     r0adkll/upload-google-play.
+#
+# Required secret (must be configured in your repo or org settings):
+#   PLAY_STORE_SERVICE_ACCOUNT_JSON  Google Play service account key JSON,
+#                                    raw or base64-encoded. Needs "Release
+#                                    Manager" access in Play Console.
+#
+# Optional secrets the reusable workflow will use if present (all optional,
+# pass through automatically with `secrets: inherit`):
+#   KEY_JKS, KEY_PASSWORD, ALIAS_PASSWORD   Android app signing keystore.
+#   GOOGLE_SERVICES_JSON                    Firebase config, if used.
+#   MONOREPO_PAT                            PAT for pulling a private
+#                                            companion repo / shared env
+#                                            file, if your app needs it.
+#   APP_ID, APP_PRIVATE_KEY                 GitHub App credentials used to
+#                                            commit the release-state marker
+#                                            back via PR instead of the
+#                                            default token.
+#
+# Adapting this file:
+#   1. Set `track` to whichever Play Console track you release to
+#      (internal, alpha, beta, production).
+#   2. Set `version_file` if your version isn't in the default
+#      pubspec.yaml, or `package_name` if it can't be auto-detected from
+#      android/app/build.gradle.
+#   3. Add/remove the schedule and workflow_dispatch inputs below to match
+#      how often you want to check for a release.
+#   4. Make sure the secrets referenced above are configured in this repo's
+#      (or org's) Actions secrets before enabling the workflow.
+
+name: Play Store Deploy
+
+on:
+  # Run on a recurring schedule (the gate + weekly-limit logic in the
+  # reusable workflow makes repeated/duplicate runs a safe no-op).
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 09:00 UTC
+
+  # Also allow a manual run from the Actions tab for on-demand releases.
+  workflow_dispatch:
+
+jobs:
+  play-deploy:
+    permissions:
+      contents: write
+    uses: RokctAI/shared-workflows/.github/workflows/universal-play-deploy.yml@main
+    with:
+      # Play Console track to publish to.
+      track: internal
+      # Uncomment/adjust as needed:
+      # version_file: pubspec.yaml
+      # package_name: com.example.myapp
+      # release_status: completed
+      # flutter-channel: stable
+      # flutter-version: '3.24.0'
+      # java-version: '17'
+    # `secrets: inherit` passes this repo's configured secrets (including
+    # PLAY_STORE_SERVICE_ACCOUNT_JSON and any optional ones listed above)
+    # through to the reusable workflow.
+    secrets: inherit
