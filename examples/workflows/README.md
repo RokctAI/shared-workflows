@@ -4,7 +4,7 @@ Templates for consuming this repo's reusable workflows from another repo. Copy
 the relevant file into your own repo's `.github/workflows/` and adjust the
 `with:` block for your app.
 
-## play-deploy-caller.yml
+## play-deploy.yml
 
 Minimal caller for [`universal-play-deploy.yml`](../../.github/workflows/universal-play-deploy.yml),
 the reusable Play Store release workflow. It handles the main-branch gate,
