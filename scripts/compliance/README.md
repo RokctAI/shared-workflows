@@ -155,7 +155,7 @@ first path segment (`*/<parts[0]>/*`). That glob therefore always matches the
 file it came from, whenever the path has two or more segments. The test is
 self-satisfying:
 
-```
+```text
 ./lms/frappe/src/rlms/api/course.py   → glob */lms/*        → passes  (legitimate)
 ./lms/frappe/src/rlms/helpers/misc.py → glob */lms/*        → passes  (no api/ dir)
 ./nonsense/deep/nowhere/rogue.py      → glob */nonsense/*   → passes  (no module at all)
