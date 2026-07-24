@@ -19,3 +19,20 @@ through automatically.
 See the comment header in the file for the full list of optional secrets
 (signing keystore, Firebase config, private-repo PAT, GitHub App credentials
 for committing the release-state marker) and how to adapt the inputs.
+
+## flutter-analyze.yml
+
+Caller for [`universal-flutter-analyze.yml`](../../.github/workflows/universal-flutter-analyze.yml),
+a clean-checkout `flutter analyze` **0-error gate**. On a genuinely fresh
+checkout of HEAD it runs the real compose pipeline (initiate + SDK-module
+composition, the same one `universal-flutter-build.yml` uses), then
+`flutter pub get`, regenerates generated code with `build_runner`, and runs
+`flutter analyze`. This catches the class of bug that looks fine in a diff but
+breaks on a real composed build — missing `AppRoutes.I` wiring, drift/sqlite3
+version mismatches, stale generated code — which a warm local cache hides. It
+never commits or pushes, so it's safe on PRs and any branch.
+
+**No required secrets.** Optional `MONOREPO_PAT` (private companion repo) and
+`COUNTER_API_KEY` (telemetry) pass through via `secrets: inherit` if present.
+See the file's comment header for how to adapt the inputs (`working-directory`,
+`run-compose`, `fail-on-warnings`, `flutter-version`).
