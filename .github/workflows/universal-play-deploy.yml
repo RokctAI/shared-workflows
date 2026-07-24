@@ -169,9 +169,11 @@ jobs:
             LAST_WEEK=""
             LAST_SHA=""
           fi
-          echo "last_version=$LAST_VERSION" >> "$GITHUB_OUTPUT"
-          echo "last_week=$LAST_WEEK" >> "$GITHUB_OUTPUT"
-          echo "last_sha=$LAST_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "last_version=$LAST_VERSION"
+            echo "last_week=$LAST_WEEK"
+            echo "last_sha=$LAST_SHA"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Decide
         id: decide
@@ -223,10 +225,12 @@ jobs:
             REASON="no-new-commits-since-last-release"
           fi
 
-          echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
-          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo "proceed=$PROCEED"
+            echo "reason=$REASON"
+            echo "version=$VERSION"
+            echo "package_name=$PACKAGE"
+          } >> "$GITHUB_OUTPUT"
 
           if [ "$PROCEED" = "true" ]; then
             echo "✅ Gate passed. Proceeding to build + deploy."
