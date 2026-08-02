@@ -106,25 +106,35 @@ jobs:
             rm initiate_temp.py
           fi
 
+      - name: Select Composer Manifest (If App Shell)
+        shell: bash
+        run: |
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
+          fi
+
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
 
+            # Initiate Protocol (previous step) always lands the composer wrapper at
+            # this path before we get here, so there's nothing to branch on.
             set +e
-            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
-              echo "✅ Using local composer wrapper..."
-              python .rokct/skills/.rok/flutter/scripts/compose.py
-            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
-              echo "✅ Using local composer wrapper..."
-              python .rokct/skills/flutter/scripts/compose.py
-            else
-              echo "🌐 Fetching remote composer wrapper..."
-              curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/flutter/scripts/compose.py -o compose_temp.py
-              python compose_temp.py
-              rm compose_temp.py
-            fi
+            python .rokct/skills/.rok/flutter/scripts/compose.py
             COMPOSE_EXIT=$?
             set -e
 
@@ -184,6 +194,45 @@ jobs:
                 echo "::warning::Failed to clone private repository $REPO_NAME."
               fi
             fi
+          fi
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            python .rokct/initiate.py
+          else
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+      - name: Select Composer Manifest (If App Shell)
+        shell: bash
+        run: |
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
+          fi
+      - name: Compose Flutter SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
+            # Initiate Protocol (previous step) always lands the composer wrapper at
+            # this path before we get here, so there's nothing to branch on.
+            python .rokct/skills/.rok/flutter/scripts/compose.py
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
           fi
       - name: Resolve Dynamic Client
         id: client
@@ -634,6 +683,45 @@ jobs:
               fi
             fi
           fi
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            python .rokct/initiate.py
+          else
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+      - name: Select Composer Manifest (If App Shell)
+        shell: bash
+        run: |
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
+          fi
+      - name: Compose Flutter SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
+            # Initiate Protocol (previous step) always lands the composer wrapper at
+            # this path before we get here, so there's nothing to branch on.
+            python .rokct/skills/.rok/flutter/scripts/compose.py
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
+          fi
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -842,6 +930,45 @@ jobs:
                 echo "::warning::Failed to clone private repository $REPO_NAME."
               fi
             fi
+          fi
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            python .rokct/initiate.py
+          else
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+      - name: Select Composer Manifest (If App Shell)
+        shell: bash
+        run: |
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
+          fi
+      - name: Compose Flutter SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
+            # Initiate Protocol (previous step) always lands the composer wrapper at
+            # this path before we get here, so there's nothing to branch on.
+            python .rokct/skills/.rok/flutter/scripts/compose.py
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
           fi
       - name: Resolve Dynamic Client
         id: client
