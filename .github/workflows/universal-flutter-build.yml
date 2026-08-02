@@ -111,7 +111,8 @@ jobs:
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
-            
+
+            set +e
             if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
               echo "✅ Using local composer wrapper..."
               python .rokct/skills/.rok/flutter/scripts/compose.py
@@ -124,12 +125,23 @@ jobs:
               python compose_temp.py
               rm compose_temp.py
             fi
-            
+            COMPOSE_EXIT=$?
+            set -e
+
+            # Commit whatever compose produced (including .rokct/agent/logs/*_install_error.log
+            # on failure) regardless of exit code, so a CI failure doesn't also destroy the
+            # evidence needed to diagnose it - only the ephemeral runner ever had that log.
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add .
-            git commit -m "🤖 [CI] Compose Flutter SDK modules [skip ci]" || echo "No changes to commit"
+            if [ "$COMPOSE_EXIT" -ne 0 ]; then
+              git commit -m "🤖 [CI] Compose Flutter SDK modules FAILED - persisting logs [skip ci]" || echo "No changes to commit"
+            else
+              git commit -m "🤖 [CI] Compose Flutter SDK modules [skip ci]" || echo "No changes to commit"
+            fi
             git push origin HEAD:${{ github.ref }}
+
+            exit $COMPOSE_EXIT
           else
             echo "ℹ️ Not a shell app (no composer.json). Skipping composition."
           fi
