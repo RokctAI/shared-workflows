@@ -1051,6 +1051,55 @@ jobs:
           echo "📋 Keys loaded: $(wc -l < .env/production.env)"
         continue-on-error: false
 
+      # --- Inject Google Maps key into iOS source ---
+      # GMSServices.provideAPIKey() takes a Swift string literal, so --dart-define
+      # cannot reach it the way it reaches Android's resValue in app/build.gradle.
+      # Without this step every IPA ships whatever placeholder is committed in
+      # AppDelegate.swift and the map renders blank (no tiles, roads or labels).
+      - name: Inject Google Maps API Key (iOS)
+        run: |
+          APP_DELEGATE="ios/Runner/AppDelegate.swift"
+
+          if [ ! -f "$APP_DELEGATE" ]; then
+            echo "ℹ️ $APP_DELEGATE not found. Skipping Maps key injection."
+            exit 0
+          fi
+
+          if ! grep -q "GMSServices.provideAPIKey" "$APP_DELEGATE"; then
+            echo "ℹ️ No GMSServices.provideAPIKey call found. App does not use Google Maps. Skipping."
+            exit 0
+          fi
+
+          if [ ! -f ".env/production.env" ]; then
+            echo "::warning::No .env/production.env available — Google Maps key cannot be injected. iOS maps will render blank."
+            exit 0
+          fi
+
+          MAPS_KEY=$(grep -m1 '^GOOGLE_MAPS_API_KEY=' .env/production.env | cut -d'=' -f2-)
+
+          if [ -z "$MAPS_KEY" ]; then
+            echo "::warning::GOOGLE_MAPS_API_KEY missing or empty in .env/production.env. iOS maps will render blank."
+            exit 0
+          fi
+
+          # Guard the sed replacement: a key with shell/sed metacharacters would corrupt the source.
+          if ! printf '%s' "$MAPS_KEY" | grep -Eq '^[A-Za-z0-9_-]+$'; then
+            echo "::error::GOOGLE_MAPS_API_KEY contains unexpected characters. Refusing to patch $APP_DELEGATE."
+            exit 1
+          fi
+
+          # BSD sed on macos-latest requires an explicit -i suffix.
+          sed -i.bak -E "s|GMSServices\.provideAPIKey\(\"[^\"]*\"\)|GMSServices.provideAPIKey(\"$MAPS_KEY\")|" "$APP_DELEGATE"
+          rm -f "$APP_DELEGATE.bak"
+
+          # Verify without echoing the key itself.
+          if ! grep -q "GMSServices.provideAPIKey(\"$MAPS_KEY\")" "$APP_DELEGATE"; then
+            echo "::error::Maps key injection failed — provideAPIKey call was not rewritten."
+            exit 1
+          fi
+
+          echo "✅ Google Maps API key injected into $APP_DELEGATE (${#MAPS_KEY} chars)."
+
       - name: Install Apple Certificate and Profile
         if: env.IOS_P12_BASE64 != ''
         env:
