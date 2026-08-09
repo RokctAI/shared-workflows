@@ -931,6 +931,39 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
+      - name: Compose SDK Modules (If Shell App)
+        if: steps.check_flutter.outputs.exists == 'true'
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see sdk_composer.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          # Shell apps declare pubspec path dependencies into .rokct/cache/,
+          # which only exist after the composer clones the SDK repos pinned in
+          # composer.json. Without composing first, `flutter pub get` (and
+          # therefore `flutter analyze`) can never succeed on a fresh runner.
+          # Must run AFTER the Flutter setup step: the composer itself invokes
+          # `flutter pub get`.
+          # A compose failure (e.g. composer.json pinning a ref that no longer
+          # exists) fails this step loudly - that is a real, actionable break
+          # in the repo's composition, not something to paper over.
+          if [ -f "composer.json" ]; then
+            if [ -f ".rokct/compose.py" ]; then
+              echo "Shell app detected (composer.json). Composing SDK modules via .rokct/compose.py..."
+              python3 .rokct/compose.py
+            elif [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Shell app detected (composer.json). Composing SDK modules via local skills composer..."
+              python3 .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Shell app detected (composer.json). Composing SDK modules via local skills composer..."
+              python3 .rokct/skills/flutter/scripts/compose.py
+            else
+              echo "composer.json present but no local composer wrapper found. Skipping composition."
+            fi
+          else
+            echo "Not a composed shell app (no composer.json). Skipping composition."
+          fi
+
       - name: Auto-fix Whitespace (Flutter)
         if: steps.check_flutter.outputs.exists == 'true'
         run: |

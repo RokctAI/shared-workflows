@@ -426,6 +426,9 @@ jobs:
       - name: Create Bot Installation Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No checkout in this job, so gh cannot infer the repo from a git
+          # remote - point it at the caller repo explicitly.
+          GH_REPO: ${{ github.repository }}
         run: |
           if ! command -v gh >/dev/null 2>&1; then
             echo "Installing GitHub CLI..."
