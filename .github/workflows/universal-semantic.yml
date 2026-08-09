@@ -56,6 +56,9 @@ jobs:
       - name: Verify PR Checklist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No checkout in this job, so gh cannot infer the repo from a git
+          # remote - point it at the caller repo explicitly.
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           PR_BODY=$(gh pr view "$PR_NUMBER" --json body -q .body)
