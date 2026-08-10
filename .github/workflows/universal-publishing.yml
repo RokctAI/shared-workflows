@@ -16,8 +16,6 @@ on:
         required: false
         default: '3.10'
 
-permissions: write-all
-
 jobs:
   publishing:
     runs-on: ${{ inputs.runs-on }}

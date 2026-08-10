@@ -23,8 +23,6 @@ on:
       MONOREPO_PAT:
         required: false
 
-permissions: write-all
-
 jobs:
   ideation:
     runs-on: ${{ inputs.runs-on }}

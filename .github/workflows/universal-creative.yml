@@ -21,8 +21,6 @@ on:
       GROQ_API_KEY:
         required: false
 
-permissions: write-all
-
 jobs:
   creative:
     runs-on: ${{ inputs.runs-on }}

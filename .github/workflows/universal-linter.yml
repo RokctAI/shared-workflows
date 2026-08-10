@@ -2,7 +2,6 @@
 
 name: Universal Code Quality (Lint)
 
-permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -67,7 +66,6 @@ on:
 jobs:
   standardize:
     name: 🔄 Fleet Standardizer (Auto-Fix)
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -263,7 +261,6 @@ jobs:
   lint-python:
     needs: telemetry
     name: 🐍 Python Lint (Ruff & ty)
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -545,7 +542,6 @@ jobs:
   lint-shell:
     needs: telemetry
     name: 🐚 Shell Script Lint (ShellCheck)
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -700,7 +696,6 @@ jobs:
   lint-powershell:
     needs: telemetry
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -865,7 +860,6 @@ jobs:
   lint-flutter:
     needs: telemetry
     name: 🐦 Flutter Analyze
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -1127,7 +1121,6 @@ jobs:
   lint-node:
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -1397,7 +1390,6 @@ jobs:
     needs: telemetry
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
-    permissions: write-all
     steps:
       - uses: actions/checkout@v6
         with:

@@ -19,8 +19,6 @@ on:
       JULES_API_KEY:
         required: false
 
-permissions: write-all
-
 jobs:
   media:
     runs-on: ${{ inputs.runs-on }}

@@ -2,7 +2,6 @@
 
 name: Universal Flutter Import Healer
 
-permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -36,7 +35,6 @@ jobs:
   import-healer:
     name: 🩹 Import Healer
     runs-on: ubuntu-latest
-    permissions: write-all
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6

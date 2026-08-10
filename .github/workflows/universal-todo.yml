@@ -1,7 +1,5 @@
 name: Universal ToDo to Issue
 
-permissions: write-all
-
 on:
   workflow_call:
     secrets:

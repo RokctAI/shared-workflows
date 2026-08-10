@@ -2,7 +2,6 @@
 
 name: Universal Flutter Build
 
-permissions: write-all
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -86,7 +85,6 @@ jobs:
   compose-app:
     name: 🎨 Compose SDK Modules
     runs-on: ubuntu-latest
-    permissions: write-all
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -174,7 +172,6 @@ jobs:
     name: 🤖 Android Build
 
     runs-on: ubuntu-latest
-    permissions: write-all
     outputs:
       package_name: ${{ steps.package.outputs.package_name }}
     env:
@@ -670,7 +667,6 @@ jobs:
     runs-on: windows-latest
 
     if: inputs.build-type == 'windows'
-    permissions: write-all
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -912,7 +908,6 @@ jobs:
     runs-on: macos-latest
 
     if: inputs.build-type == 'ios'
-    permissions: write-all
     env:
       IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
