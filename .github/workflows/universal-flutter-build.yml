@@ -125,8 +125,21 @@ jobs:
             echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
           fi
 
+      - name: Helper - Subosito Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see sdk_composer.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
