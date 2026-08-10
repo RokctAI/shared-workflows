@@ -29,26 +29,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Resolve License Config
+        id: license_config
+        run: |
+          # skywalking-eyes' `config` input expects a file PATH, not inline
+          # YAML. Passing inline YAML made the action log "Config file ...
+          # does not exist, using the default config" and silently check
+          # against its built-in Apache/ASF template instead of ours.
+          # Prefer the caller repo's own .licenserc.yaml; otherwise write the
+          # shared default config to a file in the workspace (the action runs
+          # in a container that only sees the workspace) and pass that path.
+          if [ -f ".licenserc.yaml" ]; then
+            echo "Using repository .licenserc.yaml"
+            echo "path=.licenserc.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "No .licenserc.yaml in repository. Writing shared default config..."
+            cat > .licenserc.generated.yaml <<'EOF'
+          header:
+            license:
+              spdx-id: MIT
+              content: |
+                Copyright 2024 RokctAI
+          paths:
+            - '**/*.py'
+            - '**/*.js'
+            - '**/*.ts'
+            - '**/*.dart'
+          paths-ignore:
+            - '**/*.json'
+            - '**/*.md'
+            - '**/*.yml'
+            - '**/dist/**'
+            - '**/node_modules/**'
+          EOF
+            echo "path=.licenserc.generated.yaml" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check License Headers
         uses: apache/skywalking-eyes/header@v0.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           mode: check
-          config: |
-            header:
-              license:
-                spdx-id: MIT
-                content: |
-                  Copyright 2024 RokctAI
-            paths:
-              - '**/*.py'
-              - '**/*.js'
-              - '**/*.ts'
-              - '**/*.dart'
-            paths-ignore:
-              - '**/*.json'
-              - '**/*.md'
-              - '**/*.yml'
-              - '**/dist/**'
-              - '**/node_modules/**'
+          config: ${{ steps.license_config.outputs.path }}
