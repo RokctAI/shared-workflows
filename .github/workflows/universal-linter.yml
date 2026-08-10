@@ -948,17 +948,27 @@ jobs:
           # exists) fails this step loudly - that is a real, actionable break
           # in the repo's composition, not something to paper over.
           if [ -f "composer.json" ]; then
-            if [ -f ".rokct/compose.py" ]; then
-              echo "Shell app detected (composer.json). Composing SDK modules via .rokct/compose.py..."
-              python3 .rokct/compose.py
-            elif [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
-              echo "Shell app detected (composer.json). Composing SDK modules via local skills composer..."
+            # The canonical composer is session-ephemeral: it is provisioned
+            # under .rokct/skills/ by .rokct/initiate.py and wiped by
+            # end_protocol, so it is never committed. Provision it first when
+            # it is not already present.
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Shell app detected (composer.json). Provisioning canonical composer via .rokct/initiate.py..."
+              python3 .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
               python3 .rokct/skills/.rok/flutter/scripts/compose.py
             elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
-              echo "Shell app detected (composer.json). Composing SDK modules via local skills composer..."
+              echo "Composing SDK modules via local skills composer..."
               python3 .rokct/skills/flutter/scripts/compose.py
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              python3 .rokct/compose.py
             else
-              echo "composer.json present but no local composer wrapper found. Skipping composition."
+              echo "composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper). Skipping composition."
             fi
           else
             echo "Not a composed shell app (no composer.json). Skipping composition."
