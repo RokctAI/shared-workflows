@@ -162,7 +162,25 @@ jobs:
             else
               git commit -m "🤖 [CI] Compose Flutter SDK modules [skip ci]" || echo "No changes to commit"
             fi
-            git push origin HEAD:${{ github.ref }}
+
+            # Two workflows (e.g. Build (Smart) and Auto Release) can trigger on
+            # the same push, compose in parallel, and race to push the identical
+            # commit-back; the loser used to die with
+            # "! [rejected] HEAD -> main (fetch first)". Rebase onto the remote
+            # head first: an identical compose commit that already landed is
+            # dropped by the rebase (nothing left to push), while unrelated new
+            # remote commits just become the new base for ours.
+            git fetch origin "$GITHUB_REF"
+            if ! git rebase FETCH_HEAD; then
+              git rebase --abort
+              echo "::error::Compose commit-back conflicts with new commits on $GITHUB_REF - manual recompose needed."
+              exit 1
+            fi
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)" ]; then
+              echo "ℹ️ Nothing new to push - identical compose result already on $GITHUB_REF (concurrent run won the race). Skipping push."
+            else
+              git push origin HEAD:${{ github.ref }}
+            fi
 
             exit $COMPOSE_EXIT
           else
@@ -236,6 +254,21 @@ jobs:
           else
             echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
           fi
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Helper - Subosito Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
         run: |
@@ -263,19 +296,6 @@ jobs:
           else
             echo "ℹ️ Standard build (no client detected)"
           fi
-
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: ${{ inputs.java-version || '17' }}
-
-      - name: Helper - Subosito Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: ${{ inputs.flutter-channel }}
-          flutter-version: ${{ inputs.flutter-version }}
-          cache: true
 
       - name: Get Dependencies
         id: build_process
@@ -724,6 +744,15 @@ jobs:
           else
             echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
           fi
+      - name: Setup Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
         run: |
@@ -735,13 +764,6 @@ jobs:
           else
             echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
           fi
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: ${{ inputs.flutter-channel }}
-          flutter-version: ${{ inputs.flutter-version }}
-          cache: true
-
       - name: Get Dependencies
         id: build_process
         shell: bash
@@ -972,6 +994,15 @@ jobs:
           else
             echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
           fi
+      - name: Setup Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
         run: |
@@ -1136,13 +1167,6 @@ jobs:
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: ${{ inputs.flutter-channel }}
-          flutter-version: ${{ inputs.flutter-version }}
-          cache: true
 
       - name: Get Dependencies
         id: build_process
