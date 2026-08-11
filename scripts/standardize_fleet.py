@@ -446,7 +446,11 @@ def fix_occultation_secrets(content):
 
     # 1. Inject Occultation fetch into Node CI if it's missing (legacy secret-only mode)
     if "universal-node-ci.yml" in content or "package.json" in content:
-        if "gh api /repos/RokctAI/Occultation/contents/.env/" not in content:
+        # NOTE: endpoint deliberately has NO leading slash — Git Bash (MSYS) on
+        # Windows runners rewrites slash-leading arguments into filesystem paths
+        # (e.g. C:/Program Files/Git/repos/...), breaking `gh api`. Keep this
+        # detection string and the emitted block below in sync.
+        if "gh api repos/RokctAI/Occultation/contents/.env/" not in content:
             # We look for the step that decodes the production environment
             pattern = r"(- name: Decode Production Environment.*?run: \|.*?\n)(.*?)(?=\n\s*- name:|\Z)"
             def repl(m):
@@ -454,7 +458,7 @@ def fix_occultation_secrets(content):
                 indent = re.match(r"^(\s*)", m.group(2)).group(1) if m.group(2).strip() else "          "
                 new_step = f"""{header}{indent}FILE_NAME="production.env"
 {indent}# 1. Try Occultation
-{indent}if [ ! -z "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
+{indent}if [ ! -z "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/$FILE_NAME -H "Accept: application/vnd.github.v3.raw" > .env.raw 2>/dev/null; then
 {indent}   echo "✅ Successfully synced $FILE_NAME from Occultation."
 {indent}else
 {indent}   # 2. Try Secrets Fallback...
