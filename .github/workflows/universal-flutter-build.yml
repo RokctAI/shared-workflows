@@ -18,7 +18,7 @@ on:
         required: false
         type: string
         default: "apk"
-        description: "Build type: apk, appbundle, windows, or ios"
+        description: "Build type: apk, appbundle, all (apk + appbundle), develop (debug apk + appbundle), windows, or ios"
       upload-artifact:
         required: false
         type: boolean
@@ -634,7 +634,7 @@ jobs:
           fi
 
       - name: Build APK
-        if: inputs.build-type == 'apk'
+        if: inputs.build-type == 'apk' || inputs.build-type == 'all'
         run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
@@ -642,7 +642,10 @@ jobs:
             fi
             flutter build apk "${BUILD_ARGS[@]}"
 
-             # Also build debug APK
+      # develop never builds a release APK - the AAB stands in for it there
+      - name: Build Debug APK
+        if: inputs.build-type == 'apk' || inputs.build-type == 'all' || inputs.build-type == 'develop'
+        run: |
             if [ -f .env/production.env ]; then
               flutter build apk --debug --dart-define-from-file=.env/production.env
             else
@@ -660,7 +663,7 @@ jobs:
           fi
 
       - name: Build AppBundle
-        if: inputs.build-type == 'appbundle'
+        if: inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop'
         run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
@@ -669,16 +672,17 @@ jobs:
             flutter build appbundle "${BUILD_ARGS[@]}"
 
       - name: Upload Artifact (APK)
-        if: inputs.upload-artifact == true && inputs.build-type == 'apk'
+        if: inputs.upload-artifact == true && (inputs.build-type == 'apk' || inputs.build-type == 'all' || inputs.build-type == 'develop')
         uses: actions/upload-artifact@v6
         with:
           name: flutter-apks
+          # develop builds no release APK, so only list the paths its build steps produced
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
+            ${{ inputs.build-type != 'develop' && 'build/app/outputs/flutter-apk/app-release.apk' || '' }}
             build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload Artifact (AAB)
-        if: inputs.upload-artifact == true && inputs.build-type == 'appbundle'
+        if: inputs.upload-artifact == true && (inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop')
         uses: actions/upload-artifact@v6
         with:
           name: app-release-aab
@@ -691,6 +695,8 @@ jobs:
 
     if: inputs.build-type == 'windows'
     permissions: write-all
+    env:
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
