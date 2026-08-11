@@ -691,6 +691,8 @@ jobs:
 
     if: inputs.build-type == 'windows'
     permissions: write-all
+    env:
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
