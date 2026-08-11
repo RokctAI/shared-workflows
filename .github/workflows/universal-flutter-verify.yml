@@ -33,8 +33,86 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # reactivecircus/android-emulator-runner executes each line of its
+      # `script:` input as a SEPARATE `sh -c` command: multi-line if/fi blocks
+      # die with 'Syntax error: end of file unexpected (expecting "fi")' and
+      # variables do not survive between lines. Write the whole verification
+      # flow to a file first, then hand the runner a single-line invocation.
+      - name: Prepare Verification Script
+        run: |
+          cat > verify_app.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -e
+
+          DEBUG_APK="build/app/outputs/flutter-apk/app-debug.apk"
+          RELEASE_APK="build/app/outputs/flutter-apk/app-release.apk"
+          APK_PATH=""
+
+          if [ -f "$DEBUG_APK" ]; then
+            echo "✅ Using Debug APK: $DEBUG_APK"
+            APK_PATH="$DEBUG_APK"
+          elif [ -f "$RELEASE_APK" ]; then
+            echo "⚠️ Debug APK missing, using Release APK: $RELEASE_APK"
+            APK_PATH="$RELEASE_APK"
+          else
+            echo "❌ ERROR: No APK found at $DEBUG_APK or $RELEASE_APK"
+            exit 1
+          fi
+
+          echo "🚀 Installing APK: $APK_PATH"
+          adb install "$APK_PATH"
+
+          echo "🧹 Clearing logs..."
+          adb logcat -c
+
+          echo "🎬 Launching App..."
+          adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1
+
+          echo "⏳ Waiting for UI to render (Retry Loop)..."
+          ATTEMPT=1
+          MAX_ATTEMPTS=5
+          SUCCESS=false
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "📸 Capture Attempt $ATTEMPT/$MAX_ATTEMPTS..."
+            adb shell screencap -p /sdcard/verification.png
+            adb pull /sdcard/verification.png verification.png
+
+            if [ -s verification.png ]; then
+              echo "✅ Screenshot captured successfully."
+              SUCCESS=true
+              break
+            fi
+
+            echo "⏳ Empty screenshot, waiting 5s before retry..."
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          if [ "$SUCCESS" = false ]; then
+            echo "❌ Failed to capture a valid screenshot after $MAX_ATTEMPTS attempts."
+            exit 1
+          fi
+
+          echo "📜 Capturing Logs..."
+          adb logcat -d > logs.txt
+
+          echo "🏁 Checking if app is still running..."
+          if adb shell pidof "$PACKAGE_NAME" > /dev/null; then
+            echo "✅ App is running."
+          else
+            echo "❌ App is NOT running. It might have crashed."
+            exit 1
+          fi
+
+          echo "✅ Verification complete."
+          SCRIPT
+          chmod +x verify_app.sh
+
       - name: Run Emulator and Verify
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
         with:
           api-level: 34
           target: google_apis
@@ -42,69 +120,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            DEBUG_APK="build/app/outputs/flutter-apk/app-debug.apk"
-            RELEASE_APK="build/app/outputs/flutter-apk/app-release.apk"
-            APK_PATH=""
-
-            if [ -f "$DEBUG_APK" ]; then
-              echo "✅ Using Debug APK: $DEBUG_APK"
-              APK_PATH="$DEBUG_APK"
-            elif [ -f "$RELEASE_APK" ]; then
-              echo "⚠️ Debug APK missing, using Release APK: $RELEASE_APK"
-              APK_PATH="$RELEASE_APK"
-            else
-              echo "❌ ERROR: No APK found at $DEBUG_APK or $RELEASE_APK"
-              exit 1
-            fi
-
-            echo "🚀 Installing APK: $APK_PATH"
-            adb install "$APK_PATH"
-
-            echo "🧹 Clearing logs..."
-            adb logcat -c
-
-            echo "🎬 Launching App..."
-            adb shell monkey -p ${{ inputs.package_name }} -c android.intent.category.LAUNCHER 1
-
-            echo "⏳ Waiting for UI to render (Retry Loop)..."
-            ATTEMPT=1
-            MAX_ATTEMPTS=5
-            SUCCESS=false
-
-            while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-              echo "📸 Capture Attempt $ATTEMPT/$MAX_ATTEMPTS..."
-              adb shell screencap -p /sdcard/verification.png
-              adb pull /sdcard/verification.png verification.png
-
-              if [ -s verification.png ]; then
-                echo "✅ Screenshot captured successfully."
-                SUCCESS=true
-                break
-              fi
-
-              echo "⏳ Empty screenshot, waiting 5s before retry..."
-              sleep 5
-              ATTEMPT=$((ATTEMPT + 1))
-            done
-
-            if [ "$SUCCESS" = false ]; then
-              echo "❌ Failed to capture a valid screenshot after $MAX_ATTEMPTS attempts."
-              exit 1
-            fi
-
-            echo "📜 Capturing Logs..."
-            adb logcat -d > logs.txt
-
-            echo "🏁 Checking if app is still running..."
-            if adb shell pidof ${{ inputs.package_name }} > /dev/null; then
-              echo "✅ App is running."
-            else
-              echo "❌ App is NOT running. It might have crashed."
-              exit 1
-            fi
-
-            echo "✅ Verification complete."
+          script: bash ./verify_app.sh
 
       - name: Upload Verification Artifacts
         if: always()
