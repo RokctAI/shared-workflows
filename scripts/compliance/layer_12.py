@@ -116,10 +116,37 @@ _TRACE_HEADER_PATTERNS = [
     r'\bheaders\b.*\btrace\b',
 ]
 
+# ── Telemetry SDK references (ADR-006) ───────────────────────────────────────
+# The ONE sanctioned trace-id source for Dart is base_sdk's telemetry service
+# (base/dart/lib/src/services/telemetry.dart): generateTraceId() and
+# TraceIdInterceptor. A file counts as SDK-connected if it references either
+# symbol, or imports the telemetry service / the base_sdk barrel that exports
+# it. Hand-rolled interceptors and bare 'x-trace-id' string literals no longer
+# satisfy obs-flutter-trace — that laxity let every app keep its own format.
+_SDK_TRACE_PATTERNS = [
+    r'\bTraceIdInterceptor\b',
+    r'\bgenerateTraceId\b',
+    r'import\s+["\']package:base_sdk/',
+    r'import\s+["\'][^"\']*/telemetry\.dart["\']',
+]
+
+
+def _references_telemetry_sdk(content):
+    return any(re.search(p, content) for p in _SDK_TRACE_PATTERNS)
+
+
 _INTERCEPTOR_CACHE = {}
 
 def _project_has_trace_interceptor(start_path):
-    """Walk up to lib/ root then search for a Dio Interceptor that injects x-trace-id."""
+    """Walk up to lib/ root then search for the telemetry SDK's TraceIdInterceptor
+    being used or registered anywhere in the project.
+
+    Counts a file when it references TraceIdInterceptor by name (definition,
+    import from base_sdk, or registration on a Dio interceptor chain), or when
+    it defines an Interceptor that is wired to the SDK (references
+    generateTraceId / imports the telemetry service). A hand-rolled Interceptor
+    that stamps its own 'x-trace-id' no longer counts (ADR-006).
+    """
     base_dir = os.path.realpath(os.getcwd())
     root = start_path
     for _ in range(8):
@@ -145,9 +172,11 @@ def _project_has_trace_interceptor(start_path):
                 if not full_path.startswith(base_dir):
                     continue
                 fc = open(full_path, encoding="utf-8").read()
+                if re.search(r'\bTraceIdInterceptor\b', fc):
+                    found = True
+                    break
                 is_interceptor = ("extends Interceptor" in fc or "implements Interceptor" in fc)
-                has_trace = any(re.search(p, fc, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
-                if is_interceptor and has_trace:
+                if is_interceptor and _references_telemetry_sdk(fc):
                     found = True
                     break
             except Exception:
@@ -175,10 +204,12 @@ def check_layer12_flutter_observability(filepath):
         if not (makes_http_calls or is_api_or_service):
             return errors
 
-        # 1. File-level header injection check
-        has_strict_trace = any(re.search(p, content, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
+        # 1. File-level: the file references the telemetry SDK directly
+        #    (TraceIdInterceptor / generateTraceId / telemetry or base_sdk import).
+        has_strict_trace = _references_telemetry_sdk(content)
 
-        # 2. Project-level: a shared Dio Interceptor that injects x-trace-id covers all files
+        # 2. Project-level: the SDK's TraceIdInterceptor is used/registered
+        #    somewhere in the project, covering all files centrally.
         if not has_strict_trace:
             has_strict_trace = _project_has_trace_interceptor(filepath)
 
@@ -195,14 +226,123 @@ def check_layer12_flutter_observability(filepath):
                 "type": "Layer 12 (Observability - Flutter Trace ID)",
                 "message": (
                     f"Flutter file '{os.path.basename(filepath)}' makes outgoing HTTP calls "
-                    f"but fails to propagate a structured Trace/Request ID in outgoing network "
-                    f"headers. Add 'x-trace-id' to request headers or ensure a Dio Interceptor "
-                    f"in this project injects it centrally (extends Interceptor + sets x-trace-id)."
+                    f"but does not use the telemetry SDK for trace propagation. Hand-rolled "
+                    f"interceptors and bare 'x-trace-id' literals no longer pass (ADR-006). "
+                    f"Register TraceIdInterceptor from base_sdk (exported by "
+                    f"package:base_sdk/base_sdk.dart) on the Dio interceptor chain, or "
+                    f"generate ids with its generateTraceId()."
                 )
             })
     except Exception as e:
         errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
     return errors
+
+# ── No-op trace appeasement line (frappe) ────────────────────────────────────
+# The obs-trace-logging / obs-db-tracing checks were being satisfied fleet-wide
+# by a single copy-pasted line of the shape:
+#
+#   import sys; _ = (frappe.request.headers.get("x-trace-id")
+#                    if hasattr(frappe, "request") else None, sys.stderr)
+#
+# It reads the header into a discarded tuple: nothing is logged, forwarded, or
+# stored. This checker flags that shape directly. Severity is a warning (not an
+# error) in controls.py — the fleet has ~174 existing hits and the goal is a
+# visible migration queue, not an instant red gate.
+_NOOP_TRACE_RE = re.compile(
+    r'=\s*\(\s*frappe\s*\.\s*request\s*\.\s*headers\s*\.\s*get\s*\('
+    r'\s*["\']x-trace-id["\'].*?\bsys\s*\.\s*stderr',
+    re.IGNORECASE,
+)
+
+
+@register_file_checker
+def check_layer12_noop_trace_line(filepath):
+    """Flag the throwaway-tuple line that games the frappe trace checks."""
+    errors = []
+    if not filepath.endswith(".py"):
+        return errors
+    path_parts = filepath.replace("\\", "/").split("/")
+    if "compliance" in filepath.lower() or ".rokct" in path_parts:
+        return errors
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f, 1):
+                if _NOOP_TRACE_RE.search(line):
+                    errors.append({
+                        "line": i,
+                        "type": "Layer 12 (Observability - No-op Trace Line)",
+                        "message": (
+                            "This line satisfies the trace checks without propagating "
+                            "anything: it reads x-trace-id into a discarded tuple and "
+                            "never logs, stores, or forwards it. Replace it with real "
+                            "trace propagation — telemetry/frappe's inject_trace_context "
+                            "doc-event hook, or actually forwarding the x-trace-id header "
+                            "on outgoing calls and writing it to structured stderr logs."
+                        )
+                    })
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
+
+# ── Next.js / TypeScript trace propagation ───────────────────────────────────
+# Mirror of the Dart check for .ts/.tsx network callers. The sanctioned source
+# is base/nextjs's telemetry service (base/nextjs/src/services/telemetry.ts):
+# tracedFetch() (fetch wrapper injecting x-trace-id), generateTraceId(), and
+# logFrontendError().
+_NEXTJS_NETWORK_IMPORT_RE = re.compile(
+    r'''(from\s+["'](axios|node-fetch|ky|got|undici|graphql-request)["']'''
+    r'''|require\(\s*["'](axios|node-fetch|ky|got|undici)["']\s*\))'''
+)
+
+_NEXTJS_TELEMETRY_PATTERNS = [
+    r'\btracedFetch\b',
+    r'\bgenerateTraceId\b',
+    r'''(import\s[^\n]*|from\s+)["'][^"']*(/|\b)telemetry["']''',
+]
+
+
+@register_file_checker
+def check_layer12_nextjs_observability(filepath):
+    """Enforce Trace ID propagation in Next.js/TypeScript network callers."""
+    errors = []
+    if not filepath.endswith((".ts", ".tsx")) or filepath.endswith(".d.ts"):
+        return errors
+    fp_lower = filepath.lower().replace("\\", "/")
+    if any(x in fp_lower for x in ["test", ".spec.", ".stories.", "node_modules", "/.next/"]):
+        return errors
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        makes_http_calls = ("fetch(" in content) or ("axios" in content)
+        if not makes_http_calls:
+            return errors
+        is_api_or_service = any(x in fp_lower for x in ["api", "service", "repository", "remote"])
+        has_network_imports = bool(_NEXTJS_NETWORK_IMPORT_RE.search(content))
+        if not (is_api_or_service or has_network_imports):
+            return errors
+
+        has_trace = (
+            any(re.search(p, content) for p in _NEXTJS_TELEMETRY_PATTERNS)
+            or any(re.search(p, content, re.IGNORECASE) for p in _TRACE_HEADER_PATTERNS)
+        )
+        if not has_trace:
+            errors.append({
+                "line": 1,
+                "type": "Layer 12 (Observability - Next.js Trace ID)",
+                "message": (
+                    f"TypeScript file '{os.path.basename(filepath)}' makes outgoing HTTP "
+                    f"calls but does not propagate a trace id. Use tracedFetch() from the "
+                    f"telemetry service (base/nextjs src/services/telemetry.ts) instead of "
+                    f"bare fetch/axios, or stamp requests with generateTraceId() in an "
+                    f"'x-trace-id' header."
+                )
+            })
+    except Exception as e:
+        errors.append({"line": 1, "type": "Parse Error", "message": str(e)})
+    return errors
+
 
 @register_file_checker
 def check_layer12_flutter_crash_reporting(filepath):

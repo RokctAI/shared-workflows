@@ -286,10 +286,20 @@ gate without editing scanner source.
 | 19 | Event-driven | Event modules need a publisher/consumer/broker |
 | 20 | Documentation sync | Runs on a clean pass (`update_docs.py`), not a gate |
 
-> **Note on layers 11/12 tracing:** the Flutter trace checks accept *any* Dio
-> interceptor that injects `x-trace-id`. Tightening them to require
-> `telemetry_sdk` specifically is queued for after that SDK's Dart client
-> exists — doing it now would fail every app. Leave these as they are.
+> **Note on layers 11/12 tracing:** the queued tightening is now **in effect**
+> — the telemetry SDK's Dart client exists (`base_sdk`'s
+> `src/services/telemetry.dart`, per ADR-006), so `obs-flutter-trace` no longer
+> accepts hand-rolled interceptors or bare `'x-trace-id':` literals. A Dart
+> file making HTTP calls passes only if it references the SDK
+> (`TraceIdInterceptor`, `generateTraceId`, or a telemetry/`base_sdk` import),
+> or the project registers the SDK's `TraceIdInterceptor` centrally.
+> Two companion checks landed with it: `obs-noop-trace` (**warning**) flags the
+> copy-pasted no-op line that reads `x-trace-id` into a discarded tuple to
+> appease the frappe trace checks (fix: `telemetry/frappe`'s
+> `inject_trace_context` / real header forwarding), and `obs-nextjs-trace`
+> (**error**) mirrors the Dart check for `.ts`/`.tsx` network callers, which
+> pass via `tracedFetch()` / `generateTraceId()` from the Next.js telemetry
+> service or an explicit trace header.
 
 ---
 
