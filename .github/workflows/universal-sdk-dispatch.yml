@@ -203,7 +203,7 @@ jobs:
                 echo "Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $DEFAULT_BRANCH)"
                 DISPATCHED="$DISPATCHED $SHELL_REPO"
               else
-                echo "::warning::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(cat "$RUNNER_TEMP/dispatch-resp.json" 2>/dev/null | head -c 300)"
+                echo "::warning::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(head -c 300 "$RUNNER_TEMP/dispatch-resp.json" 2>/dev/null)"
                 FAILED="$FAILED $SHELL_REPO"
               fi
             done < "$AFFECTED_FILE.dedup"
