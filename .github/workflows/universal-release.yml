@@ -755,7 +755,7 @@ jobs:
     # Needs checks to ensure we don't build broken code, but technically independent
     needs: [checks]
     runs-on: windows-latest
-    if: inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')))
+    if: inputs.build_windows == true && (github.event_name == 'schedule' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref_name == 'develop' || github.ref_name == 'main')))
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
