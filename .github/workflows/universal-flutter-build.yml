@@ -1358,3 +1358,196 @@ jobs:
         with:
           name: macos-release-build
           path: macos-app.zip
+
+  # -----------------------------
+  # Central Build Status Reporting
+  # -----------------------------
+  # Fleet-wide mainline health tracker: on failure this opens (or updates) ONE
+  # live issue per app+platform in RokctAI/platformstack; the next green build
+  # of the same platform closes it. PR builds are excluded on purpose - a PR
+  # failure is the author's problem, this tracker is for mainline health.
+  # This job must never be able to fail the build: continue-on-error at the
+  # job level, and it degrades to a log line when MONOREPO_PAT is unavailable.
+  report-build-status:
+    name: 📣 Central Build Report
+    needs: [compose-app, build-android, build-windows, build-ios]
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: write-all
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+      CENTRAL_REPO: RokctAI/platformstack
+    steps:
+      - name: Resolve Platform Outcome
+        id: outcome
+        env:
+          BUILD_TYPE: ${{ inputs.build-type }}
+          COMPOSE_RESULT: ${{ needs.compose-app.result }}
+          ANDROID_RESULT: ${{ needs.build-android.result }}
+          WINDOWS_RESULT: ${{ needs.build-windows.result }}
+          IOS_RESULT: ${{ needs.build-ios.result }}
+        run: |
+          # universal-pipeline.yml invokes this reusable workflow once per leg
+          # (an android leg with build-type apk/appbundle/all/develop, and a
+          # separate windows leg with build-type 'windows'), so each invocation
+          # reports ONLY the platform it was asked to build - otherwise the
+          # windows leg would double-report android (build-android has no `if:`
+          # and runs its dependency stage in every invocation).
+          case "$BUILD_TYPE" in
+            windows)
+              PLATFORM="windows"
+              RESULT="$WINDOWS_RESULT"
+              ARTIFACT="windows-build-error-log"
+              ;;
+            ios)
+              PLATFORM="ios"
+              RESULT="$IOS_RESULT"
+              ARTIFACT="ios-macos-build-error-log"
+              ;;
+            *)
+              PLATFORM="android"
+              RESULT="$ANDROID_RESULT"
+              ARTIFACT="android-build-error-log"
+              ;;
+          esac
+
+          COMPOSE_FAILED="false"
+          ACTION="none"
+          if [ "$RESULT" = "failure" ]; then
+            ACTION="report-failure"
+          elif [ "$RESULT" = "success" ]; then
+            ACTION="report-success"
+          elif [ "$RESULT" = "skipped" ] && [ "$COMPOSE_RESULT" = "failure" ]; then
+            # compose-app failing skips the build jobs; that is still a failed
+            # build of this invocation's platform as far as the fleet is concerned.
+            ACTION="report-failure"
+            COMPOSE_FAILED="true"
+          fi
+
+          {
+            echo "platform=$PLATFORM"
+            echo "action=$ACTION"
+            echo "artifact=$ARTIFACT"
+            echo "compose_failed=$COMPOSE_FAILED"
+          } >> "$GITHUB_OUTPUT"
+          echo "ℹ️ Platform: $PLATFORM | Build result: $RESULT | Compose: $COMPOSE_RESULT | Action: $ACTION"
+
+      - name: Download Error Log Artifact
+        if: steps.outcome.outputs.action == 'report-failure'
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ steps.outcome.outputs.artifact }}
+          path: central-report/error-log
+        # The artifact only exists when the dependency stage produced
+        # error_log.md - later-stage failures upload nothing. Never fatal.
+        continue-on-error: true
+
+      - name: Report Build Status to Central Repo
+        if: steps.outcome.outputs.action != 'none'
+        env:
+          ACTION: ${{ steps.outcome.outputs.action }}
+          PLATFORM: ${{ steps.outcome.outputs.platform }}
+          COMPOSE_FAILED: ${{ steps.outcome.outputs.compose_failed }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "ℹ️ MONOREPO_PAT not available - skipping central build reporting."
+            exit 0
+          fi
+
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          TITLE="${REPO_NAME}: ${PLATFORM} build failed"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          NOW_UTC="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+
+          # Real dedupe: exact-title match among OPEN build-failure issues,
+          # not gh's fuzzy --search.
+          find_open_issue() {
+            gh issue list -R "$CENTRAL_REPO" --state open --label "build-failure" \
+              --json number,title --limit 100 2>/dev/null \
+              | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty'
+          }
+
+          if [ "$ACTION" = "report-failure" ]; then
+            # Ensure labels exist (no-op when already present)
+            gh label create "build-failure" -R "$CENTRAL_REPO" \
+              --color "B60205" --description "Automated report: an app build is failing on mainline" \
+              2>/dev/null || true
+            gh label create "app:${REPO_NAME}" -R "$CENTRAL_REPO" \
+              --color "1D76DB" --description "Build reports for ${REPO_NAME}" \
+              2>/dev/null || true
+
+            EXISTING="$(find_open_issue || true)"
+            if [ -n "$EXISTING" ]; then
+              echo "ℹ️ Open issue #$EXISTING already tracks '$TITLE'. Adding a comment instead of a duplicate."
+              {
+                echo "Still failing: new **${PLATFORM}** build failure on \`${GITHUB_REF_NAME}\`."
+                echo ""
+                echo "- **Run:** ${RUN_URL}"
+                echo "- **Commit:** \`${GITHUB_SHA}\`"
+                echo "- **Time:** ${NOW_UTC}"
+                echo ""
+                echo "---"
+                echo "_Generated by [Claude Code](https://claude.ai/code)_"
+              } > central_comment_body.md
+              gh issue comment "$EXISTING" -R "$CENTRAL_REPO" --body-file central_comment_body.md \
+                || echo "⚠️ Failed to comment on issue #$EXISTING."
+            else
+              {
+                echo "## 🚨 ${TITLE}"
+                echo ""
+                echo "| | |"
+                echo "|---|---|"
+                echo "| **Repository** | \`${GITHUB_REPOSITORY}\` |"
+                echo "| **Platform** | \`${PLATFORM}\` |"
+                echo "| **Failing run** | ${RUN_URL} |"
+                echo "| **Branch** | \`${GITHUB_REF_NAME}\` |"
+                echo "| **Commit** | \`${GITHUB_SHA}\` |"
+                echo "| **Event** | \`${GITHUB_EVENT_NAME}\` |"
+                echo "| **Failed at** | ${NOW_UTC} |"
+                if [ "$COMPOSE_FAILED" = "true" ]; then
+                  echo ""
+                  echo "> ⚠️ The SDK compose step (\`compose-app\`) failed before the ${PLATFORM} build could start."
+                fi
+                if [ -f "central-report/error-log/error_log.md" ]; then
+                  echo ""
+                  echo "### Error log (last 60 lines)"
+                  echo ""
+                  echo '````'
+                  tail -n 60 "central-report/error-log/error_log.md"
+                  echo '````'
+                fi
+                echo ""
+                echo "This issue stays open until the next successful ${PLATFORM} build of ${REPO_NAME}, which will close it automatically."
+                echo ""
+                echo "---"
+                echo "_Generated by [Claude Code](https://claude.ai/code)_"
+              } > central_issue_body.md
+              gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
+                --label "build-failure" --label "app:${REPO_NAME}" \
+                --body-file central_issue_body.md \
+                || gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
+                     --body-file central_issue_body.md \
+                || echo "⚠️ Failed to open central build-failure issue."
+            fi
+          else
+            EXISTING="$(find_open_issue || true)"
+            if [ -n "$EXISTING" ]; then
+              echo "✅ Build recovered - closing central issue #$EXISTING."
+              {
+                echo "✅ Recovered: **${PLATFORM}** build of \`${REPO_NAME}\` is green again."
+                echo ""
+                echo "- **Run:** ${RUN_URL}"
+                echo "- **Branch:** \`${GITHUB_REF_NAME}\`"
+                echo "- **Commit:** \`${GITHUB_SHA}\`"
+                echo "- **Time:** ${NOW_UTC}"
+                echo ""
+                echo "---"
+                echo "_Generated by [Claude Code](https://claude.ai/code)_"
+              } > central_close_body.md
+              gh issue close "$EXISTING" -R "$CENTRAL_REPO" --comment "$(cat central_close_body.md)" \
+                || echo "⚠️ Failed to close issue #$EXISTING."
+            else
+              echo "ℹ️ Build succeeded and no open central issue to close. Nothing to do."
+            fi
+          fi
