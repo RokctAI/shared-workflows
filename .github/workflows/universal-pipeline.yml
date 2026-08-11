@@ -398,7 +398,7 @@ jobs:
         (needs.ci-flutter.result == 'success' || needs.ci-flutter.result == 'skipped') &&
         (needs.verify-flutter.result == 'success' || needs.verify-flutter.result == 'skipped')
       )) &&
-      (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
+      (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
     uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
     with:
       project_type: ${{ inputs.project_type }}
