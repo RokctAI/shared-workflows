@@ -1,0 +1,239 @@
+# Copyright 2026 RokctAI
+
+name: Universal SDK Dispatch
+
+permissions: write-all
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  workflow_call:
+    inputs:
+      org:
+        required: false
+        type: string
+        default: 'RokctAI'
+        description: 'GitHub org to scan for dependent app shells'
+      workflow_file:
+        required: false
+        type: string
+        default: 'build.yml'
+        description: 'Workflow file name to dispatch in each dependent shell'
+    secrets:
+      MONOREPO_PAT:
+        required: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    # Never hard-fail the SDK repo's CI because of dispatch/reporting problems.
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Detect SDK version bumps
+        id: bumps
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          BUMPS_FILE="$RUNNER_TEMP/bumps.tsv"
+          : > "$BUMPS_FILE"
+
+          BASE="$BEFORE_SHA"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "github.event.before unavailable or zero; falling back to HEAD^"
+            BASE="HEAD^"
+          elif ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then
+            # Multi-commit push beyond the shallow depth (or force push): try to
+            # fetch the before commit, otherwise fall back to HEAD^.
+            git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null || true
+            if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then
+              echo "Before commit $BASE not fetchable; falling back to HEAD^"
+              BASE="HEAD^"
+            fi
+          fi
+
+          if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then
+            echo "No base commit available to compare against (brand-new branch or shallow history). Nothing to do."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Comparing $BASE...HEAD for changed */dart/manifest.json files"
+          CHANGED="$(git diff --name-only "$BASE" HEAD -- '*/dart/manifest.json' || true)"
+
+          if [ -z "$CHANGED" ]; then
+            echo "No SDK manifests changed in this push."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          while IFS= read -r file; do
+            [ -f "$file" ] || continue
+            NEW_VERSION="$(jq -r '.version // empty' "$file" 2>/dev/null || true)"
+            OLD_VERSION="$(git show "$BASE:$file" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
+            SDK_NAME="$(jq -r '.name // empty' "$file" 2>/dev/null || true)"
+            DOMAIN_PATH="$(dirname "$file")"
+            [ -n "$SDK_NAME" ] || SDK_NAME="$DOMAIN_PATH"
+
+            if [ -n "$NEW_VERSION" ] && [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
+              echo "Version bump detected: $SDK_NAME ($DOMAIN_PATH) ${OLD_VERSION:-<none>} -> $NEW_VERSION"
+              printf '%s\t%s\t%s\t%s\n' "$DOMAIN_PATH" "$SDK_NAME" "${OLD_VERSION:-<none>}" "$NEW_VERSION" >> "$BUMPS_FILE"
+            else
+              echo "Manifest $file changed but version did not ($NEW_VERSION); ignoring."
+            fi
+          done <<< "$CHANGED"
+
+          if [ -s "$BUMPS_FILE" ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No version bumps in this push (manifests changed without version changes)."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch dependent app builds
+        if: steps.bumps.outputs.any == 'true'
+        env:
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          SDK_REPO: ${{ github.event.repository.name }}
+          ORG: ${{ inputs.org }}
+          WORKFLOW_FILE: ${{ inputs.workflow_file }}
+        run: |
+          BUMPS_FILE="$RUNNER_TEMP/bumps.tsv"
+
+          if [ -z "$MONOREPO_PAT" ]; then
+            echo "MONOREPO_PAT is not available; cannot dispatch dependent app builds. Skipping."
+            {
+              echo "## SDK Dispatch"
+              echo ""
+              echo "SDK version bumps were detected, but \`MONOREPO_PAT\` is not available, so no dependent app builds were dispatched."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          AUTH_HEADER="Authorization: Bearer $MONOREPO_PAT"
+          ACCEPT_HEADER="Accept: application/vnd.github+json"
+
+          # --- 1. List org repos (name + default branch), paginated ---
+          REPOS_FILE="$RUNNER_TEMP/org-repos.tsv"
+          : > "$REPOS_FILE"
+          PAGE=1
+          while :; do
+            RESP="$(curl -sS -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+              "https://api.github.com/orgs/$ORG/repos?per_page=100&page=$PAGE" || true)"
+            COUNT="$(echo "$RESP" | jq 'if type == "array" then length else -1 end' 2>/dev/null || echo -1)"
+            if [ "$COUNT" -lt 0 ] 2>/dev/null; then
+              echo "::warning::Failed to list $ORG repos (page $PAGE); response was not a repo list."
+              break
+            fi
+            [ "$COUNT" -eq 0 ] && break
+            echo "$RESP" | jq -r '.[] | [.name, (.default_branch // "main")] | @tsv' >> "$REPOS_FILE"
+            [ "$COUNT" -lt 100 ] && break
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ ! -s "$REPOS_FILE" ]; then
+            echo "::warning::Could not discover any $ORG repositories; no builds dispatched."
+            exit 0
+          fi
+          echo "Discovered $(wc -l < "$REPOS_FILE") repos in $ORG."
+
+          # --- 2. For every repo with a root composer.json, match bumped SDKs ---
+          AFFECTED_FILE="$RUNNER_TEMP/affected-shells.tsv"   # shell<TAB>default_branch
+          MATCH_LOG="$RUNNER_TEMP/match-log.txt"             # per-bump human-readable lines
+          : > "$AFFECTED_FILE"
+          : > "$MATCH_LOG"
+
+          while IFS=$'\t' read -r REPO_NAME DEFAULT_BRANCH; do
+            [ "$REPO_NAME" = "$SDK_REPO" ] && continue
+            COMPOSER="$RUNNER_TEMP/composer-$REPO_NAME.json"
+            CODE="$(curl -sS -o "$COMPOSER" -w '%{http_code}' -H "$AUTH_HEADER" \
+              -H "Accept: application/vnd.github.raw" \
+              "https://api.github.com/repos/$ORG/$REPO_NAME/contents/composer.json" || echo 000)"
+            [ "$CODE" = "200" ] || continue
+            if ! jq empty "$COMPOSER" 2>/dev/null; then
+              echo "::warning::$REPO_NAME has a root composer.json that is not valid JSON; skipping it."
+              continue
+            fi
+
+            while IFS=$'\t' read -r DOMAIN_PATH SDK_NAME OLD_VERSION NEW_VERSION; do
+              MATCHES="$(jq -r --arg repo "$SDK_REPO" --arg domain "$DOMAIN_PATH" '
+                [ (.sdks // [])[]
+                  | select(.enabled == true)
+                  | select((.git // "") | ascii_downcase | rtrimstr("/") | rtrimstr(".git")
+                      | endswith("/" + ($repo | ascii_downcase)))
+                  | select((.path // "") | ascii_downcase | rtrimstr("/")
+                      | (. == ($domain | ascii_downcase))
+                        or endswith("/" + ($domain | ascii_downcase)))
+                ] | length' "$COMPOSER" 2>/dev/null || echo 0)"
+              if [ "$MATCHES" -gt 0 ] 2>/dev/null; then
+                printf '%s\t%s\n' "$REPO_NAME" "$DEFAULT_BRANCH" >> "$AFFECTED_FILE"
+                printf '%s\t%s\t%s\t%s\n' "$SDK_NAME" "$OLD_VERSION" "$NEW_VERSION" "$REPO_NAME" >> "$MATCH_LOG"
+              fi
+            done < "$BUMPS_FILE"
+          done < "$REPOS_FILE"
+
+          # Per-bump log lines: "bump of users_sdk 1.1.0->1.2.0 -> dispatching supacharge, paas_manager"
+          while IFS=$'\t' read -r DOMAIN_PATH SDK_NAME OLD_VERSION NEW_VERSION; do
+            SHELLS="$(awk -F'\t' -v n="$SDK_NAME" -v o="$OLD_VERSION" -v v="$NEW_VERSION" \
+              '$1 == n && $2 == o && $3 == v { print $4 }' "$MATCH_LOG" | sort -u | paste -sd ',' -)"
+            SHELLS="${SHELLS//,/, }"
+            if [ -n "$SHELLS" ]; then
+              echo "bump of $SDK_NAME $OLD_VERSION->$NEW_VERSION -> dispatching $SHELLS"
+            else
+              echo "bump of $SDK_NAME $OLD_VERSION->$NEW_VERSION -> no dependent shells found"
+            fi
+          done < "$BUMPS_FILE"
+
+          # --- 3. Dispatch each affected shell's build workflow (deduped) ---
+          DISPATCHED=""
+          FAILED=""
+          if [ -s "$AFFECTED_FILE" ]; then
+            sort -u "$AFFECTED_FILE" > "$AFFECTED_FILE.dedup"
+            while IFS=$'\t' read -r SHELL_REPO DEFAULT_BRANCH; do
+              CODE="$(curl -sS -o "$RUNNER_TEMP/dispatch-resp.json" -w '%{http_code}' -X POST \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/workflows/$WORKFLOW_FILE/dispatches" \
+                -d "{\"ref\":\"$DEFAULT_BRANCH\"}" || echo 000)"
+              if [ "$CODE" = "204" ]; then
+                echo "Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $DEFAULT_BRANCH)"
+                DISPATCHED="$DISPATCHED $SHELL_REPO"
+              else
+                echo "::warning::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(cat "$RUNNER_TEMP/dispatch-resp.json" 2>/dev/null | head -c 300)"
+                FAILED="$FAILED $SHELL_REPO"
+              fi
+            done < "$AFFECTED_FILE.dedup"
+          else
+            echo "No dependent shells found for the bumped SDKs; nothing to dispatch."
+          fi
+
+          # --- 4. Run summary ---
+          {
+            echo "## SDK Dispatch"
+            echo ""
+            echo "### SDK version bumps in this push"
+            echo ""
+            echo "| SDK | Path | Old | New |"
+            echo "|-----|------|-----|-----|"
+            while IFS=$'\t' read -r DOMAIN_PATH SDK_NAME OLD_VERSION NEW_VERSION; do
+              echo "| $SDK_NAME | $DOMAIN_PATH | $OLD_VERSION | $NEW_VERSION |"
+            done < "$BUMPS_FILE"
+            echo ""
+            if [ -n "$DISPATCHED" ]; then
+              echo "### Dependent app builds dispatched"
+              echo ""
+              for S in $DISPATCHED; do echo "- $ORG/$S"; done
+            else
+              echo "No dependent app builds were dispatched."
+            fi
+            if [ -n "$FAILED" ]; then
+              echo ""
+              echo "### Dispatch failures (see warnings in the job log)"
+              echo ""
+              for S in $FAILED; do echo "- $ORG/$S"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
