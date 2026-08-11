@@ -1437,7 +1437,7 @@ jobs:
           fi
 
           # 1. Try Occultation
-          if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env 2>/dev/null; then
+          if [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env 2>/dev/null; then
              echo "✅ Successfully synced $FILE_NAME from Occultation."
           else
              # 2. Try Secrets
@@ -1489,7 +1489,7 @@ jobs:
                  fi
 
                  # 1. Try Occultation
-                 if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+                 if [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
                     echo "✅ Successfully synced $FILE_NAME from Occultation."
                  else
                     # 2. Try Secrets

@@ -425,7 +425,7 @@ jobs:
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_google-services.json"
 
              # 1. Try Occultation
-             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Occultation."
              else
                 # 2. Try Secrets
@@ -462,7 +462,7 @@ jobs:
           fi
 
           echo "🔍 Fetching $FILE_NAME from RokctAI/Occultation..."
-          gh api "/repos/RokctAI/Occultation/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+          gh api "repos/RokctAI/Occultation/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
           echo "✅ .env/production.env written."
 
           # Truncate at Flutter marker
@@ -915,7 +915,7 @@ jobs:
         run: |
           mkdir -p .env
           echo "🔍 Fetching production.env from RokctAI/Occultation..."
-          gh api "/repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+          gh api "repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
 
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
@@ -1075,7 +1075,7 @@ jobs:
              [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_GoogleService-Info.plist"
 
              # 1. Try Occultation
-             if [ -n "$GH_TOKEN" ] && gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
+             if [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > ios/Runner/GoogleService-Info.plist 2>/dev/null; then
                 echo "✅ Successfully synced $FILE_NAME from Occultation."
              else
                 # 2. Try Secrets
@@ -1110,7 +1110,7 @@ jobs:
              FILE_NAME="${LOWER_PREFIX}_production.env"
           fi
           echo "🔍 Fetching $FILE_NAME from RokctAI/Occultation..."
-          gh api /repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
+          gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > .env/production.env
 
           # Truncate at Flutter marker
           if grep -q "##########END_FLUTTER##########" .env/production.env; then
