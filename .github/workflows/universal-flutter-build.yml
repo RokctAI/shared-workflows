@@ -755,11 +755,32 @@ jobs:
 
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see sdk_composer.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
-            # Initiate Protocol (previous step) always lands the composer wrapper at
-            # this path before we get here, so there's nothing to branch on.
+            # The Initiate Protocol step is supposed to land the composer
+            # wrapper at this path, but on Windows initiate.py builds its
+            # GitHub zip-extraction prefix with os.path.join, which yields
+            # backslashes ("core\skills") that match no forward-slash zip
+            # entries - it logs "Fetched 0 files from core\skills" and no
+            # skill files land (see paas_manager run 31495498371). Provision
+            # core/skills directly with git, which uses POSIX paths under
+            # Git Bash on every OS.
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Skills composer missing after Initiate Protocol. Provisioning core/skills directly from The-Rokct-Protocol..."
+              CLONE_URL="https://github.com/RokctAI/The-Rokct-Protocol.git"
+              if [ -n "${MONOREPO_PAT:-}" ]; then
+                CLONE_URL="https://x-access-token:${MONOREPO_PAT}@github.com/RokctAI/The-Rokct-Protocol.git"
+              fi
+              git clone --depth 1 "$CLONE_URL" .rokct-protocol-temp
+              mkdir -p .rokct/skills
+              cp -R .rokct-protocol-temp/core/skills/. .rokct/skills/
+              rm -rf .rokct-protocol-temp
+            fi
             python .rokct/skills/.rok/flutter/scripts/compose.py
           else
             echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
@@ -908,6 +929,12 @@ jobs:
 
       - name: Build Windows
         shell: bash
+        env:
+          # The Firebase C++ SDK that the firebase plugins extract into
+          # build/windows declares cmake_minimum_required < 3.5, which CMake
+          # 4.x (shipped on windows-latest) refuses to configure. This floor
+          # lets CMake apply 3.5-era policies and proceed.
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           BUILD_ARGS=(build windows --release)
           if [ -f .env/production.env ]; then
