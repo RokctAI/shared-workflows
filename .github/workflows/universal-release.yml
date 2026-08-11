@@ -817,6 +817,27 @@ jobs:
               echo "Shell app detected (composer.json). Provisioning canonical composer via .rokct/initiate.py..."
               "$PYTHON" .rokct/initiate.py
             fi
+            # Windows guard: initiate.py builds its GitHub zip-extraction
+            # prefix with os.path.join, which on Windows yields backslashes
+            # ("core\skills") that match no forward-slash zip entries - it
+            # logs "Fetched 0 files from core\skills" and the skills composer
+            # never lands, so composition used to be silently skipped (see
+            # paas_manager run 31495498371). Provision core/skills directly
+            # with git, which uses POSIX paths under Git Bash on every OS.
+            if [ -f ".rokct/initiate.py" ] && [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Skills composer still missing after initiate.py. Provisioning core/skills directly from The-Rokct-Protocol..."
+              CLONE_URL="https://github.com/RokctAI/The-Rokct-Protocol.git"
+              if [ -n "${MONOREPO_PAT:-}" ]; then
+                CLONE_URL="https://x-access-token:${MONOREPO_PAT}@github.com/RokctAI/The-Rokct-Protocol.git"
+              fi
+              if git clone --depth 1 "$CLONE_URL" .rokct-protocol-temp; then
+                mkdir -p .rokct/skills
+                cp -R .rokct-protocol-temp/core/skills/. .rokct/skills/
+                rm -rf .rokct-protocol-temp
+              else
+                echo "::warning::Could not clone The-Rokct-Protocol to provision the skills composer."
+              fi
+            fi
             if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
               echo "Composing SDK modules via canonical skills composer..."
               "$PYTHON" .rokct/skills/.rok/flutter/scripts/compose.py
@@ -837,6 +858,12 @@ jobs:
 
       - name: Build Windows
         shell: pwsh
+        env:
+          # The Firebase C++ SDK that the firebase plugins extract into
+          # build/windows declares cmake_minimum_required < 3.5, which CMake
+          # 4.x (shipped on windows-latest) refuses to configure. This floor
+          # lets CMake apply 3.5-era policies and proceed.
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         # We need to filter Release Mode logic here too to avoid building for RC if user requested
         # Logic:
         # 1. Promote (Schedule) = Yes
