@@ -353,6 +353,24 @@ jobs:
       app-type: ${{ inputs.app-type }}
     secrets: inherit
 
+  ci-flutter-windows:
+    needs: [detect-changes, lint]
+    if: |
+      always() &&
+      inputs.run_ci &&
+      inputs.project_type == 'flutter' &&
+      inputs.build_windows == true &&
+      needs.detect-changes.outputs.trivial != 'true' &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped')
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    with:
+      build-type: windows
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      flutter-version: ${{ inputs.flutter-version }}
+      java-version: ${{ inputs.java-version || '17' }}
+      app-type: ${{ inputs.app-type }}
+    secrets: inherit
+
   verify-flutter:
     needs: ci-flutter
     if: |
