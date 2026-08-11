@@ -346,7 +346,9 @@ jobs:
       (needs.lint.result == 'success' || needs.lint.result == 'skipped')
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
-      build-type: all
+      # develop is purely for development: debug APK + AAB only (no release APK).
+      # Every other branch gets the full set (release APK + debug APK + AAB).
+      build-type: ${{ github.ref_name == 'develop' && 'develop' || 'all' }}
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
