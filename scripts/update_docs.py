@@ -657,8 +657,13 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
     content = "\n".join(lines).strip() + "\n"
     return content
 
-# Stack mapping for per-stack documentation output under docs/api/<stack>/.
-# dart -> docs/api/dart/, python -> docs/api/frappe/, ts/tsx -> docs/api/nextjs/
+# Stack mapping for per-stack documentation output nested inside each stack
+# directory: a doc for a source file goes to <stack_dir>/docs/api/<name>.md,
+# where <stack_dir> is the nearest ancestor directory named after the stack
+# (dart for .dart, frappe for .py, nextjs for .ts/.tsx). SDK repos are laid
+# out <module>/{dart,frappe,nextjs}/, so e.g.
+#   fav/dart/lib/src/di/fav_di.dart -> fav/dart/docs/api/fav_dart_lib_src_di_fav_di.md
+# Files with no such ancestor fall back to <git_root>/<stack>/docs/api/.
 STACK_PARSERS = {
     "dart": parse_dart_file,
     "frappe": parse_python_file,
@@ -701,20 +706,75 @@ def is_excluded(target_dir):
         return "update_docs" in content
     return False
 
-def remove_legacy_flat_doc(legacy_md_path, out_md_name):
-    """Delete a pre-split flat doc (docs/api/<name>.md) once its per-stack replacement exists."""
-    try:
-        os.remove(legacy_md_path)
-        if LOGGER:
-            LOGGER.info(f"Migrated legacy flat doc: removed docs/api/{out_md_name}")
-    except OSError:
-        pass
+def get_stack_docs_dir(filepath, stack, git_root):
+    """Return the docs/api dir for a source file: nested inside the nearest
+    ancestor directory named after the file's stack (dart, frappe, nextjs).
+    Falls back to <git_root>/<stack>/docs/api when no such ancestor exists."""
+    git_root_p = Path(git_root).resolve()
+    curr = Path(filepath).resolve().parent
+    while True:
+        if curr.name == stack:
+            return os.path.join(str(curr), "docs", "api")
+        if curr == git_root_p or curr == curr.parent:
+            break
+        curr = curr.parent
+    return os.path.join(git_root, stack, "docs", "api")
+
+def find_legacy_doc(docs_api_dir, stack, out_md_name):
+    """Locate a doc under either legacy layout: per-stack docs/api/<stack>/<name>.md
+    (preferred, newer) or pre-split flat docs/api/<name>.md."""
+    legacy_paths = [
+        os.path.join(docs_api_dir, stack, out_md_name),
+        os.path.join(docs_api_dir, out_md_name),
+    ]
+    return [p for p in legacy_paths if os.path.isfile(p)]
+
+def read_first_content(paths):
+    """Return the content of the first readable file in paths, else empty string."""
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            continue
+    return ""
+
+def remove_legacy_docs(legacy_paths, git_root):
+    """Delete legacy docs (flat docs/api/<name>.md or docs/api/<stack>/<name>.md)
+    once their nested per-stack replacement exists."""
+    for legacy_md_path in legacy_paths:
+        try:
+            os.remove(legacy_md_path)
+            if LOGGER:
+                LOGGER.info(f"Migrated legacy doc: removed {os.path.relpath(legacy_md_path, git_root).replace(os.sep, '/')}")
+        except OSError:
+            pass
+
+def prune_empty_legacy_dirs(docs_api_dir):
+    """Remove now-empty legacy docs/api/<stack>/ and docs/api/ directories."""
+    for stack in STACK_PARSERS:
+        stack_dir = os.path.join(docs_api_dir, stack)
+        if os.path.isdir(stack_dir):
+            try:
+                os.rmdir(stack_dir)
+                if LOGGER:
+                    LOGGER.info(f"Pruned empty legacy dir: docs/api/{stack}/")
+            except OSError:
+                pass
+    if os.path.isdir(docs_api_dir):
+        try:
+            os.rmdir(docs_api_dir)
+            if LOGGER:
+                LOGGER.info("Pruned empty legacy dir: docs/api/")
+        except OSError:
+            pass
 
 def scan_and_sync(target_dir, check_only=False):
-    """Scan directory and sync docs to git_root/docs/api/<stack>/ for every stack present."""
+    """Scan directory and sync docs into each stack directory (<stack_dir>/docs/api/) for every stack present."""
     global LOGGER
     target_dir = os.path.abspath(target_dir)
     git_root = find_git_root(target_dir)
+    # Legacy locations only — new docs live inside each stack directory.
     docs_api_dir = os.path.join(git_root, "docs", "api")
 
     if LOGGER is None:
@@ -752,29 +812,26 @@ def scan_and_sync(target_dir, check_only=False):
             else:
                 out_md_name = f"{rel_dir.replace(os.sep, '_')}_{os.path.splitext(file)[0]}.md"
 
-            stack_docs_dir = os.path.join(docs_api_dir, stack)
+            # The flattened-from-repo-root filename is kept as-is — only the
+            # location changes, so migration is a pure move and names stay
+            # collision-safe when shells union docs later.
+            stack_docs_dir = get_stack_docs_dir(filepath, stack, git_root)
             out_md_path = os.path.join(stack_docs_dir, out_md_name)
-            # Pre-split layout wrote flat files directly under docs/api/ —
-            # migrate (reuse cached AI docs, then delete) so repos converge.
-            legacy_md_path = os.path.join(docs_api_dir, out_md_name)
-            legacy_exists = os.path.isfile(legacy_md_path)
+            # Earlier layouts wrote docs to git-root docs/api/ (flat) and then
+            # docs/api/<stack>/ — migrate (reuse cached AI docs, then delete)
+            # so repos converge.
+            legacy_paths = find_legacy_doc(docs_api_dir, stack, out_md_name)
 
             if not os.path.exists(out_md_path):
-                existing_content = ""
-                if legacy_exists:
-                    try:
-                        with open(legacy_md_path, "r", encoding="utf-8") as f:
-                            existing_content = f.read()
-                    except Exception:
-                        existing_content = ""
+                existing_content = read_first_content(legacy_paths)
                 if LOGGER:
                     LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
                 md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=False, target_dir=target_dir)
                 os.makedirs(stack_docs_dir, exist_ok=True)
                 with open(out_md_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
-                if legacy_exists:
-                    remove_legacy_flat_doc(legacy_md_path, out_md_name)
+                if legacy_paths:
+                    remove_legacy_docs(legacy_paths, git_root)
                 if LOGGER:
                     LOGGER.info(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
             else:
@@ -791,8 +848,12 @@ def scan_and_sync(target_dir, check_only=False):
                             f.write(md_content)
                         if LOGGER:
                             LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
-                if legacy_exists and not check_only:
-                    remove_legacy_flat_doc(legacy_md_path, out_md_name)
+                if legacy_paths and not check_only:
+                    remove_legacy_docs(legacy_paths, git_root)
+
+    # Legacy docs/api/<stack>/ and docs/api/ dirs are pruned once emptied by
+    # the migration above (rmdir is a no-op while files remain).
+    prune_empty_legacy_dirs(docs_api_dir)
 
     # Free memory after scan — the cache can be very large for big Flutter projects
     FILE_CONTENTS_CACHE.clear()
