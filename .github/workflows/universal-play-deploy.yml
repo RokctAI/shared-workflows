@@ -317,7 +317,7 @@ jobs:
           GH_TOKEN: ${{ env.MONOREPO_PAT }}
         run: |
           mkdir -p .env
-          if gh api "/repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env" 2>/dev/null; then
+          if gh api "repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env" 2>/dev/null; then
             if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
               sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
             fi
