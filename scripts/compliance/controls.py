@@ -73,7 +73,12 @@ CONTROLS = {
     "obs-unknown-api-path":  {"title": "Whitelisted function present; observability skipped, path NOT validated (known gap)", "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "warning"},
     "obs-trace-logging":     {"title": "API without trace-id/stderr logging",     "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.15", "severity": "error"},
     "obs-db-tracing":        {"title": "DB query without trace propagation",      "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.15", "severity": "error"},
-    "obs-flutter-trace":     {"title": "Flutter HTTP without trace header",       "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "error"},
+    # Deliberately a warning, not an error: the fleet has ~174 existing copies of
+    # the no-op appeasement line. This check makes the migration queue visible
+    # without turning every repo red overnight; escalate once the queue drains.
+    "obs-noop-trace":        {"title": "No-op trace line (reads x-trace-id, propagates nothing)", "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.15", "severity": "warning"},
+    "obs-flutter-trace":     {"title": "Flutter HTTP without telemetry SDK trace propagation", "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "error"},
+    "obs-nextjs-trace":      {"title": "Next.js HTTP without trace propagation",  "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "error"},
     "obs-crash-reporting":   {"title": "Flutter entrypoint without crash reporting", "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "error"},
     "obs-analytics":         {"title": "Flutter entrypoint without analytics",    "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.16", "severity": "warning"},
     "obs-python-trace":      {"title": "Python HTTP without trace header",        "layer": "12", "soc2": "CC7.2", "iso27001": "A.8.15", "severity": "error"},
@@ -155,7 +160,9 @@ TYPE_TO_CHECK = {
     "Layer 12 (Unknown API Path - Observability Skipped)": "obs-unknown-api-path",
     "Layer 12 (Observability)":                         "obs-trace-logging",
     "Layer 12 (Observability - DB Tracing)":            "obs-db-tracing",
+    "Layer 12 (Observability - No-op Trace Line)":      "obs-noop-trace",
     "Layer 12 (Observability - Flutter Trace ID)":      "obs-flutter-trace",
+    "Layer 12 (Observability - Next.js Trace ID)":      "obs-nextjs-trace",
     "Layer 12 (Observability - Crash Reporting)":       "obs-crash-reporting",
     "Layer 12 (Observability - Analytics)":             "obs-analytics",
     "Layer 12 (Observability - Python Trace ID)":       "obs-python-trace",

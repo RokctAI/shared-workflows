@@ -229,15 +229,43 @@ CASES = {
         '    trace_id = frappe.local.trace_id\n'
         '    return frappe.get_doc("User", name)\n',
     ),
+    # Tightened (ADR-006): a hand-rolled 'x-trace-id' header no longer passes —
+    # the positive fixture stamps the header itself and must STILL trip the
+    # check. Only the telemetry SDK (TraceIdInterceptor / generateTraceId /
+    # base_sdk import) clears it.
     "obs-flutter-trace": (
         "lib/remote/client.dart",
-        "import 'package:dio/dio.dart';\n"
-        "final d = Dio(BaseOptions(connectTimeout: Duration(seconds: 5)));\n",
         "import 'package:dio/dio.dart';\n"
         "final d = Dio(BaseOptions(\n"
         "  connectTimeout: Duration(seconds: 5),\n"
         "  headers: {'x-trace-id': traceId},\n"
         "));\n",
+        "import 'package:dio/dio.dart';\n"
+        "import 'package:base_sdk/base_sdk.dart';\n"
+        "final d = Dio(BaseOptions(connectTimeout: Duration(seconds: 5)))\n"
+        "  ..interceptors.add(TraceIdInterceptor());\n",
+    ),
+    "obs-noop-trace": (
+        "api/auth/appease.py",
+        'import frappe\n'
+        '@frappe.whitelist()\n'
+        'def f(a: int) -> dict:\n'
+        '    """Doc."""\n'
+        '    import sys; _ = (frappe.request.headers.get("x-trace-id") if hasattr(frappe, "request") else None, sys.stderr)\n'
+        '    return {}\n',
+        'api/auth/appease.py|' + WHITELIST_CLEAN,
+    ),
+    "obs-nextjs-trace": (
+        "web/services/user_client.ts",
+        'export async function loadUser(url: string) {\n'
+        '  const r = await fetch(url);\n'
+        '  return r.json();\n'
+        '}\n',
+        "import { tracedFetch } from '../services/telemetry';\n"
+        'export async function loadUser(url: string) {\n'
+        '  const r = await tracedFetch(url);\n'
+        '  return r.json();\n'
+        '}\n',
     ),
     "obs-crash-reporting": (
         "lib/main.dart",
