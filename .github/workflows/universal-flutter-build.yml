@@ -18,7 +18,7 @@ on:
         required: false
         type: string
         default: "apk"
-        description: "Build type: apk, appbundle, windows, or ios"
+        description: "Build type: apk, appbundle, all (apk + appbundle), windows, or ios"
       upload-artifact:
         required: false
         type: boolean
@@ -634,7 +634,7 @@ jobs:
           fi
 
       - name: Build APK
-        if: inputs.build-type == 'apk'
+        if: inputs.build-type == 'apk' || inputs.build-type == 'all'
         run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
@@ -660,7 +660,7 @@ jobs:
           fi
 
       - name: Build AppBundle
-        if: inputs.build-type == 'appbundle'
+        if: inputs.build-type == 'appbundle' || inputs.build-type == 'all'
         run: |
             BUILD_ARGS=(--release)
             if [ -f .env/production.env ]; then
@@ -669,7 +669,7 @@ jobs:
             flutter build appbundle "${BUILD_ARGS[@]}"
 
       - name: Upload Artifact (APK)
-        if: inputs.upload-artifact == true && inputs.build-type == 'apk'
+        if: inputs.upload-artifact == true && (inputs.build-type == 'apk' || inputs.build-type == 'all')
         uses: actions/upload-artifact@v6
         with:
           name: flutter-apks
@@ -678,7 +678,7 @@ jobs:
             build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Upload Artifact (AAB)
-        if: inputs.upload-artifact == true && inputs.build-type == 'appbundle'
+        if: inputs.upload-artifact == true && (inputs.build-type == 'appbundle' || inputs.build-type == 'all')
         uses: actions/upload-artifact@v6
         with:
           name: app-release-aab

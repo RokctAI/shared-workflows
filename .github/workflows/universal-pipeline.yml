@@ -346,7 +346,7 @@ jobs:
       (needs.lint.result == 'success' || needs.lint.result == 'skipped')
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
-      build-type: ${{ inputs.build_android && 'apk' || 'apk' }}
+      build-type: all
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
       flutter-version: ${{ inputs.flutter-version }}
       java-version: ${{ inputs.java-version || '17' }}
