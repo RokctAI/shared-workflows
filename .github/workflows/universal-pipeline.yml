@@ -31,10 +31,6 @@ on:
         type: boolean
         default: true
         description: "Run continuous verification on Android emulator (Flutter only)"
-      run_import_healer:
-        type: boolean
-        default: false
-        description: "Auto-heal missing imports after build_runner (Flutter only — commits fixes and reruns)"
 
       # Node.js
       node-version:
@@ -309,23 +305,7 @@ jobs:
       force-fix: ${{ github.ref_name == 'main' || github.ref_name == 'develop' }}
     secrets: inherit
 
-  # 3. IMPORT HEALER (Flutter only — runs after lint so build_runner/freezed files exist)
-  import-healer:
-    needs: [detect-changes, lint]
-    if: |
-      always() &&
-      inputs.run_import_healer &&
-      inputs.project_type == 'flutter' &&
-      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
-      needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-import-healer.yml@main
-    with:
-      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
-      flutter-version: ${{ inputs.flutter-version }}
-      java-version: ${{ inputs.java-version || '17' }}
-    secrets: inherit
-
-  # 4. CI / BUILD
+  # 3. CI / BUILD
   ci-frappe:
     needs: [detect-changes, lint, observability-compliance]
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
@@ -357,14 +337,13 @@ jobs:
     secrets: inherit
 
   ci-flutter:
-    needs: [detect-changes, lint, import-healer]
+    needs: [detect-changes, lint]
     if: |
       always() &&
       inputs.run_ci &&
       inputs.project_type == 'flutter' &&
       needs.detect-changes.outputs.trivial != 'true' &&
-      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
-      (needs.import-healer.result == 'success' || needs.import-healer.result == 'skipped')
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped')
     uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
     with:
       build-type: ${{ inputs.build_android && 'apk' || 'apk' }}
@@ -385,7 +364,7 @@ jobs:
       package_name: ${{ needs.ci-flutter.outputs.package_name }}
     secrets: inherit
 
-  # 5. RELEASE
+  # 4. RELEASE
   release:
     needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter, observability-compliance]
     if: |
