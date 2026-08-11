@@ -657,6 +657,40 @@ def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_on
     content = "\n".join(lines).strip() + "\n"
     return content
 
+# Stack mapping for per-stack documentation output under docs/api/<stack>/.
+# dart -> docs/api/dart/, python -> docs/api/frappe/, ts/tsx -> docs/api/nextjs/
+STACK_PARSERS = {
+    "dart": parse_dart_file,
+    "frappe": parse_python_file,
+    "nextjs": parse_ts_file,
+}
+
+def get_file_stack(filename):
+    """Map a source filename to its documentation stack (dart, frappe, nextjs) or None."""
+    if filename.endswith(".dart"):
+        # Skip generated Dart files — same exclusions as before the per-stack split.
+        if filename.endswith((".freezed.dart", ".g.dart", ".gr.dart")) or filename == "app_assets.dart":
+            return None
+        return "dart"
+    if filename.endswith((".ts", ".tsx")):
+        return "nextjs"
+    if filename.endswith(".py"):
+        return "frappe"
+    return None
+
+def detect_stacks(target_dir):
+    """Detect every documentation stack present under target_dir (dart, frappe, nextjs)."""
+    stacks = set()
+    for root, dirs, files in os.walk(target_dir):
+        dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
+        for file in files:
+            stack = get_file_stack(file)
+            if stack:
+                stacks.add(stack)
+        if stacks == set(STACK_PARSERS):
+            break
+    return sorted(stacks)
+
 def is_excluded(target_dir):
     exclude_path = os.path.join(target_dir, ".exclude")
     if os.path.isfile(exclude_path):
@@ -667,13 +701,22 @@ def is_excluded(target_dir):
         return "update_docs" in content
     return False
 
+def remove_legacy_flat_doc(legacy_md_path, out_md_name):
+    """Delete a pre-split flat doc (docs/api/<name>.md) once its per-stack replacement exists."""
+    try:
+        os.remove(legacy_md_path)
+        if LOGGER:
+            LOGGER.info(f"Migrated legacy flat doc: removed docs/api/{out_md_name}")
+    except OSError:
+        pass
+
 def scan_and_sync(target_dir, check_only=False):
-    """Scan directory and sync docs to git_root/docs/api/."""
+    """Scan directory and sync docs to git_root/docs/api/<stack>/ for every stack present."""
     global LOGGER
     target_dir = os.path.abspath(target_dir)
     git_root = find_git_root(target_dir)
     docs_api_dir = os.path.join(git_root, "docs", "api")
-    
+
     if LOGGER is None:
         LOGGER = setup_logger(target_dir)
 
@@ -682,66 +725,74 @@ def scan_and_sync(target_dir, check_only=False):
             LOGGER.info(f"Repo exclusion found (.exclude). Skipping auto-creation for {target_dir}")
         return []
 
-    project_type = detect_project_type(target_dir)
+    stacks = detect_stacks(target_dir)
     if LOGGER:
-        LOGGER.info(f"Detected project type: {project_type} for {target_dir}")
+        LOGGER.info(f"Detected stacks: {', '.join(stacks) if stacks else 'none'} for {target_dir}")
 
     out_of_sync = []
-    
+
     for root, dirs, files in os.walk(target_dir):
         dirs[:] = [d for d in dirs if d not in [".git", "env", "node_modules", "__pycache__", ".next", "dist", ".dart_tool", "build", "docs", ".rokct", "Compliance"]]
         for file in files:
-            is_valid_file = False
-            parser_func = None
-            
-            if project_type == "flutter" and file.endswith(".dart"):
-                if not (file.endswith(".freezed.dart") or file.endswith(".g.dart") or file.endswith(".gr.dart") or file == "app_assets.dart"):
-                    is_valid_file = True
-                    parser_func = parse_dart_file
-            elif project_type == "typescript" and (file.endswith(".ts") or file.endswith(".tsx")):
-                is_valid_file = True
-                parser_func = parse_ts_file
-            elif project_type == "python" and file.endswith(".py"):
-                is_valid_file = True
-                parser_func = parse_python_file
-                
-            if is_valid_file and parser_func:
-                filepath = os.path.join(root, file)
-                spec = parser_func(filepath)
-                if spec:
-                    rel_path = os.path.relpath(filepath, target_dir)
-                    
-                    rel_dir = os.path.relpath(root, git_root)
-                    if rel_dir == ".":
-                        out_md_name = f"{os.path.splitext(file)[0]}.md"
-                    else:
-                        out_md_name = f"{rel_dir.replace(os.sep, '_')}_{os.path.splitext(file)[0]}.md"
-                    
-                    out_md_path = os.path.join(docs_api_dir, out_md_name)
-                    
-                    if not os.path.exists(out_md_path):
-                        if LOGGER:
-                            LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
-                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False, target_dir=target_dir)
-                        os.makedirs(docs_api_dir, exist_ok=True)
+            stack = get_file_stack(file)
+            if not stack:
+                continue
+            parser_func = STACK_PARSERS[stack]
+
+            filepath = os.path.join(root, file)
+            spec = parser_func(filepath)
+            if not spec:
+                continue
+
+            rel_path = os.path.relpath(filepath, target_dir)
+
+            rel_dir = os.path.relpath(root, git_root)
+            if rel_dir == ".":
+                out_md_name = f"{os.path.splitext(file)[0]}.md"
+            else:
+                out_md_name = f"{rel_dir.replace(os.sep, '_')}_{os.path.splitext(file)[0]}.md"
+
+            stack_docs_dir = os.path.join(docs_api_dir, stack)
+            out_md_path = os.path.join(stack_docs_dir, out_md_name)
+            # Pre-split layout wrote flat files directly under docs/api/ —
+            # migrate (reuse cached AI docs, then delete) so repos converge.
+            legacy_md_path = os.path.join(docs_api_dir, out_md_name)
+            legacy_exists = os.path.isfile(legacy_md_path)
+
+            if not os.path.exists(out_md_path):
+                existing_content = ""
+                if legacy_exists:
+                    try:
+                        with open(legacy_md_path, "r", encoding="utf-8") as f:
+                            existing_content = f.read()
+                    except Exception:
+                        existing_content = ""
+                if LOGGER:
+                    LOGGER.info(f"Auto-creating missing documentation for: {rel_path}")
+                md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=False, target_dir=target_dir)
+                os.makedirs(stack_docs_dir, exist_ok=True)
+                with open(out_md_path, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+                if legacy_exists:
+                    remove_legacy_flat_doc(legacy_md_path, out_md_name)
+                if LOGGER:
+                    LOGGER.info(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+            else:
+                with open(out_md_path, "r", encoding="utf-8") as f:
+                    existing_content = f.read()
+
+                md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only, target_dir=target_dir)
+
+                if existing_content != md_content:
+                    out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
+                    if not check_only:
+                        os.makedirs(stack_docs_dir, exist_ok=True)
                         with open(out_md_path, "w", encoding="utf-8") as f:
                             f.write(md_content)
                         if LOGGER:
-                            LOGGER.info(f"Auto-created missing doc: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
-                    else:
-                        with open(out_md_path, "r", encoding="utf-8") as f:
-                            existing_content = f.read()
-                            
-                        md_content = generate_markdown(filepath, rel_path, spec, existing_md_content=existing_content, check_only=check_only, target_dir=target_dir)
-                        
-                        if existing_content != md_content:
-                            out_of_sync.append((out_md_path, md_content, existing_content, rel_path))
-                            if not check_only:
-                                os.makedirs(docs_api_dir, exist_ok=True)
-                                with open(out_md_path, "w", encoding="utf-8") as f:
-                                    f.write(md_content)
-                                if LOGGER:
-                                    LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                            LOGGER.info(f"Synced: {os.path.relpath(out_md_path, target_dir)} <- {rel_path}")
+                if legacy_exists and not check_only:
+                    remove_legacy_flat_doc(legacy_md_path, out_md_name)
 
     # Free memory after scan — the cache can be very large for big Flutter projects
     FILE_CONTENTS_CACHE.clear()

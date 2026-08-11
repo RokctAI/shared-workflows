@@ -29,10 +29,39 @@ def _is_scannable(filename):
     )
 
 
+def app_shell_marker(git_root):
+    """Return the marker identifying a composed app shell, or None for SDK repos.
+
+    composer.json at the git root is the established shell-app idiom (see
+    universal-linter.yml / universal-flutter-analyze.yml); .rokct/config/app_type
+    is the secondary marker written by the platform tooling.
+    """
+    if os.path.isfile(os.path.join(git_root, "composer.json")):
+        return "composer.json"
+    if os.path.isfile(os.path.join(git_root, ".rokct", "config", "app_type")):
+        return ".rokct/config/app_type"
+    return None
+
+
 def main():
     print("=" * 80)
     print("ROKCT PLATFORM ECOSYSTEM - ARCHITECTURAL COMPLIANCE GATEWAY")
     print("=" * 80)
+
+    # ── SDK-only guard ──────────────────────────────────────────────────────
+    # The compliance scanner (and its Layer 20 doc generation / evidence
+    # writing) runs on SDK repos only. Composed app shells assemble already-
+    # scanned SDKs, so scanning them duplicates findings and docs. This guard
+    # covers every invocation path (CI, sdk_validator.py, fleet_compliance.py,
+    # manual runs) because they all go through this entrypoint.
+    guard_args = [a for a in sys.argv[1:] if os.path.exists(a)]
+    guard_base = os.path.abspath(guard_args[0]) if guard_args else os.getcwd()
+    git_root = find_git_root(guard_base)
+    if os.environ.get("COMPLIANCE_FORCE") != "1":
+        marker = app_shell_marker(git_root)
+        if marker:
+            print(f"app shell detected ({marker}) — compliance scanner runs on SDK repos only; skipping (set COMPLIANCE_FORCE=1 to override)")
+            sys.exit(0)
 
     files_to_scan = []
     changed_files_list = []
