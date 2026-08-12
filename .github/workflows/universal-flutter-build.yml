@@ -1027,10 +1027,23 @@ jobs:
           # MSVC 14.5x (VS 18 on windows-latest) turned the
           # <experimental/coroutine> include into a hard STL1011 static-assert,
           # which kills audioplayers_windows and permission_handler_windows.
-          # The assert's own message names this define as the opt-out. MSVC
-          # prepends CL's contents to every cl.exe invocation, so this reaches
-          # all plugin targets without touching their CMake files.
-          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+          # The assert's own message names this define as the opt-out.
+          #
+          # Deliver it via CXXFLAGS, NOT the MSVC `CL` env var. CL prepends
+          # its contents to every cl.exe invocation, including the
+          # try-compiles CMake's Visual Studio generator runs to identify the
+          # compiler; with CL set, configure died in ~11s with "No
+          # CMAKE_CXX_COMPILER could be found" (supacharge run 31614213384)
+          # on the exact same runner image (windows-2025-vs2026
+          # 20260803.193.1) where the CL-less run 31599643182 configured fine
+          # and reached the plugin compiles. CXXFLAGS instead seeds
+          # CMAKE_CXX_FLAGS at first configure: CMake applies it to every
+          # target in the project (plugins included) but not to compiler
+          # identification, so detection passes and the define still reaches
+          # the plugin compiles. The -D spelling (cl accepts -D and /D alike)
+          # also keeps Git Bash's MSYS path mangling away from the value's
+          # leading slash.
+          CXXFLAGS: "-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
         run: |
           BUILD_ARGS=(build windows --release)
           if [ -f .env/production.env ]; then
