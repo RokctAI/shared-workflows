@@ -655,12 +655,49 @@ jobs:
       - name: Extract Package Name
         id: package
         run: |
-          GRADLE_FILE="android/app/build.gradle"
-          if [ -f "$GRADLE_FILE" ]; then
-            PACKAGE=$(grep 'applicationId' "$GRADLE_FILE" | head -n 1 | sed "s/.*applicationId *['\" ]*\([^'\" ]*\)['\" ]*.*/\1/")
-            echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
-            echo "Detected Package Name: $PACKAGE"
+          PACKAGE=""
+
+          # Prefer the applicationId baked into the APK we just built.
+          # build.gradle may set applicationId from a Groovy expression (e.g.
+          # `applicationId dartDefines.CUSTOMER_ANDROID_PACKAGE_NAME`); a text
+          # grep hands that expression to verify verbatim and `adb shell
+          # monkey` then aborts with "No activities found to run".
+          for APK in build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/app-release.apk; do
+            if [ -f "$APK" ]; then
+              AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
+              if [ -n "$AAPT" ]; then
+                PACKAGE=$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+                echo "📦 Read applicationId from $(basename "$APK") via aapt: $PACKAGE"
+              fi
+              break
+            fi
+          done
+
+          # Fallback for builds without an APK on disk: static parse of
+          # build.gradle (only trustworthy when applicationId is a literal).
+          if [ -z "$PACKAGE" ]; then
+            GRADLE_FILE="android/app/build.gradle"
+            if [ -f "$GRADLE_FILE" ]; then
+              PACKAGE=$(grep 'applicationId' "$GRADLE_FILE" | head -n 1 | sed "s/.*applicationId *['\" ]*\([^'\" ]*\)['\" ]*.*/\1/")
+            fi
           fi
+
+          # A leftover gradle expression is not a package name; resolve the
+          # dart-define key from the same env file the build consumed.
+          case "$PACKAGE" in
+            *dartDefines.*)
+              KEY="${PACKAGE##*dartDefines.}"
+              if [ -f .env/production.env ]; then
+                PACKAGE=$(sed -n "s/^${KEY}=//p" .env/production.env | head -n 1 | tr -d "\"'")
+                echo "📦 Resolved $KEY from .env/production.env: $PACKAGE"
+              else
+                echo "::warning::applicationId is the unresolved gradle expression '$PACKAGE' and no .env/production.env is present to resolve it."
+              fi
+              ;;
+          esac
+
+          echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "Detected Package Name: $PACKAGE"
 
       - name: Build AppBundle
         if: inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop'
