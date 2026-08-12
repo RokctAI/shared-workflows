@@ -27,8 +27,9 @@ on:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    # Never hard-fail the SDK repo's CI because of dispatch/reporting problems.
-    continue-on-error: true
+    # Tolerable failures (missing PAT, repo-list or per-shell dispatch errors) are
+    # handled inside the steps, which warn and exit 0. Anything that fails this job
+    # is an infrastructure problem and must be visible as a red run.
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
