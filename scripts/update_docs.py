@@ -9,11 +9,16 @@ import argparse
 import difflib
 import hashlib
 import json
+import textwrap
 import urllib.request
 import urllib.error
 import logging
 import re
 from pathlib import Path
+
+# markdownlint's default MD013 line limit; generated markdown must stay
+# within it (including fenced code blocks - MD013 checks those by default).
+MD_LINE_LIMIT = 80
 
 def find_git_root(start_path):
     """Traverse upwards to find the root of the git repository."""
@@ -349,6 +354,105 @@ def parse_ts_file(filepath):
         }
     return None
 
+# Reserved words that can never be a declaration name, and (as a leading
+# token) mark statements like `return Foo(...)` / `await bar(...)` rather
+# than declarations.
+DART_STATEMENT_KEYWORDS = {
+    "if", "for", "while", "switch", "catch", "return", "else", "do", "try",
+    "assert", "new", "await", "throw", "yield", "case", "default", "in", "is",
+    "on", "with", "super", "this",
+}
+DART_DECL_MODIFIERS = {
+    "static", "final", "const", "late", "external", "factory", "abstract",
+    "covariant",
+}
+
+# A declaration must start a line (only indentation before it): optional
+# modifiers, an optional return type (with an optional single-line generic
+# argument and `?`), then the declared name and its opening parenthesis.
+# The parameter list itself is NOT matched here - it is walked with a
+# balanced-parenthesis scanner (see _find_matching_paren), because a lazy
+# `\((.*?)\)` regex stops at the wrong `)` for any non-trivial signature.
+DART_DECL_RE = re.compile(
+    r'^[ \t]*'
+    r'(?P<mods>(?:(?:static|final|const|late|external|factory|abstract|covariant)\s+)*)'
+    r'(?:(?P<type>[A-Za-z_$][\w$]*(?:<[^;{}()=\r\n]*>)?\??)[ \t]+)?'
+    r'(?P<name>[A-Za-z_$][\w$]*)[ \t]*\(',
+    re.MULTILINE
+)
+
+DART_CLASS_RE = re.compile(
+    r'^[ \t]*(?:(?:abstract|base|final|sealed|interface|mixin)\s+)*'
+    r'class\s+(?P<name>[A-Za-z_$][\w$]*)',
+    re.MULTILINE
+)
+
+
+def _find_matching_paren(text, open_idx):
+    """Return the index of the ')' matching the '(' at open_idx, skipping
+    string literals, or -1 when unbalanced. Comments must already be
+    stripped from text."""
+    depth = 0
+    i = open_idx
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == '"' or c == "'":
+            quote = c
+            i += 1
+            while i < n and text[i] != quote:
+                if text[i] == "\\":
+                    i += 1
+                i += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _dart_decl_terminator(text, idx):
+    """Classify what follows a declaration's closing ')': returns '{', '=>',
+    ';', ':' (constructor initializer list) or None. Skips whitespace and
+    the async/async*/sync* modifiers."""
+    n = len(text)
+    while idx < n and text[idx].isspace():
+        idx += 1
+    m = re.match(r'(?:async\*?|sync\*)', text[idx:])
+    if m:
+        idx += m.end()
+        while idx < n and text[idx].isspace():
+            idx += 1
+    if idx >= n:
+        return None
+    if text[idx] == "{":
+        return "{"
+    if text.startswith("=>", idx):
+        return "=>"
+    if text[idx] == ";":
+        return ";"
+    if text[idx] == ":":
+        return ":"
+    return None
+
+
+def _dartdoc_before(lines, line_idx):
+    """Collect the contiguous /// DartDoc block immediately above
+    lines[line_idx], allowing @annotation lines between the doc and the
+    declaration."""
+    i = line_idx - 1
+    while i >= 0 and lines[i].strip().startswith("@"):
+        i -= 1
+    doc = []
+    while i >= 0 and lines[i].strip().startswith("///"):
+        doc.append(lines[i].strip())
+        i -= 1
+    return "\n".join(reversed(doc))
+
+
 def parse_dart_file(filepath):
     """Parse Dart file and extract documentation information."""
     try:
@@ -356,50 +460,81 @@ def parse_dart_file(filepath):
             content = f.read()
     except Exception:
         return None
-        
+
     stripped = strip_comments_except_docs(content, is_ts=False)
-    
-    # Matches DartDoc annotations followed by class or function declarations
-    pattern = re.compile(
-        r'((?:///.*?$(?:\r?\n)?)+)?\s*'
-        r'(?:'
-        r'(?:class\s+([a-zA-Z0-9_]+))|'
-        r'(?:([a-zA-Z0-9_<>]+)\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*\{)'
-        r')',
-        re.DOTALL | re.MULTILINE
-    )
-    
+    lines = stripped.splitlines()
+    line_start_to_idx = {}
+    pos = 0
+    for idx, line in enumerate(lines):
+        line_start_to_idx[pos] = idx
+        pos += len(line) + 1
+
     classes = []
     functions = []
-    
-    for match in pattern.finditer(stripped):
-        dartdoc = match.group(1)
-        docstring = clean_dartdoc(dartdoc) if dartdoc else ""
-        
-        class_name = match.group(2)
-        func_name = match.group(4)
-        func_args = match.group(5)
-        
-        if class_name:
-            if class_name.startswith("_"):
-                continue
-            classes.append({
-                "name": class_name,
-                "docstring": docstring,
-                "methods": []
-            })
-        elif func_name:
-            if func_name.startswith("_") or func_name in ["if", "for", "while", "switch", "catch"]:
-                continue
-            functions.append({
-                "name": func_name,
-                "args": clean_args_string(func_args),
-                "docstring": docstring,
-                "whitelisted": True,
-                "hash": hashlib.sha256(match.group(0).encode("utf-8")).hexdigest(),
-                "source": match.group(0)
-            })
-            
+    seen_functions = set()
+
+    for match in DART_CLASS_RE.finditer(stripped):
+        class_name = match.group("name")
+        if class_name.startswith("_"):
+            continue
+        line_idx = line_start_to_idx.get(match.start(), 0)
+        dartdoc = _dartdoc_before(lines, line_idx)
+        classes.append({
+            "name": class_name,
+            "docstring": clean_dartdoc(dartdoc) if dartdoc else "",
+            "methods": []
+        })
+
+    for match in DART_DECL_RE.finditer(stripped):
+        name = match.group("name")
+        ret_type = match.group("type") or ""
+        mods = (match.group("mods") or "").split()
+
+        if name.startswith("_") or name in DART_STATEMENT_KEYWORDS:
+            continue
+        if ret_type in DART_STATEMENT_KEYWORDS:
+            continue
+
+        open_idx = match.end() - 1
+        close_idx = _find_matching_paren(stripped, open_idx)
+        if close_idx == -1:
+            continue
+
+        terminator = _dart_decl_terminator(stripped, close_idx + 1)
+        if terminator is None:
+            continue
+        if terminator == ";" and not (ret_type or mods or name[0].isupper()):
+            # `foo(...);` with no return type/modifier and a lowercase name
+            # is a call statement, not an abstract/external declaration.
+            continue
+        if terminator == ":" and not name[0].isupper():
+            # Initializer lists only follow constructors.
+            continue
+
+        args = clean_args_string(stripped[open_idx + 1:close_idx])
+        dedupe_key = (name, args)
+        if dedupe_key in seen_functions:
+            continue
+        seen_functions.add(dedupe_key)
+
+        line_idx = line_start_to_idx.get(
+            stripped.rfind("\n", 0, match.start()) + 1)
+        if line_idx is None:
+            line_idx = 0
+        dartdoc = _dartdoc_before(lines, line_idx)
+
+        decl_source = stripped[match.start():close_idx + 1]
+        signature = clean_args_string(decl_source)
+        functions.append({
+            "name": name,
+            "args": args,
+            "signature": signature,
+            "docstring": clean_dartdoc(dartdoc) if dartdoc else "",
+            "whitelisted": True,
+            "hash": hashlib.sha256(decl_source.encode("utf-8")).hexdigest(),
+            "source": decl_source
+        })
+
     if classes or functions:
         return {
             "module_doc": "",
@@ -537,125 +672,265 @@ def get_fn_prefix(filepath):
         return "function "
     return ""
 
+def get_fence_language(filepath):
+    """Fence language tag for signature code blocks (MD040 wants one)."""
+    ext = os.path.splitext(filepath)[1]
+    if ext == ".py":
+        return "python"
+    if ext in [".ts", ".tsx"]:
+        return "typescript"
+    if ext == ".dart":
+        return "dart"
+    return "text"
+
+def wrap_markdown_text(text, width=MD_LINE_LIMIT):
+    """Wrap prose lines to the markdownlint line limit. Fenced code and
+    table lines are left alone; unbreakable long tokens stay on their own
+    line (MD013 only flags lines with a space past the limit)."""
+    out = []
+    in_fence = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence or len(line) <= width or stripped.startswith("|"):
+            out.append(line)
+            continue
+        indent = line[:len(line) - len(line.lstrip())]
+        marker = re.match(r'(?:[-*+]\s+|\d+[.)]\s+|>\s*)', stripped)
+        subsequent = indent + " " * (marker.end() if marker else 0)
+        out.extend(textwrap.wrap(
+            line, width=width,
+            subsequent_indent=subsequent,
+            break_long_words=False, break_on_hyphens=False,
+        ) or [line])
+    return "\n".join(out)
+
+def _split_top_level_args(args):
+    """Split a parameter list at commas that sit outside any nested
+    brackets or string literals."""
+    parts = []
+    depth = 0
+    quote = None
+    start = 0
+    i = 0
+    while i < len(args):
+        c = args[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+        elif c in "([{<":
+            depth += 1
+        elif c in ")]}>":
+            depth -= 1
+        elif c == "," and depth == 0:
+            parts.append(args[start:i].strip())
+            start = i + 1
+        i += 1
+    tail = args[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+def format_signature_lines(signature, width=MD_LINE_LIMIT):
+    """Format a signature for a fenced code block: one line when it fits,
+    otherwise one parameter per line (Dart optional-parameter {...}/[...]
+    wrappers hug the parentheses)."""
+    if len(signature) <= width:
+        return [signature]
+    open_idx = signature.find("(")
+    close_idx = signature.rfind(")")
+    if open_idx == -1 or close_idx <= open_idx:
+        return textwrap.wrap(
+            signature, width=width, subsequent_indent="    ",
+            break_long_words=False, break_on_hyphens=False) or [signature]
+    prefix = signature[:open_idx]
+    inner = signature[open_idx + 1:close_idx].strip()
+    suffix = signature[close_idx + 1:].strip()
+    open_wrap = close_wrap = ""
+    if inner[:1] in "{[" and inner[-1:] in "}]":
+        open_wrap, close_wrap = inner[0], inner[-1]
+        inner = inner[1:-1].strip().rstrip(",")
+    lines = [f"{prefix}({open_wrap}"]
+    parts = _split_top_level_args(inner)
+    for idx, part in enumerate(parts):
+        line = f"  {part}," if idx < len(parts) - 1 or open_wrap else f"  {part}"
+        if len(line) > width:
+            lines.extend(textwrap.wrap(
+                line, width=width, subsequent_indent="      ",
+                break_long_words=False, break_on_hyphens=False))
+        else:
+            lines.append(line)
+    lines.append(f"{close_wrap}){suffix}" if suffix else f"{close_wrap})")
+    return lines
+
+def append_heading(lines, level, name, args, fn_prefix, lang, signature=None):
+    """Append a symbol heading, spilling signatures that would overflow the
+    heading line into a fenced code block below a short heading. A blank
+    line always follows the heading (MD022)."""
+    marker = "#" * level
+    full = f"{marker} `{fn_prefix}{name}({args})`"
+    if len(full) <= MD_LINE_LIMIT:
+        lines.append(full)
+        lines.append("")
+        return
+    lines.append(f"{marker} `{fn_prefix}{name}`")
+    lines.append("")
+    lines.append(f"```{lang}")
+    lines.extend(format_signature_lines(signature or f"{fn_prefix}{name}({args})"))
+    lines.append("```")
+    lines.append("")
+
+def lint_clean_markdown(text):
+    """Final normalization pass: exactly one blank line around headings,
+    no consecutive blank lines, single trailing newline. Fenced blocks are
+    left untouched."""
+    out = []
+    in_fence = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            if not in_fence and out and out[-1] != "":
+                out.append("")
+            in_fence = not in_fence
+            out.append(line)
+            if not in_fence:
+                out.append("")
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        if line == "":
+            if not out or out[-1] == "":
+                continue
+            out.append(line)
+            continue
+        if line.startswith("#") and out and out[-1] != "":
+            out.append("")
+        if out and out[-1].startswith("#"):
+            out.append("")
+        out.append(line)
+    return "\n".join(out).strip() + "\n"
+
+def append_symbol_doc_body(lines, item, ai_cache, check_only):
+    """Append the description for a symbol: its docstring, a cached or
+    freshly generated AI doc, or the no-doc placeholder. Prose is wrapped
+    to the markdownlint line limit."""
+    if item["docstring"]:
+        lines.append(wrap_markdown_text(item["docstring"].strip()))
+    else:
+        cached_hash, cached_doc = ai_cache.get(item["name"], (None, None))
+        if cached_hash == item["hash"]:
+            lines.append(f"<!-- {item['hash']} -->")
+            lines.append(wrap_markdown_text(cached_doc))
+        elif not check_only:
+            ai_doc = generate_ai_doc(item["source"], item["name"], item["args"])
+            if ai_doc:
+                lines.append(f"<!-- {item['hash']} -->")
+                lines.append(wrap_markdown_text(ai_doc))
+            else:
+                lines.append("*No documentation provided (generation failed).*")
+        else:
+            if cached_hash and cached_doc:
+                lines.append(f"<!-- {item['hash']} -->")
+                lines.append(wrap_markdown_text(cached_doc))
+            else:
+                lines.append("*No documentation provided.*")
+    lines.append("")
+
 def generate_markdown(filepath, rel_path, spec, existing_md_content="", check_only=False, target_dir="."):
     """Generate Markdown representation of the Python, TS, or Dart specification."""
     lines = []
     basename = os.path.basename(filepath)
     module_name = os.path.splitext(basename)[0]
     fn_prefix = get_fn_prefix(filepath)
-    
+    lang = get_fence_language(filepath)
+
     ai_cache = extract_cached_ai_docs(existing_md_content) if existing_md_content else {}
-    
+
     # Use git root for the source file path in the documentation
     git_root = find_git_root(filepath)
     git_rel_path = os.path.relpath(filepath, git_root)
-    
+
     lines.append(f"# API Reference: {module_name}")
     lines.append("")
     lines.append(f"Source file: `{git_rel_path.replace(os.sep, '/')}`")
     lines.append("")
-    
+
     if spec["module_doc"]:
         lines.append("## Module Description")
-        lines.append(spec["module_doc"].strip())
         lines.append("")
-        
+        lines.append(wrap_markdown_text(spec["module_doc"].strip()))
+        lines.append("")
+
     if spec["classes"]:
         lines.append("## Classes")
         lines.append("")
         for cls in spec["classes"]:
             lines.append(f"### class `{cls['name']}`")
-            if cls["docstring"]:
-                lines.append(cls["docstring"].strip())
             lines.append("")
-            
+            if cls["docstring"]:
+                lines.append(wrap_markdown_text(cls["docstring"].strip()))
+                lines.append("")
+
             whitelisted_methods = [m for m in cls["methods"] if m["whitelisted"]]
             other_methods = [m for m in cls["methods"] if not m["whitelisted"] and m["docstring"]]
-            
+
             # Filter unused class methods
             whitelisted_methods = [m for m in whitelisted_methods if is_function_used(m["name"], filepath, target_dir)]
             other_methods = [m for m in other_methods if is_function_used(m["name"], filepath, target_dir)]
-            
+
             if whitelisted_methods:
                 lines.append("#### Whitelisted API Methods")
+                lines.append("")
                 for method in whitelisted_methods:
-                    lines.append(f"##### `{method['name']}({method['args']})`")
-                    if method["docstring"]:
-                        lines.append(method["docstring"].strip())
-                    else:
-                        cached_hash, cached_doc = ai_cache.get(method["name"], (None, None))
-                        if cached_hash == method["hash"]:
-                            lines.append(f"<!-- {method['hash']} -->")
-                            lines.append(cached_doc)
-                        elif not check_only:
-                            ai_doc = generate_ai_doc(method["source"], method["name"], method["args"])
-                            if ai_doc:
-                                lines.append(f"<!-- {method['hash']} -->")
-                                lines.append(ai_doc)
-                            else:
-                                lines.append("*No documentation provided (generation failed).*")
-                        else:
-                            if cached_hash and cached_doc:
-                                lines.append(f"<!-- {method['hash']} -->")
-                                lines.append(cached_doc)
-                            else:
-                                lines.append("*No documentation provided.*")
-                    lines.append("")
-                    
+                    append_heading(lines, 5, method["name"], method["args"],
+                                   "", lang, method.get("signature"))
+                    append_symbol_doc_body(lines, method, ai_cache, check_only)
+
             if other_methods:
                 lines.append("#### Documented Internal Methods")
+                lines.append("")
                 for method in other_methods:
-                    lines.append(f"##### `{method['name']}({method['args']})`")
+                    append_heading(lines, 5, method["name"], method["args"],
+                                   "", lang, method.get("signature"))
                     if method["docstring"]:
-                        lines.append(method["docstring"].strip())
+                        lines.append(wrap_markdown_text(method["docstring"].strip()))
                     lines.append("")
-                    
+
     if spec["functions"]:
         whitelisted_funcs = [f for f in spec["functions"] if f["whitelisted"]]
         other_funcs = [f for f in spec["functions"] if not f["whitelisted"] and f["docstring"]]
-        
+
         # Filter out unused functions/endpoints
         whitelisted_funcs = [f for f in whitelisted_funcs if is_function_used(f["name"], filepath, target_dir)]
         other_funcs = [f for f in other_funcs if is_function_used(f["name"], filepath, target_dir)]
-        
+
         if whitelisted_funcs:
             lines.append("## Whitelisted API Endpoints")
             lines.append("")
             for func in whitelisted_funcs:
-                lines.append(f"### `{fn_prefix}{func['name']}({func['args']})`")
-                if func["docstring"]:
-                    lines.append(func["docstring"].strip())
-                else:
-                    cached_hash, cached_doc = ai_cache.get(func["name"], (None, None))
-                    if cached_hash == func["hash"]:
-                        lines.append(f"<!-- {func['hash']} -->")
-                        lines.append(cached_doc)
-                    elif not check_only:
-                        ai_doc = generate_ai_doc(func["source"], func["name"], func["args"])
-                        if ai_doc:
-                            lines.append(f"<!-- {func['hash']} -->")
-                            lines.append(ai_doc)
-                        else:
-                            lines.append("*No documentation provided (generation failed).*")
-                    else:
-                        if cached_hash and cached_doc:
-                            lines.append(f"<!-- {func['hash']} -->")
-                            lines.append(cached_doc)
-                        else:
-                            lines.append("*No documentation provided.*")
-                lines.append("")
-                
+                append_heading(lines, 3, func["name"], func["args"],
+                               fn_prefix, lang, func.get("signature"))
+                append_symbol_doc_body(lines, func, ai_cache, check_only)
+
         if other_funcs:
             lines.append("## Documented Module Functions")
             lines.append("")
             for func in other_funcs:
-                lines.append(f"### `{fn_prefix}{func['name']}({func['args']})`")
+                append_heading(lines, 3, func["name"], func["args"],
+                               fn_prefix, lang, func.get("signature"))
                 if func["docstring"]:
-                    lines.append(func["docstring"].strip())
+                    lines.append(wrap_markdown_text(func["docstring"].strip()))
                 lines.append("")
 
-    content = "\n".join(lines).strip() + "\n"
-    return content
+    return lint_clean_markdown("\n".join(lines))
 
 # Stack mapping for per-stack documentation output nested inside each stack
 # directory: a doc for a source file goes to <stack_dir>/docs/api/<name>.md,
