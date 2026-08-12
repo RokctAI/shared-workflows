@@ -1,3 +1,22 @@
+"""Audits every SDK in the workspace: structure, manifest imports, and
+cross-feature SDK imports (ADR-005).
+
+The enforced structure is re-derived from a 2026-08 census of all 25 fleet
+SDKs (directory -> SDKs having it, counted with the same combined
+common/ + persona logic validate_structure uses):
+
+    di 24 | application 18 | infrastructure/repositories 16 |
+    domain/interface 13 | infrastructure/services 9 |
+    infrastructure/models 6 | utils 5 | infrastructure/database 2
+
+Rules follow the census: near-universal dirs (>=90%) are ERRORs,
+common-but-not-universal (>=50%) are WARNINGs, minority patterns are not
+required at all. Uniformity rules stay strict regardless of counts: the
+repository folder must be spelled `infrastructure/repositories` (plural),
+`infrastructure/models` must be sliced into data/ + response/ wherever it
+exists, and `infrastructure/database` is required exactly when the
+manifest declares the `database` key (2/2 correlation in the fleet).
+"""
 import argparse
 import os
 import json
@@ -132,7 +151,11 @@ def parse_manifests(manifest_paths):
                     # structure check must only look for folders this SDK
                     # actually claims (e.g. booking_sdk only ever declares
                     # 'customer', revenue_sdk only 'manager').
-                    'personas': list((data.get('app_type') or {}).keys())
+                    'personas': list((data.get('app_type') or {}).keys()),
+                    # infrastructure/database is only expected when the SDK
+                    # actually declares tables via the manifest's "database"
+                    # key (optional per SDK_ECOSYSTEM.md).
+                    'declares_database': 'database' in data
                 }
                 
                 # Top-level installs are flavor-independent; `app_type.<flavor>`
@@ -165,7 +188,8 @@ def has_files(path):
             return True
     return False
 
-def validate_structure(sdk_name, dart_dir, logger, personas=None):
+def validate_structure(sdk_name, dart_dir, logger, personas=None,
+                       declares_database=False):
     # Determine the base path for structure checks
     # Check for lib/src first, then fallback to dart_dir
     base_path = dart_dir / 'lib' / 'src'
@@ -221,7 +245,9 @@ def validate_structure(sdk_name, dart_dir, logger, personas=None):
     def any_path_is_dir(rel_path):
         return any((p / rel_path).is_dir() for p in paths_to_validate)
 
-    # 1. Application: Must have files inside subfolders
+    # 1. Application (18/25 SDKs — common, not universal, so absence is a
+    # WARNING). Where it exists it must be feature-sliced: subfolders per
+    # feature, no bare pile of files.
     if any_path_is_dir('application'):
         subdirs_by_path = {
             p: [d for d in os.listdir(p / 'application') if (p / 'application' / d).is_dir()]
@@ -235,11 +261,15 @@ def validate_structure(sdk_name, dart_dir, logger, personas=None):
                     if not has_files(p / 'application' / sd):
                         logger.log(f"[{str(p).replace(chr(92), '/')}] 'application/{sd}' is empty. Expected files inside.", "WARNING", sdk_name)
     else:
-        report('application', "Missing 'application' directory.")
+        report('application', "Missing 'application' directory.", "WARNING")
 
-    # 2. Infrastructure Models Slicing
+    # 2. Infrastructure Models Slicing. Only a minority of SDKs (6/25) keep
+    # API models under infrastructure/models, so the directory itself is not
+    # required — but wherever it exists the canonical slices are data/ and
+    # response/ (every conforming SDK has exactly those; request/ is not part
+    # of the canonical slicing under infrastructure/models).
     if any_path_is_dir('infrastructure/models'):
-        slices = ['data', 'request', 'response']
+        slices = ['data', 'response']
         for s in slices:
             if not any_path_has(f'infrastructure/models/{s}'):
                 report(f'infrastructure/models/{s}', f"Missing or empty model slice: 'infrastructure/models/{s}'")
@@ -248,25 +278,39 @@ def validate_structure(sdk_name, dart_dir, logger, personas=None):
             if inf_models_dir.is_dir():
                 for item in os.listdir(inf_models_dir):
                     if os.path.isfile(inf_models_dir / item):
-                        logger.log(f"[{str(p).replace(chr(92), '/')}] File {item} found directly in 'infrastructure/models'. Files must be in data/request/response slices.", "WARNING", sdk_name)
-    else:
-        report('infrastructure/models', "Missing 'infrastructure/models' directory.")
+                        logger.log(f"[{str(p).replace(chr(92), '/')}] File {item} found directly in 'infrastructure/models'. Files must be in data/response slices.", "WARNING", sdk_name)
 
-    # 3. Mandatory folders with files
-    mandatory = {
-        'infrastructure/repository': 'Repository implementations missing',
-        'infrastructure/services': 'Service implementations missing',
-        'infrastructure/database': 'Database definitions missing',
+    # 3. Repository folder naming: the fleet standard is the plural
+    # 'infrastructure/repositories' (16/25 SDKs; zero conforming SDKs use the
+    # singular). A singular 'infrastructure/repository' is a naming error so
+    # the spelling stays uniform.
+    if any_path_is_dir('infrastructure/repository'):
+        report('infrastructure/repository',
+               "'infrastructure/repository' found — fleet standard is the plural "
+               "'infrastructure/repositories'. Rename the folder.")
+
+    # 4. Required / expected folders with files, per the fleet census:
+    #    - di (24/25) is near-universal -> ERROR when missing.
+    #    - infrastructure/database is required exactly when this SDK's
+    #      manifest declares the 'database' key -> ERROR then, not expected
+    #      otherwise (only 2/25 SDKs declare it, and both have the folder).
+    #    - infrastructure/repositories (16/25) and domain/interface (13/25)
+    #      are common-but-not-universal -> WARNING when missing.
+    #    (infrastructure/services (9/25) and utils (5/25) are minority
+    #    patterns and no longer expected at all.)
+    if not any_path_has('di'):
+        report('di', "Dependency Injection configuration missing (Expected at di)")
+    if declares_database and not any_path_has('infrastructure/database'):
+        report('infrastructure/database',
+               "Manifest declares the 'database' key but database definitions "
+               "are missing (Expected at infrastructure/database)")
+    expected = {
+        'infrastructure/repositories': 'Repository implementations missing',
         'domain/interface': 'Domain interfaces missing',
-        'di': 'Dependency Injection configuration missing'
     }
-    for rel_path, msg in mandatory.items():
+    for rel_path, msg in expected.items():
         if not any_path_has(rel_path):
-            report(rel_path, f"{msg} (Expected at {rel_path})")
-
-    # 4. Utils
-    if not any_path_is_dir('utils'):
-        report('utils', "'utils' folder missing.", "WARNING")
+            report(rel_path, f"{msg} (Expected at {rel_path})", "WARNING")
 
     return sdk_valid
 
@@ -313,6 +357,20 @@ def validate_cross_sdk_imports(sdk_name, dart_dir, sdk_data, logger):
                         if imported_sdk in CROSS_SDK_IMPORT_ALLOWLIST:
                             continue
                         if imported_sdk not in sdk_data:
+                            # Not a discovered local SDK. In per-repo (CI)
+                            # mode a sibling repo's SDK also lands here, so a
+                            # package that looks like one of ours by naming
+                            # convention gets a heuristic WARNING instead of
+                            # being silently treated as third-party.
+                            if imported_sdk.endswith('_sdk'):
+                                rel_file = os.path.relpath(fpath, dart_dir).replace('\\', '/')
+                                logger.log(
+                                    f"{sdk_name} imports {imported_sdk} at {rel_file}:{lineno} "
+                                    f"— possible cross-repo SDK import — run full-workspace "
+                                    f"mode to verify.",
+                                    "WARNING",
+                                    sdk_name,
+                                )
                             continue  # third-party package, not one of ours
                         rel_file = os.path.relpath(fpath, dart_dir).replace('\\', '/')
                         logger.log(
@@ -334,12 +392,48 @@ def validate_cross_sdk_imports(sdk_name, dart_dir, sdk_data, logger):
     return sdk_valid
 
 
-def extract_imports(text):
-    return re.findall(r"package:([^'\"]+)", text)
+def extract_imports(manifest_data):
+    """Collects package: imports from the manifest's structured fields.
+
+    Walks the parsed JSON instead of regex-scanning the raw text, skipping
+    every `_comment*` key — those fields are the ecosystem's prose
+    documentation and routinely mention package paths that are not imports.
+    Real imports only live in structured fields (routes/app_routes/
+    database/boot_hooks/embedded_widgets/app_type flavor blocks/...) as an
+    "import" string or an "imports" list of Dart import statements; walking
+    all non-comment string values covers every such shape.
+    """
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key.startswith('_comment'):
+                    continue
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+        elif isinstance(node, str):
+            found.extend(re.findall(r"package:([^'\"]+)", node))
+
+    walk(manifest_data)
+    return found
+
+# ${package}/ paths generated into the host app shell by the composer itself
+# (see protocol core/utils/flutter/sdk_installer_base.py, ROUTER_FILE): no
+# SDK manifest "installs" these, yet importing them is valid because the
+# composer guarantees they exist in every composed app. Paths are relative
+# to lib/ (same normalization as the install registry).
+COMPOSER_GENERATED_PATHS = {
+    'presentation/routes/app_router.dart',
+}
 
 def validate_import(import_path, registry, sdk_data):
     if import_path.startswith('${package}/'):
         rel_path = import_path[len('${package}/'):]
+        if rel_path in COMPOSER_GENERATED_PATHS:
+            return True, None
         for to_path, provider in registry.items():
             if rel_path.startswith(to_path):
                 return True, None
@@ -423,14 +517,16 @@ def main():
         logger.log(f"--- Auditing SDK: {sdk_name} ---")
         
         # 1. Structure Check
-        if not validate_structure(sdk_name, info['dart_dir'], logger, info.get('personas')):
+        if not validate_structure(sdk_name, info['dart_dir'], logger,
+                                  info.get('personas'),
+                                  info.get('declares_database', False)):
             overall_errors += 1
-            
+
         # 2. Import Validation
         try:
             with open(info['manifest_path'], 'r', encoding='utf-8-sig') as f:
-                content = f.read()
-                
+                content = json.load(f)
+
             imports = extract_imports(content)
             for imp in imports:
                 # Extract just the path after 'package:'
