@@ -376,6 +376,7 @@ jobs:
   verify-flutter:
     needs: ci-flutter
     if: |
+      !cancelled() &&
       inputs.run_verify &&
       inputs.project_type == 'flutter' &&
       needs.ci-flutter.result == 'success'
