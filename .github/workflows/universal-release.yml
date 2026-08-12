@@ -1531,6 +1531,49 @@ jobs:
              echo "Skipping: android/ directory not found. Not a mobile project."
            fi
 
+      - name: Compose SDK Modules (If Shell App)
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see sdk_composer.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          # Shell apps declare pubspec path dependencies into .rokct/cache/,
+          # which only exist after the composer clones the SDK repos pinned in
+          # composer.json. Without composing first, `flutter pub get` (and
+          # therefore `flutter build`) can never succeed on a fresh runner.
+          # Must run AFTER the Flutter setup step: the composer itself invokes
+          # `flutter pub get`.
+          # A compose failure (e.g. composer.json pinning a ref that no longer
+          # exists) fails this step loudly - that is a real, actionable break
+          # in the repo's composition, not something to paper over.
+          if [ -f "composer.json" ]; then
+            # The canonical composer is session-ephemeral: it is provisioned
+            # under .rokct/skills/ by .rokct/initiate.py and wiped by
+            # end_protocol, so it is never committed. Provision it first when
+            # it is not already present.
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Shell app detected (composer.json). Provisioning canonical composer via .rokct/initiate.py..."
+              python3 .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
+              python3 .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via local skills composer..."
+              python3 .rokct/skills/flutter/scripts/compose.py
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              python3 .rokct/compose.py
+            else
+              echo "composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper). Skipping composition."
+            fi
+          else
+            echo "Not a composed shell app (no composer.json). Skipping composition."
+          fi
+
       # Dynamic Source Rename (Critical for Client Builds)
       - name: Dynamic Source Rename
         if: inputs.build_android == true && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
@@ -1667,49 +1710,6 @@ jobs:
                  echo "✅ $BUILD_GRADLE is correct."
               fi
            fi
-
-      - name: Compose SDK Modules (If Shell App)
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
-        env:
-          # SDK repos are private; the composer injects this token into its
-          # git clone URLs (see sdk_composer.py authenticated_git_url).
-          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
-        run: |
-          # Shell apps declare pubspec path dependencies into .rokct/cache/,
-          # which only exist after the composer clones the SDK repos pinned in
-          # composer.json. Without composing first, `flutter pub get` (and
-          # therefore `flutter build`) can never succeed on a fresh runner.
-          # Must run AFTER the Flutter setup step: the composer itself invokes
-          # `flutter pub get`.
-          # A compose failure (e.g. composer.json pinning a ref that no longer
-          # exists) fails this step loudly - that is a real, actionable break
-          # in the repo's composition, not something to paper over.
-          if [ -f "composer.json" ]; then
-            # The canonical composer is session-ephemeral: it is provisioned
-            # under .rokct/skills/ by .rokct/initiate.py and wiped by
-            # end_protocol, so it is never committed. Provision it first when
-            # it is not already present.
-            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
-              echo "Shell app detected (composer.json). Provisioning canonical composer via .rokct/initiate.py..."
-              python3 .rokct/initiate.py
-            fi
-            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
-              echo "Composing SDK modules via canonical skills composer..."
-              python3 .rokct/skills/.rok/flutter/scripts/compose.py
-            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
-              echo "Composing SDK modules via local skills composer..."
-              python3 .rokct/skills/flutter/scripts/compose.py
-            elif [ -f ".rokct/compose.py" ]; then
-              # Backward compatibility for repos that still commit a root
-              # composer bootstrap and have no .rokct/initiate.py.
-              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
-              python3 .rokct/compose.py
-            else
-              echo "composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper). Skipping composition."
-            fi
-          else
-            echo "Not a composed shell app (no composer.json). Skipping composition."
-          fi
 
       - name: Build Android APK (Release)
         # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
