@@ -1,0 +1,411 @@
+# Copyright 2026 RokctAI
+
+# Scheduled replacement for the push-triggered SDK dispatch path
+# (per-SDK-repo sdk-dispatch.yml callers -> universal-sdk-dispatch.yml),
+# which cannot run while the org is out of private-repo Actions minutes.
+# This poller runs on the public shared-workflows repo (free minutes),
+# watches every SDK repo's */dart/manifest.json versions, and dispatches
+# dependent app-shell builds when a version changes.
+
+name: SDK Bump Poller
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Detect and log version bumps, but never dispatch builds or write state'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: sdk-bump-poller
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    # Tolerable failures (missing PAT, transient org-listing / per-repo scan /
+    # per-shell dispatch errors) are handled inside the steps, which warn and
+    # exit 0. Anything that fails this job is a real script or infrastructure
+    # problem and must be visible as a red run.
+    env:
+      GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+      ORG: RokctAI
+      WORKFLOW_FILE: build.yml
+      STATE_BRANCH: sdk-poller-state
+      DRY_RUN: ${{ inputs.dry_run == true }}
+    steps:
+      - name: Check MONOREPO_PAT availability
+        id: guard
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "MONOREPO_PAT is not available (fork or unconfigured repo); nothing to do."
+            {
+              echo "## SDK Bump Poller"
+              echo ""
+              echo "\`MONOREPO_PAT\` is not available, so this run did nothing."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout code
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@v6
+
+      - name: Poll SDK manifests and dispatch dependent builds
+        if: steps.guard.outputs.run == 'true'
+        id: poll
+        run: |
+          WORK="$RUNNER_TEMP/sdk-poller"
+          mkdir -p "$WORK"
+          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+          JSON_ACCEPT="Accept: application/vnd.github+json"
+          RAW_ACCEPT="Accept: application/vnd.github.raw"
+
+          echo "commit=false" >> "$GITHUB_OUTPUT"
+          [ "$DRY_RUN" = "true" ] && echo "DRY RUN: no builds will be dispatched and no state will be written."
+
+          # --- 1. Load previous state from the state branch ---------------------
+          FIRST_RUN=false
+          if git fetch --no-tags --depth 1 origin "$STATE_BRANCH" 2>/dev/null; then
+            if git show "FETCH_HEAD:state.json" > "$WORK/old-state.json" 2>/dev/null \
+               && jq -e 'type == "object"' "$WORK/old-state.json" >/dev/null 2>&1; then
+              echo "Loaded previous state ($(jq 'length' "$WORK/old-state.json") manifests) from $STATE_BRANCH."
+            else
+              echo "::warning::Branch $STATE_BRANCH exists but state.json is missing or invalid; reseeding state."
+              FIRST_RUN=true
+            fi
+          else
+            echo "No $STATE_BRANCH branch yet; this is the first run and will only seed state."
+            FIRST_RUN=true
+          fi
+
+          # --- 2. List org repos (name + default branch), paginated -------------
+          REPOS_FILE="$WORK/org-repos.tsv"
+          : > "$REPOS_FILE"
+          PAGE=1
+          LIST_OK=true
+          while :; do
+            RESP="$(curl -sS -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+              "https://api.github.com/orgs/$ORG/repos?per_page=100&page=$PAGE" || true)"
+            COUNT="$(echo "$RESP" | jq 'if type == "array" then length else -1 end' 2>/dev/null || echo -1)"
+            if [ "$COUNT" -lt 0 ] 2>/dev/null; then
+              LIST_OK=false
+              break
+            fi
+            [ "$COUNT" -eq 0 ] && break
+            echo "$RESP" | jq -r '.[] | select(.archived | not) | [.name, (.default_branch // "main")] | @tsv' >> "$REPOS_FILE"
+            [ "$COUNT" -lt 100 ] && break
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ "$LIST_OK" != "true" ] || [ ! -s "$REPOS_FILE" ]; then
+            echo "::warning::Failed to list $ORG repositories (transient API error?); skipping this poll."
+            {
+              echo "## SDK Bump Poller"
+              echo ""
+              echo "Could not list \`$ORG\` repositories; this poll was skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Discovered $(wc -l < "$REPOS_FILE") active repos in $ORG."
+
+          # --- 3. Discover shells (dart-style sdks[] composer) and SDK repos ----
+          SHELLS_FILE="$WORK/shells.tsv"          # shell<TAB>default_branch
+          SDK_URLS_FILE="$WORK/sdk-url-names.txt" # lowercased repo basename of enabled git URLs
+          : > "$SHELLS_FILE"
+          : > "$SDK_URLS_FILE"
+          while IFS=$'\t' read -r REPO_NAME DEFAULT_BRANCH; do
+            COMPOSER="$WORK/composer-$REPO_NAME.json"
+            CODE="$(curl -sS -o "$COMPOSER" -w '%{http_code}' -H "$AUTH_HEADER" -H "$RAW_ACCEPT" \
+              "https://api.github.com/repos/$ORG/$REPO_NAME/contents/composer.json" || echo 000)"
+            [ "$CODE" = "200" ] || continue
+            if ! jq empty "$COMPOSER" 2>/dev/null; then
+              echo "::warning::$REPO_NAME has a root composer.json that is not valid JSON; skipping it."
+              continue
+            fi
+            if ! jq -e '(.sdks // empty) | type == "array" and length > 0' "$COMPOSER" >/dev/null 2>&1; then
+              continue
+            fi
+            printf '%s\t%s\n' "$REPO_NAME" "$DEFAULT_BRANCH" >> "$SHELLS_FILE"
+            jq -r '(.sdks // [])[]
+              | select(.enabled == true)
+              | (.git // "")
+              | select(length > 0)
+              | ascii_downcase | rtrimstr("/") | rtrimstr(".git")
+              | split("/") | last' "$COMPOSER" >> "$SDK_URLS_FILE"
+          done < "$REPOS_FILE"
+
+          sort -u -o "$SDK_URLS_FILE" "$SDK_URLS_FILE"
+          SDK_REPOS_FILE="$WORK/sdk-repos.tsv"    # canonical_name<TAB>default_branch
+          : > "$SDK_REPOS_FILE"
+          while IFS=$'\t' read -r REPO_NAME DEFAULT_BRANCH; do
+            LOWER="$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')"
+            if grep -Fxq -- "$LOWER" "$SDK_URLS_FILE"; then
+              printf '%s\t%s\n' "$REPO_NAME" "$DEFAULT_BRANCH" >> "$SDK_REPOS_FILE"
+            fi
+          done < "$REPOS_FILE"
+
+          echo "Shells: $(cut -f1 "$SHELLS_FILE" | paste -sd ',' - | sed 's/,/, /g')"
+          echo "SDK repos: $(cut -f1 "$SDK_REPOS_FILE" | paste -sd ',' - | sed 's/,/, /g')"
+
+          # --- 4. Read every */dart/manifest.json version in each SDK repo ------
+          CURRENT_TSV="$WORK/current.tsv"         # repo<TAB>path<TAB>name<TAB>version
+          SCANNED_OK="$WORK/scanned-ok.txt"       # SDK repos fully scanned this run
+          FAILED_KEYS="$WORK/failed-keys.txt"     # repo/path keys whose read failed
+          : > "$CURRENT_TSV"
+          : > "$SCANNED_OK"
+          : > "$FAILED_KEYS"
+          while IFS=$'\t' read -r SDK_REPO DEFAULT_BRANCH; do
+            TREE="$WORK/tree-$SDK_REPO.json"
+            CODE="$(curl -sS -o "$TREE" -w '%{http_code}' -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+              "https://api.github.com/repos/$ORG/$SDK_REPO/git/trees/$DEFAULT_BRANCH?recursive=1" || echo 000)"
+            if [ "$CODE" != "200" ] || ! jq -e '.tree | type == "array"' "$TREE" >/dev/null 2>&1; then
+              echo "::warning::Could not fetch git tree for $ORG/$SDK_REPO@$DEFAULT_BRANCH (HTTP $CODE); its state entries are carried over unchanged."
+              continue
+            fi
+            TRUNCATED="$(jq -r '.truncated // false' "$TREE" 2>/dev/null || echo false)"
+            if [ "$TRUNCATED" = "true" ]; then
+              echo "::warning::Git tree for $ORG/$SDK_REPO is truncated; manifests may be missed, so its stale entries are carried over instead of removed."
+            else
+              echo "$SDK_REPO" >> "$SCANNED_OK"
+            fi
+            while IFS= read -r MPATH; do
+              [ -n "$MPATH" ] || continue
+              MANIFEST="$WORK/manifest.json"
+              MCODE="$(curl -sSG -o "$MANIFEST" -w '%{http_code}' -H "$AUTH_HEADER" -H "$RAW_ACCEPT" \
+                --data-urlencode "ref=$DEFAULT_BRANCH" \
+                "https://api.github.com/repos/$ORG/$SDK_REPO/contents/$MPATH" || echo 000)"
+              VERSION=""
+              if [ "$MCODE" = "200" ]; then
+                VERSION="$(jq -r '.version // empty' "$MANIFEST" 2>/dev/null || true)"
+              fi
+              if [ -z "$VERSION" ]; then
+                echo "::warning::Could not read version from $ORG/$SDK_REPO/$MPATH (HTTP $MCODE); its state entry is carried over unchanged."
+                echo "$SDK_REPO/$MPATH" >> "$FAILED_KEYS"
+                continue
+              fi
+              SDK_NAME="$(jq -r '.name // empty' "$MANIFEST" 2>/dev/null || true)"
+              [ -n "$SDK_NAME" ] || SDK_NAME="${MPATH%/manifest.json}"
+              printf '%s\t%s\t%s\t%s\n' "$SDK_REPO" "$MPATH" "$SDK_NAME" "$VERSION" >> "$CURRENT_TSV"
+            done < <(jq -r '.tree[] | select(.type == "blob") | .path | select(endswith("/dart/manifest.json"))' "$TREE")
+          done < "$SDK_REPOS_FILE"
+
+          MANIFEST_COUNT="$(wc -l < "$CURRENT_TSV" | tr -d ' ')"
+          SDK_REPO_COUNT="$(wc -l < "$SDK_REPOS_FILE" | tr -d ' ')"
+          echo "Checked $MANIFEST_COUNT manifests across $SDK_REPO_COUNT SDK repos."
+
+          # current.json: {"repo/path": "version"}
+          jq -Rn 'reduce (inputs / "\t") as $r ({}; . + {($r[0] + "/" + $r[1]): $r[3]})' \
+            < "$CURRENT_TSV" > "$WORK/current.json"
+
+          # --- 5. First run: seed state, never dispatch -------------------------
+          if [ "$FIRST_RUN" = "true" ]; then
+            cp "$WORK/current.json" "$WORK/new-state.json"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "DRY RUN: first run would seed $MANIFEST_COUNT manifests; no state written, no dispatches."
+              STATE_NOTE="not written (dry run; would seed $MANIFEST_COUNT manifests)"
+            else
+              echo "First run: seeded $MANIFEST_COUNT manifests, no dispatches on first run."
+              echo "commit=true" >> "$GITHUB_OUTPUT"
+              STATE_NOTE="seeded with $MANIFEST_COUNT manifests"
+            fi
+            {
+              echo "## SDK Bump Poller"
+              echo ""
+              echo "- Manifests checked: **$MANIFEST_COUNT** (across $SDK_REPO_COUNT SDK repos)"
+              echo "- Bumps found: **0** (first run only takes a snapshot)"
+              echo "- Dispatches: none (never on first run)"
+              echo "- State: $STATE_NOTE"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # --- 6. Merge new state (carry over entries for repos we could not scan)
+          jq -n \
+            --slurpfile old "$WORK/old-state.json" \
+            --slurpfile cur "$WORK/current.json" \
+            --rawfile scanned "$SCANNED_OK" \
+            --rawfile failed "$FAILED_KEYS" '
+            ($old[0] // {}) as $o
+            | ($cur[0] // {}) as $c
+            | ($scanned | split("\n") | map(select(length > 0))) as $ok
+            | ($failed | split("\n") | map(select(length > 0))) as $fk
+            | ($o | to_entries
+                | map(select(.key as $k
+                    | (($ok | index($k | split("/") | first)) == null)
+                      or (($fk | index($k)) != null)
+                  ))
+                | from_entries) + $c' > "$WORK/new-state.json"
+
+          # --- 7. Diff current versions against previous state ------------------
+          BUMPS_FILE="$WORK/bumps.tsv"            # key<TAB>old<TAB>new
+          jq -r --slurpfile old "$WORK/old-state.json" '
+            ($old[0] // {}) as $o
+            | to_entries[] | .key as $k | .value as $v
+            | select($o | has($k))
+            | select($o[$k] != $v)
+            | [$k, $o[$k], $v] | @tsv' "$WORK/current.json" > "$BUMPS_FILE"
+
+          jq -r --slurpfile old "$WORK/old-state.json" '
+            ($old[0] // {}) as $o
+            | to_entries[] | .key as $k | select($o | has($k) | not) | $k' "$WORK/current.json" \
+            | while IFS= read -r KEY; do
+                echo "New manifest $KEY recorded in state (no dispatch for first sighting)."
+              done
+
+          jq -r --slurpfile new "$WORK/new-state.json" '
+            ($new[0] // {}) as $n
+            | to_entries[] | .key as $k | select($n | has($k) | not) | $k' "$WORK/old-state.json" \
+            | while IFS= read -r KEY; do
+                echo "Manifest $KEY no longer exists; dropped from state."
+              done
+
+          BUMP_COUNT="$(wc -l < "$BUMPS_FILE" | tr -d ' ')"
+
+          # --- 8. Match bumps to dependent shells and dispatch builds -----------
+          AFFECTED_FILE="$WORK/affected-shells.tsv"  # shell<TAB>default_branch
+          BUMP_LOG="$WORK/bump-log.tsv"              # name<TAB>old<TAB>new<TAB>shells
+          : > "$AFFECTED_FILE"
+          : > "$BUMP_LOG"
+          while IFS=$'\t' read -r KEY OLD_VERSION NEW_VERSION; do
+            SDK_REPO="${KEY%%/*}"
+            MPATH="${KEY#*/}"
+            DOMAIN_PATH="${MPATH%/manifest.json}"
+            SDK_NAME="$(awk -F'\t' -v r="$SDK_REPO" -v p="$MPATH" '$1 == r && $2 == p { print $3; exit }' "$CURRENT_TSV")"
+            [ -n "$SDK_NAME" ] || SDK_NAME="$KEY"
+            BUMP_SHELLS=""
+            while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH; do
+              MATCHES="$(jq -r --arg repo "$SDK_REPO" --arg domain "$DOMAIN_PATH" '
+                [ (.sdks // [])[]
+                  | select(.enabled == true)
+                  | select((.git // "") | ascii_downcase | rtrimstr("/") | rtrimstr(".git")
+                      | endswith("/" + ($repo | ascii_downcase)))
+                  | select((.path // "") | ascii_downcase | rtrimstr("/")
+                      | (. == ($domain | ascii_downcase))
+                        or endswith("/" + ($domain | ascii_downcase)))
+                ] | length' "$WORK/composer-$SHELL_REPO.json" 2>/dev/null || echo 0)"
+              if [ "$MATCHES" -gt 0 ] 2>/dev/null; then
+                printf '%s\t%s\n' "$SHELL_REPO" "$SHELL_BRANCH" >> "$AFFECTED_FILE"
+                BUMP_SHELLS="$BUMP_SHELLS, $SHELL_REPO"
+              fi
+            done < "$SHELLS_FILE"
+            BUMP_SHELLS="${BUMP_SHELLS#, }"
+            if [ -n "$BUMP_SHELLS" ]; then
+              echo "bump $SDK_NAME $OLD_VERSION->$NEW_VERSION -> dispatching $BUMP_SHELLS"
+            else
+              echo "bump $SDK_NAME $OLD_VERSION->$NEW_VERSION -> no dependent shells found"
+            fi
+            printf '%s\t%s\t%s\t%s\n' "$SDK_NAME" "$OLD_VERSION" "$NEW_VERSION" "${BUMP_SHELLS:-none}" >> "$BUMP_LOG"
+          done < "$BUMPS_FILE"
+
+          DISPATCHED=""
+          FAILED=""
+          if [ -s "$AFFECTED_FILE" ]; then
+            sort -u "$AFFECTED_FILE" > "$AFFECTED_FILE.dedup"
+            while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH; do
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "DRY RUN: would dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH)."
+                continue
+              fi
+              CODE="$(curl -sS -o "$WORK/dispatch-resp.json" -w '%{http_code}' -X POST \
+                -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+                "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/workflows/$WORKFLOW_FILE/dispatches" \
+                -d "{\"ref\":\"$SHELL_BRANCH\"}" || echo 000)"
+              if [ "$CODE" = "204" ]; then
+                echo "Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH)"
+                DISPATCHED="$DISPATCHED $SHELL_REPO"
+              else
+                echo "::warning::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(head -c 300 "$WORK/dispatch-resp.json" 2>/dev/null)"
+                FAILED="$FAILED $SHELL_REPO"
+              fi
+            done < "$AFFECTED_FILE.dedup"
+          elif [ "$BUMP_COUNT" -gt 0 ]; then
+            echo "Bumps found but no dependent shells match; nothing to dispatch."
+          else
+            echo "No version bumps since the last poll."
+          fi
+
+          # --- 9. Decide whether state needs committing -------------------------
+          STATE_NOTE="unchanged"
+          if [ "$DRY_RUN" = "true" ]; then
+            if ! jq --slurpfile old "$WORK/old-state.json" -e '. == ($old[0] // {})' "$WORK/new-state.json" >/dev/null; then
+              STATE_NOTE="not written (dry run)"
+            fi
+          elif ! jq --slurpfile old "$WORK/old-state.json" -e '. == ($old[0] // {})' "$WORK/new-state.json" >/dev/null; then
+            echo "commit=true" >> "$GITHUB_OUTPUT"
+            STATE_NOTE="updated"
+          fi
+
+          # --- 10. Run summary --------------------------------------------------
+          {
+            echo "## SDK Bump Poller"
+            echo ""
+            echo "- Manifests checked: **$MANIFEST_COUNT** (across $SDK_REPO_COUNT SDK repos, $(wc -l < "$SHELLS_FILE" | tr -d ' ') shells)"
+            echo "- Bumps found: **$BUMP_COUNT**"
+            if [ -s "$BUMP_LOG" ]; then
+              echo ""
+              echo "| SDK | Old | New | Dependent shells |"
+              echo "|-----|-----|-----|------------------|"
+              while IFS=$'\t' read -r SDK_NAME OLD_VERSION NEW_VERSION BUMP_SHELLS; do
+                echo "| $SDK_NAME | $OLD_VERSION | $NEW_VERSION | $BUMP_SHELLS |"
+              done < "$BUMP_LOG"
+              echo ""
+            fi
+            if [ "$DRY_RUN" = "true" ] && [ -s "$AFFECTED_FILE" ]; then
+              echo "- Dispatches: none (dry run; would have dispatched $(sort -u "$AFFECTED_FILE" | cut -f1 | paste -sd ',' - | sed 's/,/, /g'))"
+            elif [ -n "$DISPATCHED" ]; then
+              echo "- Dispatched:$(echo "$DISPATCHED" | sed 's/ /, /g' | sed 's/^, //')"
+            else
+              echo "- Dispatches: none"
+            fi
+            if [ -n "$FAILED" ]; then
+              echo "- Dispatch failures (see warnings):$(echo "$FAILED" | sed 's/ /, /g' | sed 's/^, //')"
+            fi
+            echo "- State: $STATE_NOTE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit updated poller state
+        if: steps.poll.outputs.commit == 'true'
+        run: |
+          git config user.name "sdk-bump-poller[bot]"
+          git config user.email "sdk-bump-poller[bot]@users.noreply.github.com"
+
+          push_state() {
+            if git fetch --no-tags --depth 1 origin "$STATE_BRANCH" 2>/dev/null; then
+              git checkout -B "$STATE_BRANCH" FETCH_HEAD
+            else
+              # Orphan branch keeps main's history clean of state commits.
+              git branch -D "$STATE_BRANCH" 2>/dev/null || true
+              git checkout --orphan "$STATE_BRANCH"
+              git rm -rf --quiet . 2>/dev/null || true
+            fi
+            cp "$RUNNER_TEMP/sdk-poller/new-state.json" state.json
+            git add state.json
+            if git diff --cached --quiet; then
+              echo "State on $STATE_BRANCH already matches; nothing to commit."
+              return 0
+            fi
+            git commit -m "chore: sdk poller state [skip ci]"
+            git push origin "HEAD:$STATE_BRANCH"
+          }
+
+          if ! push_state; then
+            echo "State push failed (non-fast-forward race?); refetching and retrying once."
+            if ! push_state; then
+              echo "::warning::Could not push poller state to $STATE_BRANCH after one retry; the next poll may re-detect the same bumps."
+              exit 0
+            fi
+          fi
+          echo "Poller state committed to $STATE_BRANCH."
