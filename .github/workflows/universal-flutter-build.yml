@@ -144,10 +144,34 @@ jobs:
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
 
-            # Initiate Protocol (previous step) always lands the composer wrapper at
-            # this path before we get here, so there's nothing to branch on.
+            # The Initiate Protocol step is supposed to land the canonical
+            # composer at this path, but it is session-ephemeral (provisioned
+            # under .rokct/skills/, wiped by end_protocol, never committed)
+            # and not every initiate.py provisions it. Bootstrap it when
+            # missing, then fall back the same way the linter does
+            # (universal-linter.yml "Compose SDK Modules (If Shell App)").
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Canonical composer missing. Provisioning via .rokct/initiate.py..."
+              python .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
+              COMPOSER=".rokct/skills/.rok/flutter/scripts/compose.py"
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via local skills composer..."
+              COMPOSER=".rokct/skills/flutter/scripts/compose.py"
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              COMPOSER=".rokct/compose.py"
+            else
+              echo "::error::composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper)."
+              exit 1
+            fi
+
             set +e
-            python .rokct/skills/.rok/flutter/scripts/compose.py
+            python "$COMPOSER"
             COMPOSE_EXIT=$?
             set -e
 
@@ -274,9 +298,31 @@ jobs:
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
-            # Initiate Protocol (previous step) always lands the composer wrapper at
-            # this path before we get here, so there's nothing to branch on.
-            python .rokct/skills/.rok/flutter/scripts/compose.py
+            # The Initiate Protocol step is supposed to land the canonical
+            # composer at this path, but it is session-ephemeral (provisioned
+            # under .rokct/skills/, wiped by end_protocol, never committed)
+            # and not every initiate.py provisions it. Bootstrap it when
+            # missing, then fall back the same way the linter does
+            # (universal-linter.yml "Compose SDK Modules (If Shell App)").
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Canonical composer missing. Provisioning via .rokct/initiate.py..."
+              python .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via local skills composer..."
+              python .rokct/skills/flutter/scripts/compose.py
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              python .rokct/compose.py
+            else
+              echo "::error::composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper)."
+              exit 1
+            fi
           else
             echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
           fi
@@ -1085,9 +1131,31 @@ jobs:
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
-            # Initiate Protocol (previous step) always lands the composer wrapper at
-            # this path before we get here, so there's nothing to branch on.
-            python .rokct/skills/.rok/flutter/scripts/compose.py
+            # The Initiate Protocol step is supposed to land the canonical
+            # composer at this path, but it is session-ephemeral (provisioned
+            # under .rokct/skills/, wiped by end_protocol, never committed)
+            # and not every initiate.py provisions it. Bootstrap it when
+            # missing, then fall back the same way the linter does
+            # (universal-linter.yml "Compose SDK Modules (If Shell App)").
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Canonical composer missing. Provisioning via .rokct/initiate.py..."
+              python .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via local skills composer..."
+              python .rokct/skills/flutter/scripts/compose.py
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              python .rokct/compose.py
+            else
+              echo "::error::composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper)."
+              exit 1
+            fi
           else
             echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
           fi
