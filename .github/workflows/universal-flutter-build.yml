@@ -941,6 +941,13 @@ jobs:
           # 4.x (shipped on windows-latest) refuses to configure. This floor
           # lets CMake apply 3.5-era policies and proceed.
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          # MSVC 14.5x (VS 18 on windows-latest) turned the
+          # <experimental/coroutine> include into a hard STL1011 static-assert,
+          # which kills audioplayers_windows and permission_handler_windows.
+          # The assert's own message names this define as the opt-out. MSVC
+          # prepends CL's contents to every cl.exe invocation, so this reaches
+          # all plugin targets without touching their CMake files.
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: |
           BUILD_ARGS=(build windows --release)
           if [ -f .env/production.env ]; then
