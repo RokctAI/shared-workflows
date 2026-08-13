@@ -9,7 +9,7 @@
   "commerce/marketplace/dart/manifest.json": "1.1.0",
   "commerce/merchants/dart/manifest.json": "1.9.1",
   "commerce/orders/dart/manifest.json": "1.5.0",
-  "commerce/products/dart/manifest.json": "1.2.2",
+  "commerce/products/dart/manifest.json": "1.3.0",
   "commerce/promotions/dart/manifest.json": "1.0.0",
   "zones/delivery/dart/manifest.json": "1.5.1",
   "zones/map/dart/manifest.json": "1.1.0",
