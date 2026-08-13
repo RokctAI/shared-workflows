@@ -354,6 +354,7 @@ Once configured, the shared workflows will automatically have the necessary iden
 *   **`universal-pipeline.yml`**: The Orchestrator. Chains Security, Lint, CI, and Release.
 *   **`universal-flutter-build.yml`**: The heavy lifter for Dart/Flutter.
 *   **`universal-flutter-analyze.yml`**: Clean-checkout `flutter analyze` 0-error gate. Runs the real compose pipeline (initiate + SDK modules) + `pub get` + `build_runner` on a fresh checkout so a stale local cache can't hide broken `AppRoutes.I` wiring, drift/sqlite3 version mismatches, or stale generated code.
+*   **`universal-clean-head.yml`**: Clean-HEAD template-drift gate for composed shell apps. Runs the real compose pipeline on a fresh checkout, then fails if `git status --porcelain` shows the compose modified committed files or created new ones — so drift between SDK templates / the canonical composer manifest and the committed composed output can't land silently. Wired into `universal-pipeline.yml` (`run_clean_head`, on by default); non-shell repos pass trivially.
 *   **`universal-node-ci.yml`**: The lightweight builder for Next.js/React.
 *   **`universal-frappe-ci.yml`**: The environment builder for Python/Bench.
 *   **`universal-release.yml`**: The release and tagging engine.

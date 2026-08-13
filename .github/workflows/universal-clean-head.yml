@@ -1,0 +1,238 @@
+# Copyright 2024 RokctAI
+
+# Universal Clean HEAD
+#
+# A clean-HEAD drift gate for composed/templated files.
+#
+# Why this exists:
+#   Shell apps (composer.json + .rokct/config/app_type) carry composer output
+#   committed at HEAD — android/ Gradle files, installed assets, pubspec.yaml
+#   SDK dependencies — whose real source of truth is SDK template folders
+#   (e.g. core's base/dart/templates) plus the canonical composer manifest in
+#   The-Rokct-Protocol. When a template or manifest changes upstream but the
+#   shell's committed output is not recomposed, HEAD silently drifts from what
+#   a fresh compose produces. universal-flutter-build.yml's compose-app job
+#   papers over that on push by committing the recompose back; nothing FAILS
+#   when drift exists, so template drift can land without anyone noticing.
+#
+# What it does:
+#   Runs the REAL compose pipeline (initiate + canonical composer manifest +
+#   SDK module composition, matching universal-flutter-build.yml) on a fresh
+#   checkout, then asserts the working tree still matches HEAD:
+#     - `git status --porcelain` catches modified tracked files AND new
+#       untracked files the composer created (it respects each repo's
+#       .gitignore, so dirs the repo deliberately regenerates untracked —
+#       e.g. a gitignored lib/ — stay out of the gate).
+#     - `.rokct/` is excluded: initiate.py writes per-session state there
+#       (a random per-run Safe ID in .rokct/memory.md, protocol workflow
+#       staging), which is protocol noise, not composer output.
+#     - `pubspec.lock` is excluded: it churns with pub registry state over
+#       time, not with HEAD content, so it would make the gate flaky.
+#   Any remaining diff fails the job with the full drift printed. Unlike the
+#   build workflow it never commits or pushes — it composes in place purely
+#   to compare, so it is safe to run on PRs and arbitrary branches.
+#
+#   Non-shell repos (no composer.json and no .rokct/config/app_type) skip the
+#   compose and pass trivially, so the gate is safe to wire fleet-wide.
+#
+# Callable from any consuming repo:
+#   jobs:
+#     clean-head:
+#       uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+#       secrets: inherit
+
+name: Universal Clean HEAD
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+on:
+  workflow_call:
+    inputs:
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+        description: "Flutter channel (stable, beta, master)."
+      flutter-version:
+        required: false
+        type: string
+        # Pinned: Flutter 3.47.0 + analyzer <8 (freezed 2.x) hangs build_runner; remove once SDKs move to freezed 3.x / analyzer 8.
+        default: '3.44.9'
+        description: "Pin an exact Flutter version. Empty = latest on channel."
+    secrets:
+      MONOREPO_PAT:
+        required: false
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  clean-head:
+    name: 🧼 Clean HEAD (Composed Files)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # A hung SDK compose (network stall during clone/fetch) has squatted
+    # runners for hours; kill the job instead of blocking the queue.
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Track Usage
+        continue-on-error: true
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+            -H "Authorization: Bearer $API_KEY" || true
+
+      - name: Checkout Code (Clean)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect Shell App
+        id: detect
+        run: |
+          if [ -f "composer.json" ] || [ -f ".rokct/config/app_type" ]; then
+            echo "is_shell=true" >> "$GITHUB_OUTPUT"
+            echo "🔧 Shell app detected — the compose + clean-HEAD gate applies."
+          else
+            echo "is_shell=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ Not a composed shell app (no composer.json, no .rokct/config/app_type). Gate passes trivially."
+          fi
+
+      - name: Initiate Protocol
+        if: steps.detect.outputs.is_shell == 'true'
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      - name: Select Composer Manifest (If App Shell)
+        if: steps.detect.outputs.is_shell == 'true'
+        run: |
+          # Same manifest refresh universal-flutter-build.yml performs: the
+          # canonical composer manifest in The-Rokct-Protocol is the source of
+          # truth for composer.json. If the committed composer.json is stale,
+          # the refreshed copy differs from HEAD and the gate below reports it
+          # as drift — exactly the signal this workflow exists to give.
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - keeping the committed composer.json."
+          fi
+
+      - name: Helper - Subosito Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        if: steps.detect.outputs.is_shell == 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Compose Flutter SDK Modules (If Shell App)
+        if: steps.detect.outputs.is_shell == 'true'
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see sdk_composer.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
+
+            # The canonical composer is session-ephemeral: it is provisioned
+            # under .rokct/skills/ by .rokct/initiate.py and wiped by
+            # end_protocol, so it is never committed. Provision it first when
+            # it is not already present (same fallback chain as
+            # universal-flutter-build.yml's compose-app job).
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Canonical composer missing. Provisioning via .rokct/initiate.py..."
+              python .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via canonical skills composer..."
+              COMPOSER=".rokct/skills/.rok/flutter/scripts/compose.py"
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              echo "Composing SDK modules via local skills composer..."
+              COMPOSER=".rokct/skills/flutter/scripts/compose.py"
+            elif [ -f ".rokct/compose.py" ]; then
+              # Backward compatibility for repos that still commit a root
+              # composer bootstrap and have no .rokct/initiate.py.
+              echo "Composing SDK modules via legacy committed .rokct/compose.py..."
+              COMPOSER=".rokct/compose.py"
+            else
+              echo "::error::composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper)."
+              exit 1
+            fi
+
+            python "$COMPOSER"
+            echo "ℹ️ Composed in place for comparison only — never committing (this is a check gate)."
+          else
+            echo "ℹ️ composer.json absent after manifest selection. Nothing to compose."
+          fi
+
+      - name: Verify Composed Files Are Clean at HEAD
+        if: steps.detect.outputs.is_shell == 'true'
+        run: |
+          # .rokct/ is per-session protocol state (random per-run Safe ID in
+          # memory.md, workflow staging) — never composer output. pubspec.lock
+          # churns with registry state over time, not with HEAD content.
+          EXCLUDES=(':(exclude).rokct' ':(exclude)pubspec.lock')
+
+          # --porcelain lists modified/deleted tracked files AND new untracked
+          # files, while respecting .gitignore (deliberately untracked compose
+          # output like a gitignored lib/ stays out of the gate).
+          DRIFT="$(git status --porcelain -- . "${EXCLUDES[@]}")"
+
+          if [ -n "$DRIFT" ]; then
+            echo "::error::Composed/templated files are dirty at HEAD. A fresh compose does not reproduce what is committed - template drift. Recompose and commit the result (or fix the template source) before merging."
+            echo "❌ Drift detected between HEAD and a fresh compose:"
+            echo "$DRIFT"
+            {
+              echo "## 🧼 Clean HEAD — FAILED"
+              echo ""
+              echo "A fresh compose at this commit changed committed files (or created new ones)."
+              echo "The composed output at HEAD has drifted from its template/manifest source of truth."
+              echo ""
+              echo '```'
+              echo "$DRIFT"
+              echo '```'
+              echo ""
+              echo "Fix: run the composer locally (python .rokct/skills/.rok/flutter/scripts/compose.py) and commit the result, or correct the template/manifest that caused the drift."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "--- Full diff of tracked files (first 400 lines) ---"
+            git --no-pager diff -- . "${EXCLUDES[@]}" | head -n 400
+            exit 1
+          fi
+
+          echo "✅ HEAD is clean: a fresh compose reproduces the committed tree exactly."
+          {
+            echo "## 🧼 Clean HEAD — PASSED"
+            echo ""
+            echo "A fresh compose at this commit reproduces the committed tree exactly (no template drift)."
+          } >> "$GITHUB_STEP_SUMMARY"
