@@ -870,6 +870,9 @@ jobs:
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
+    # A hung SDK compose (network stall during clone/fetch) has squatted
+    # runners for hours; kill the job instead of blocking the queue.
+    timeout-minutes: 30
     env:
       IS_SELF: ''
       findings: ''
