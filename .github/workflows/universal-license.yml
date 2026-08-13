@@ -28,7 +28,7 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Resolve License Config
         id: license_config
         run: |
@@ -65,7 +65,7 @@ jobs:
             echo "path=.licenserc.generated.yaml" >> "$GITHUB_OUTPUT"
           fi
       - name: Check License Headers
-        uses: apache/skywalking-eyes/header@v0.4.0
+        uses: apache/skywalking-eyes/header@438e4ea5682269933ea2c8b5608662e52af26959 # v0.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

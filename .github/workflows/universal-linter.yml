@@ -82,7 +82,7 @@ jobs:
         run: apt-get update --fix-missing || (sleep 2 && apt-get update) && apt-get install -y --fix-missing git sudo curl python3 && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -111,7 +111,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -119,7 +119,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -235,7 +235,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -278,7 +278,7 @@ jobs:
         run: apt-get update --fix-missing || (sleep 2 && apt-get update) && apt-get install -y --fix-missing git sudo curl python3 python3-pip && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -296,7 +296,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -304,7 +304,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -567,7 +567,7 @@ jobs:
           chmod +x /usr/local/bin/shfmt
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -585,7 +585,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -593,7 +593,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -722,7 +722,7 @@ jobs:
           apt-get install -y --fix-missing powershell
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -740,7 +740,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -748,7 +748,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.force-fix == true)
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -882,7 +882,7 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl unzip && git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -900,7 +900,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -908,7 +908,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.force-fix == true)
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -929,7 +929,7 @@ jobs:
 
       - name: Helper - Subosito Flutter
         if: steps.check_flutter.outputs.exists == 'true'
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -1097,7 +1097,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Scan for Unverified Data Exports
         run: |
           # Policy: Excel/CSV files should not be committed to the repo, 
@@ -1136,7 +1136,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Setup Bot Identity
@@ -1154,7 +1154,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -1162,7 +1162,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || inputs.force-fix == true)
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -1313,7 +1313,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install markdownlint
         run: npm install -g markdownlint-cli2
       - name: Run markdownlint
@@ -1325,7 +1325,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Find Dockerfiles
         id: files
         run: |
@@ -1348,7 +1348,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Check for TODO/FIXME comments
         run: |
           TODOS=$(grep -r -n -i -E "TODO|FIXME|HACK" --include="*.{py,js,ts,jsx,tsx,java,cs,go,rs,sh,ps1,yml,yaml,json,md}" --exclude-dir={.git,node_modules,__pycache__,env,venv,dist,build,.github} . || true)
@@ -1365,7 +1365,7 @@ jobs:
     name: 📋 Issue Template Validator
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Validate Issue Template Syntax
         run: |
           if [ -d ".github/ISSUE_TEMPLATE" ]; then
@@ -1394,21 +1394,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           token: ${{ secrets.MONOREPO_PAT || github.token }}
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
         continue-on-error: true
 
       - name: Checkout Shared Workflows
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ secrets.MONOREPO_PAT || github.token }}

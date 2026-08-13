@@ -42,7 +42,7 @@ on:
 
 jobs:
   release:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pipeline.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       run_verify: ${{ inputs.run_verify != false }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}

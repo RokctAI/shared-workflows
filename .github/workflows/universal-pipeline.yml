@@ -142,7 +142,7 @@ jobs:
            git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Determine base commit
@@ -219,14 +219,14 @@ jobs:
   pr-resurrector:
     needs: detect-changes
     if: needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-pr-resurrector.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pr-resurrector.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     secrets: inherit
 
   # 1. SECURITY
   security:
     needs: detect-changes
     if: inputs.run_security && needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-security.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       project_type: ${{ inputs.project_type }}
     secrets: inherit
@@ -238,18 +238,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout target codebase
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Checkout shared compliance action script
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           path: .shared-workflows
           ref: main
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
 
@@ -297,7 +297,7 @@ jobs:
   lint:
     needs: [detect-changes, security]
     if: always() && (needs.security.result == 'success' || needs.security.result == 'skipped') && inputs.run_lint && needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-linter.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       project_type: ${{ inputs.project_type }}
       run-build-runner: ${{ inputs.project_type == 'flutter' }}
@@ -311,7 +311,7 @@ jobs:
   ci-frappe:
     needs: [detect-changes, lint, observability-compliance]
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       python-version: ${{ inputs.python-version || '3.14' }}
       mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
@@ -330,7 +330,7 @@ jobs:
   ci-node:
     needs: [detect-changes, lint]
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && inputs.run_ci && inputs.project_type == 'node' && needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-node-ci.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       node-version: ${{ inputs.node-version || '24' }}
       package-manager: ${{ inputs.package-manager || 'pnpm' }}
@@ -346,7 +346,7 @@ jobs:
       inputs.project_type == 'flutter' &&
       needs.detect-changes.outputs.trivial != 'true' &&
       (needs.lint.result == 'success' || needs.lint.result == 'skipped')
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       # develop is purely for development: debug APK + AAB only (no release APK).
       # Every other branch gets the full set (release APK + debug APK + AAB).
@@ -367,7 +367,7 @@ jobs:
       inputs.build_windows == true &&
       needs.detect-changes.outputs.trivial != 'true' &&
       (needs.lint.result == 'success' || needs.lint.result == 'skipped')
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-build.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       build-type: windows
       flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
@@ -384,7 +384,7 @@ jobs:
       inputs.run_verify &&
       inputs.project_type == 'flutter' &&
       needs.ci-flutter.result == 'success'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-verify.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-flutter-verify.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       package_name: ${{ needs.ci-flutter.outputs.package_name }}
     secrets: inherit
@@ -403,7 +403,7 @@ jobs:
         (needs.verify-flutter.result == 'success' || needs.verify-flutter.result == 'skipped')
       )) &&
       (inputs.build_windows == false || (inputs.build_windows == true && (github.event_name == 'schedule' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref_name == 'develop' || github.ref_name == 'main' || startsWith(github.ref_name, 'build_'))))))
-    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-release.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
     with:
       project_type: ${{ inputs.project_type }}
       release_strategy: ${{ inputs.release_strategy || 'immediate' }}
