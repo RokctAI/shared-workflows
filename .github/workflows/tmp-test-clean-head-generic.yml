@@ -1,0 +1,40 @@
+# Copyright 2024 RokctAI
+
+# TEMPORARY: live-test of universal-clean-head.yml generic mode.
+# Dispatched once on the PR branch to prove the three generic-mode paths
+# (clean pass, drift fail, dart+python toolchain), then deleted before merge.
+
+name: TMP Test Clean HEAD Generic
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+jobs:
+  clean-pass:
+    uses: ./.github/workflows/universal-clean-head.yml
+    permissions:
+      contents: read
+    with:
+      generate-command: 'echo clean run'
+    secrets: inherit
+
+  drift-fail:
+    uses: ./.github/workflows/universal-clean-head.yml
+    permissions:
+      contents: read
+    with:
+      generate-command: 'echo drift > drift-canary.txt'
+    secrets: inherit
+
+  toolchain:
+    uses: ./.github/workflows/universal-clean-head.yml
+    permissions:
+      contents: read
+    with:
+      generate-command: 'dart --version && python3 -c "import PIL; print(PIL.__version__)"'
+      setup-dart: true
+      python-packages: 'Pillow'
+    secrets: inherit
