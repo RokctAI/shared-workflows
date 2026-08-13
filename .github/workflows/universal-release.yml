@@ -327,10 +327,10 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: steps.check_major.outputs.bumped == 'true'
+        continue-on-error: true
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          continue-on-error: true
 
       - name: Setup Identity (Local)
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'true'
@@ -999,10 +999,10 @@ jobs:
       - name: Download Windows Artifact
         if: inputs.build_windows == true
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        continue-on-error: true # Might not exist if we skipped build due to RC logic
         with:
           name: windows-release-build
           path: windows_build
-          continue-on-error: true # Might not exist if we skipped build due to RC logic
 
       - name: Prepare Windows Asset
         if: inputs.build_windows == true
@@ -1441,7 +1441,7 @@ jobs:
 
       # --- ANDROID BUILD (Optional) ---
       - name: Setup Java
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: 'zulu'
@@ -1611,7 +1611,7 @@ jobs:
 
       # Dynamic Source Rename (Critical for Client Builds)
       - name: Dynamic Source Rename
-        if: inputs.build_android == true && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
+        if: inputs.build_android == true && steps.mode.outputs.mode != 'none'
         run: |
            # 1. Load Environment Variables
            if [ -f .env/production.env ]; then
