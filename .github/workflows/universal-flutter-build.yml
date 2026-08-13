@@ -93,7 +93,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -132,7 +132,7 @@ jobs:
       - name: Helper - Subosito Flutter
         # Must run BEFORE the compose step: the composer itself invokes
         # `flutter pub get` inside the SDK caches it clones.
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -239,7 +239,7 @@ jobs:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
@@ -291,7 +291,7 @@ jobs:
             echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
           fi
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: 'zulu'
           java-version: ${{ inputs.java-version || '17' }}
@@ -299,7 +299,7 @@ jobs:
       - name: Helper - Subosito Flutter
         # Must run BEFORE the compose step: the composer itself invokes
         # `flutter pub get` inside the SDK caches it clones.
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -404,7 +404,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         if: env.build_failed == 'true'
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -412,7 +412,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.build_failed == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -456,7 +456,7 @@ jobs:
 
       - name: Upload Error Log as Artifact
         if: env.build_failed == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: android-build-error-log
           path: error_log.md
@@ -768,7 +768,7 @@ jobs:
 
       - name: Upload Artifact (APK)
         if: inputs.upload-artifact == true && (inputs.build-type == 'apk' || inputs.build-type == 'all' || inputs.build-type == 'develop')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: flutter-apks
           # develop builds no release APK, so only list the paths its build steps produced
@@ -778,7 +778,7 @@ jobs:
 
       - name: Upload Artifact (AAB)
         if: inputs.upload-artifact == true && (inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: app-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
@@ -794,7 +794,7 @@ jobs:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
@@ -848,7 +848,7 @@ jobs:
       - name: Setup Flutter
         # Must run BEFORE the compose step: the composer itself invokes
         # `flutter pub get` inside the SDK caches it clones.
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -937,7 +937,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         if: env.build_failed == 'true'
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -945,7 +945,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.build_failed == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -990,7 +990,7 @@ jobs:
 
       - name: Upload Error Log as Artifact
         if: env.build_failed == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: windows-build-error-log
           path: error_log.md
@@ -1088,7 +1088,7 @@ jobs:
 
       - name: Upload Artifact (Windows)
         if: inputs.upload-artifact == true
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: windows-release-build
           path: flutter-windows-app.zip
@@ -1108,7 +1108,7 @@ jobs:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
@@ -1162,7 +1162,7 @@ jobs:
       - name: Setup Flutter
         # Must run BEFORE the compose step: the composer itself invokes
         # `flutter pub get` inside the SDK caches it clones.
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -1404,7 +1404,7 @@ jobs:
       - name: Generate App Token
         id: app-token
         if: env.build_failed == 'true'
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -1412,7 +1412,7 @@ jobs:
 
       - name: Checkout Shared Workflows
         if: env.build_failed == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           token: ${{ github.token }}
@@ -1455,7 +1455,7 @@ jobs:
 
       - name: Upload Error Log as Artifact
         if: env.build_failed == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ios-macos-build-error-log
           path: error_log.md
@@ -1508,7 +1508,7 @@ jobs:
 
       - name: Upload MacOS Artifact
         if: inputs.upload-artifact == true
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: macos-release-build
           path: macos-app.zip
@@ -1589,7 +1589,7 @@ jobs:
 
       - name: Download Error Log Artifact
         if: steps.outcome.outputs.action == 'report-failure'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: ${{ steps.outcome.outputs.artifact }}
           path: central-report/error-log

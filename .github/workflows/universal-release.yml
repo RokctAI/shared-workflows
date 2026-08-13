@@ -162,7 +162,7 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl nodejs npm && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
@@ -213,7 +213,7 @@ jobs:
         if: inputs.project_type == 'frappe'
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           filter: blob:none
@@ -306,7 +306,7 @@ jobs:
 
       - name: Checkout Shared Workflows Actions
         if: steps.check_major.outputs.bumped == 'true' && env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
@@ -325,7 +325,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         if: steps.check_major.outputs.bumped == 'true'
         with:
           client-id: ${{ secrets.APP_ID }}
@@ -398,7 +398,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           filter: blob:none
@@ -434,7 +434,7 @@ jobs:
 
       - name: Checkout Shared Workflows Actions
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
@@ -442,7 +442,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -625,7 +625,7 @@ jobs:
         run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Fetch and Merge Private Repository
@@ -759,7 +759,7 @@ jobs:
     if: inputs.build_windows == true && (github.event_name == 'schedule' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref_name == 'develop' || github.ref_name == 'main')))
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Fetch and Merge Private Repository
         shell: bash
         run: |
@@ -783,7 +783,7 @@ jobs:
             fi
           fi
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}
@@ -916,7 +916,7 @@ jobs:
       - name: Upload Windows Artifact
         # Only upload if zip exists (meaning we didn't skip)
         if: hashFiles('flutter-windows-app.zip') != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: windows-release-build
           path: flutter-windows-app.zip
@@ -953,7 +953,7 @@ jobs:
           fi
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           filter: blob:none
@@ -982,7 +982,7 @@ jobs:
       # --- WINDOWS ARTIFACT RETRIEVAL ---
       - name: Download Windows Artifact
         if: inputs.build_windows == true
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: windows-release-build
           path: windows_build
@@ -1003,7 +1003,7 @@ jobs:
 
       - name: Checkout Shared Workflows Actions
         if: env.IS_SELF == 'false'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: RokctAI/shared-workflows
           path: .github/shared-workflows
@@ -1011,7 +1011,7 @@ jobs:
 
       - name: Generate App Token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -1426,14 +1426,14 @@ jobs:
       # --- ANDROID BUILD (Optional) ---
       - name: Setup Java
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'rc' || steps.mode.outputs.mode == 'client')
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: 'zulu'
           java-version: ${{ inputs.java-version || '17' }}
 
       - name: Helper - Subosito Flutter
         if: inputs.build_android == true && env.TAG_NAME != '' && steps.mode.outputs.mode != 'none'
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ inputs.flutter-channel }}
           flutter-version: ${{ inputs.flutter-version }}

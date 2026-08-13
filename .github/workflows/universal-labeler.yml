@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Extract version from issue body
         id: extract_version
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const body = context.payload.issue.body || '';
@@ -63,7 +63,7 @@ jobs:
 
       - name: Add version label
         if: steps.extract_version.outputs.result != 'null'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const version = ${{ steps.extract_version.outputs.result }};

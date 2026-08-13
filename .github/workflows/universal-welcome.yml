@@ -28,7 +28,7 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/first-interaction@v2
+      - uses: actions/first-interaction@2d4393e6bc0e2efb2e48fba7e06819c3bf61ffc9 # v2
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           issue-message: 'Thanks for opening your first issue! Please review CONTRIBUTING.md.'
