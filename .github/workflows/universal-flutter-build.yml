@@ -220,6 +220,14 @@ jobs:
     name: 🤖 Android Build
 
     runs-on: ubuntu-latest
+
+    # Only spawn for build-types whose build steps this job actually runs
+    # (see the step-level gates on Build APK / Build Debug APK / Build
+    # AppBundle). Without this gate, every 'windows'/'ios' invocation of this
+    # workflow still spawned a full Android job that composed the SDK for
+    # ~10 minutes and then skipped every build step, producing nothing
+    # (e.g. paas_manager run 31684759025, job 94403799142).
+    if: inputs.build-type == 'apk' || inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop'
     permissions: write-all
     outputs:
       package_name: ${{ steps.package.outputs.package_name }}
@@ -1537,9 +1545,9 @@ jobs:
           # universal-pipeline.yml invokes this reusable workflow once per leg
           # (an android leg with build-type apk/appbundle/all/develop, and a
           # separate windows leg with build-type 'windows'), so each invocation
-          # reports ONLY the platform it was asked to build - otherwise the
-          # windows leg would double-report android (build-android has no `if:`
-          # and runs its dependency stage in every invocation).
+          # reports ONLY the platform it was asked to build. The build jobs are
+          # job-level gated on build-type, so in each invocation the
+          # non-requested platforms' results come through as 'skipped' here.
           case "$BUILD_TYPE" in
             windows)
               PLATFORM="windows"
