@@ -31,6 +31,10 @@ on:
         type: boolean
         default: true
         description: "Run continuous verification on Android emulator (Flutter only)"
+      run_clean_head:
+        type: boolean
+        default: true
+        description: "Fail if a fresh compose at HEAD dirties committed generated/templated files (Flutter shell apps only; non-shells pass trivially)"
 
       # Node.js
       node-version:
@@ -375,6 +379,24 @@ jobs:
       flutter-version: ${{ inputs.flutter-version || '3.44.9' }}
       java-version: ${{ inputs.java-version || '17' }}
       app-type: ${{ inputs.app-type }}
+    secrets: inherit
+
+  # Template-drift gate: a fresh compose at HEAD must reproduce the committed
+  # tree exactly. Runs independently of build/lint so drift is reported even
+  # when everything else is green. Non-shell repos pass trivially inside the
+  # reusable workflow (see universal-clean-head.yml).
+  clean-head:
+    needs: detect-changes
+    if: |
+      always() &&
+      inputs.run_clean_head &&
+      inputs.project_type == 'flutter' &&
+      needs.detect-changes.outputs.trivial != 'true'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+    with:
+      flutter-channel: ${{ inputs.flutter-channel || 'stable' }}
+      # 3.44.9 fallback: Flutter 3.47.0 + analyzer <8 hangs build_runner (see flutter-version input default); remove once SDKs move to freezed 3.x / analyzer 8.
+      flutter-version: ${{ inputs.flutter-version || '3.44.9' }}
     secrets: inherit
 
   verify-flutter:

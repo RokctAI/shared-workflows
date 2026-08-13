@@ -1,0 +1,51 @@
+# Example caller for `universal-clean-head.yml`
+#
+# This is a GENERIC template — copy it into your own Flutter shell repo at
+# `.github/workflows/clean-head.yml`. It is not specific to any one app.
+#
+# NOTE: repos that already call `universal-pipeline.yml` get this gate
+# automatically (the pipeline's `clean-head` job, on by default via the
+# `run_clean_head` input) — this standalone caller is for adding PR coverage
+# when your pipeline only runs on push, or for repos not on the pipeline.
+#
+# What `universal-clean-head.yml` does for you (see shared-workflows'
+# .github/workflows/universal-clean-head.yml for the full implementation):
+#   - Checks out a GENUINELY CLEAN copy of HEAD.
+#   - Runs the real compose pipeline (initiate + canonical composer manifest +
+#     SDK-module composition), the same one universal-flutter-build.yml uses.
+#   - Then asserts `git status --porcelain` (excluding .rokct/ session state
+#     and pubspec.lock) reports NOTHING: modified tracked files and new
+#     untracked files the composer created both fail the gate.
+#   - A failure means the committed composed output (android/ Gradle files,
+#     installed assets, pubspec.yaml SDK deps, composer.json ...) has drifted
+#     from its template/manifest source of truth — recompose and commit, or
+#     fix the template.
+#   - NEVER commits or pushes — it composes only to compare, so it's safe on
+#     PRs and any branch.
+#   - Non-shell repos (no composer.json / .rokct/config/app_type) pass
+#     trivially.
+#
+# Optional secrets (all optional, pass through automatically with
+# `secrets: inherit`):
+#   MONOREPO_PAT       PAT the composer uses to clone the private SDK repos.
+#   COUNTER_API_KEY    Usage telemetry, if you use it.
+
+name: Clean HEAD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  clean-head:
+    permissions:
+      contents: read
+    uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+    # Inputs default sensibly — add a `with:` block to adjust if needed:
+    #   flutter-channel: stable
+    #   flutter-version: '3.44.9'
+    # `secrets: inherit` passes this repo's configured secrets (MONOREPO_PAT,
+    # COUNTER_API_KEY if present) through to the reusable workflow.
+    secrets: inherit
