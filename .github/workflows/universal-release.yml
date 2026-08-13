@@ -892,17 +892,33 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
           flutter build windows --release
 
-          # Bundle the MSVC runtime (msvcp140/vcruntime140/vcruntime140_1)
-          # into the zip: on machines without the VC++ redistributable the
-          # exe otherwise dies in the loader before main() - instant silent
-          # exit, no window, no error. Missing redist on the runner only
-          # warns; the zip still ships.
+          # Bundle the complete MSVC runtime family from the redist's *.CRT
+          # dir into the zip: on machines without the VC++ redistributable
+          # the exe otherwise dies in the loader before main() - instant
+          # silent exit, no window, no error. The whole directory ships
+          # (not a hand-picked subset) because the CRT DLLs are version-
+          # coupled: mixing a new msvcp140.dll with older system companions
+          # (msvcp140_1/_2, concrt140, ...) crashes with an access
+          # violation at startup. Missing redist on the runner only warns;
+          # the zip still ships.
           try {
             $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
             $vs = & $vswhere -latest -property installationPath
-            $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\*.CRT" -Directory | Select-Object -First 1
+            # Pick the NEWEST redist version: the runner image carries several
+            # MSVC redist versions side by side, and the binaries are compiled
+            # with the image's newest MSVC toolset, so the bundled runtime
+            # must be >= that toolset version. An unsorted Select-Object
+            # -First 1 returns the OLDEST version dir (14.29 sorts first),
+            # which ships a too-old msvcp140.dll that crashes the app at
+            # startup. The version dir sits two levels above the *.CRT dir
+            # (...\MSVC\<version>\x64\*.CRT), so extract it from the full
+            # path for the sort key.
+            $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\*.CRT" -Directory -ErrorAction SilentlyContinue |
+              Sort-Object { [version]($_.FullName -replace '.*\\MSVC\\([0-9.]+)\\.*','$1') } -Descending |
+              Select-Object -First 1
             if ($crt) {
-              Copy-Item "$($crt.FullName)\msvcp140.dll","$($crt.FullName)\vcruntime140.dll","$($crt.FullName)\vcruntime140_1.dll" build\windows\x64\runner\Release\ -ErrorAction Continue
+              Copy-Item "$($crt.FullName)\*.dll" build\windows\x64\runner\Release\ -ErrorAction Continue
+              Write-Output "Bundled MSVC CRT from: $($crt.FullName)"
             } else {
               Write-Output "::warning::MSVC CRT redist not found under $vs; runtime DLLs not bundled."
             }
