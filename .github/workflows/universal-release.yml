@@ -904,9 +904,21 @@ jobs:
           try {
             $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
             $vs = & $vswhere -latest -property installationPath
-            $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\*.CRT" -Directory | Select-Object -First 1
+            # Pick the NEWEST redist version: the runner image carries several
+            # MSVC redist versions side by side, and the binaries are compiled
+            # with the image's newest MSVC toolset, so the bundled runtime
+            # must be >= that toolset version. An unsorted Select-Object
+            # -First 1 returns the OLDEST version dir (14.29 sorts first),
+            # which ships a too-old msvcp140.dll that crashes the app at
+            # startup. The version dir sits two levels above the *.CRT dir
+            # (...\MSVC\<version>\x64\*.CRT), so extract it from the full
+            # path for the sort key.
+            $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\*.CRT" -Directory -ErrorAction SilentlyContinue |
+              Sort-Object { [version]($_.FullName -replace '.*\\MSVC\\([0-9.]+)\\.*','$1') } -Descending |
+              Select-Object -First 1
             if ($crt) {
               Copy-Item "$($crt.FullName)\*.dll" build\windows\x64\runner\Release\ -ErrorAction Continue
+              Write-Output "Bundled MSVC CRT from: $($crt.FullName)"
             } else {
               Write-Output "::warning::MSVC CRT redist not found under $vs; runtime DLLs not bundled."
             }
