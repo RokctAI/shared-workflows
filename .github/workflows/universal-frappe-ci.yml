@@ -132,11 +132,11 @@ jobs:
         run: |
           if [ -f ".rokct/initiate.py" ]; then
             echo "🚀 Running local initiate.py..."
-            python .rokct/initiate.py
+            python3 .rokct/initiate.py
           else
             echo "🌐 Fetching web initiate.py from remote protocol..."
             curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
-            python initiate_temp.py
+            python3 initiate_temp.py
             rm initiate_temp.py
           fi
 
@@ -147,14 +147,14 @@ jobs:
             echo "🚀 Shell app detected (composer.json found). Composing backend SDK modules..."
             if [ -f ".rokct/skills/.rok/frappe/scripts/compose.py" ]; then
               echo "✅ Using local composer wrapper from .rokct skills..."
-              python .rokct/skills/.rok/frappe/scripts/compose.py
+              python3 .rokct/skills/.rok/frappe/scripts/compose.py
             elif [ -f ".rokct/skills/frappe/scripts/compose.py" ]; then
               echo "✅ Using local composer wrapper..."
-              python .rokct/skills/frappe/scripts/compose.py
+              python3 .rokct/skills/frappe/scripts/compose.py
             else
               echo "🌐 Fetching remote composer wrapper..."
               curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/frappe/scripts/compose.py -o compose_temp.py
-              python compose_temp.py
+              python3 compose_temp.py
               rm compose_temp.py
             fi
 
