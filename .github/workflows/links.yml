@@ -22,5 +22,5 @@ on:
 
 jobs:
   links:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-links.yml@main
     secrets: inherit

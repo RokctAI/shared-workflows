@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   agent:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-agent.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-agent.yml@main
     with:
       mode: 'auto'
       ledger_id: ${{ inputs.id }}

@@ -10,7 +10,7 @@ on:
 
 jobs:
   merge:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-merge.yml@fed18a76a3107bcd8293a24d3e949addfdd09e84 # main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-merge.yml@main
     with:
       allowed_users: "Rendani Sinyage, RendaniSinyage, RokctBOT, RokctBOT[bot]"
     secrets: inherit
