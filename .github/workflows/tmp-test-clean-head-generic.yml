@@ -11,6 +11,11 @@ permissions:
 
 on:
   workflow_dispatch:
+  # Push trigger only as a self-dispatch mechanism: the workflow_dispatch API
+  # is unavailable to the automation session that runs this test.
+  push:
+    branches:
+      - claude/hearth-thread-lisgct
 
 jobs:
   clean-pass:
