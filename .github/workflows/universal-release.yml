@@ -67,7 +67,8 @@ on:
         default: 'stable'
       flutter-version:
         type: string
-        default: ''
+        # Pinned: Flutter 3.47.0 + analyzer <8 (freezed 2.x) hangs build_runner; remove once SDKs move to freezed 3.x / analyzer 8.
+        default: '3.44.9'
       java-version:
         type: string
         default: '17'
