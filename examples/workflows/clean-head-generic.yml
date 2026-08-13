@@ -1,0 +1,57 @@
+# Example caller for `universal-clean-head.yml` — GENERIC mode
+#
+# This is a GENERIC-MODE template — copy it into any repo with committed
+# generated files at `.github/workflows/clean-head.yml` and swap the
+# `generate-command` for your repo's own generators. The values below show
+# RokctAI/agent's real usage. (Flutter shell apps should use the sibling
+# `clean-head.yml` example instead — with no `generate-command` the reusable
+# workflow runs its original Flutter compose pipeline.)
+#
+# What `universal-clean-head.yml` does for you in generic mode (see
+# shared-workflows' .github/workflows/universal-clean-head.yml for the full
+# implementation):
+#   - Checks out a GENUINELY CLEAN copy of HEAD.
+#   - Optionally installs the Dart SDK (`setup-dart: true`) and pip-installs
+#     `python-packages` first.
+#   - Runs YOUR `generate-command` from the repo root — the script that
+#     regenerates whatever generated output your repo commits.
+#   - Then asserts `git status --porcelain` (excluding .rokct/ session state
+#     and pubspec.lock) reports NOTHING: modified tracked files and new
+#     untracked files the generators created both fail the gate, with the
+#     drift printed to the job's step summary.
+#   - A failure means the committed generated output has drifted from its
+#     generator source of truth — re-run the generators and commit, or fix
+#     the generator.
+#   - NEVER commits or pushes — it generates only to compare, so it's safe on
+#     PRs and any branch.
+#
+# Optional secrets (all optional, pass through automatically with
+# `secrets: inherit`):
+#   COUNTER_API_KEY    Usage telemetry, if you use it.
+
+name: Clean HEAD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  clean-head:
+    permissions:
+      contents: read
+    uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+    with:
+      # Install the Dart SDK before running the command (for `dart` generators).
+      setup-dart: true
+      # Space-separated packages to `python3 -m pip install` first.
+      python-packages: 'Pillow'
+      # Your repo's generation script, run from the repo root. Multi-line is
+      # fine — every command that produces committed output belongs here.
+      generate-command: |
+        python3 lms/team/scripts/tutor_images.py
+        dart lms/dart/tool/sync_team_assets.dart
+    # `secrets: inherit` passes this repo's configured secrets (COUNTER_API_KEY
+    # if present) through to the reusable workflow.
+    secrets: inherit

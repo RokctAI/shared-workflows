@@ -20,6 +20,23 @@ See the comment header in the file for the full list of optional secrets
 (signing keystore, Firebase config, private-repo PAT, GitHub App credentials
 for committing the release-state marker) and how to adapt the inputs.
 
+## clean-head-generic.yml
+
+Generic-mode caller for [`universal-clean-head.yml`](../../.github/workflows/universal-clean-head.yml),
+the clean-HEAD drift gate. Flutter shell apps use the sibling
+[`clean-head.yml`](clean-head.yml) example (the workflow's default mode runs
+the real compose pipeline); this template is for **any other repo with
+committed generated files**. Set `generate-command` to the script that
+regenerates your committed output (multi-line is fine, run from the repo
+root), optionally `setup-dart: true` for `dart` generators and
+`python-packages` for pip dependencies. The gate re-runs your generators on a
+fresh checkout of HEAD and fails if `git status --porcelain` (excluding
+`.rokct/` and `pubspec.lock`) shows any drift, printing the diff to the step
+summary. It never commits or pushes, so it's safe on PRs and any branch.
+
+**No required secrets.** Optional `COUNTER_API_KEY` (telemetry) passes through
+via `secrets: inherit` if present.
+
 ## flutter-analyze.yml
 
 Caller for [`universal-flutter-analyze.yml`](../../.github/workflows/universal-flutter-analyze.yml),

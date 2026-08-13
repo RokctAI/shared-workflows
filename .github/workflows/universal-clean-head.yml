@@ -35,10 +35,33 @@
 #   Non-shell repos (no composer.json and no .rokct/config/app_type) skip the
 #   compose and pass trivially, so the gate is safe to wire fleet-wide.
 #
+# Generic mode (any repo with committed generated files):
+#   Pass a non-empty `generate-command` input and the Flutter shell-detection /
+#   composer-bootstrap / Flutter-setup steps are skipped entirely. Instead the
+#   caller's own generation script runs from the repo root on the fresh
+#   checkout, followed by the SAME drift check (same porcelain command, same
+#   `.rokct/` and `pubspec.lock` exclusions, same step-summary reporting).
+#   Optional helpers, honored only in generic mode:
+#     - `setup-dart: true` installs the Dart SDK before the command runs.
+#     - `python-packages: 'Pillow ...'` pip-installs packages first.
+#   Callers with an empty `generate-command` (the default) get the original
+#   Flutter behavior unchanged.
+#
 # Callable from any consuming repo:
 #   jobs:
 #     clean-head:
 #       uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+#       secrets: inherit
+#
+#   Generic-mode caller (see examples/workflows/clean-head-generic.yml):
+#   jobs:
+#     clean-head:
+#       uses: RokctAI/shared-workflows/.github/workflows/universal-clean-head.yml@main
+#       with:
+#         setup-dart: true
+#         python-packages: 'Pillow'
+#         generate-command: |
+#           python3 tools/generate_assets.py
 #       secrets: inherit
 
 name: Universal Clean HEAD
@@ -64,6 +87,21 @@ on:
         # Pinned: Flutter 3.47.0 + analyzer <8 (freezed 2.x) hangs build_runner; remove once SDKs move to freezed 3.x / analyzer 8.
         default: '3.44.9'
         description: "Pin an exact Flutter version. Empty = latest on channel."
+      generate-command:
+        required: false
+        type: string
+        default: ''
+        description: "Generic mode: a bash script (may be multi-line) that regenerates this repo's committed generated files, run from the repo root. When non-empty, the Flutter shell-detection/compose steps are skipped entirely and this command runs instead, followed by the same clean-HEAD drift check. Empty (default) keeps the original Flutter behavior."
+      setup-dart:
+        required: false
+        type: boolean
+        default: false
+        description: "Generic mode only: install the Dart SDK (dart-lang/setup-dart) before running generate-command."
+      python-packages:
+        required: false
+        type: string
+        default: ''
+        description: "Generic mode only: space-separated Python packages to `python3 -m pip install` before running generate-command."
     secrets:
       MONOREPO_PAT:
         required: false
@@ -97,7 +135,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── Flutter shell mode (default) ────────────────────────────────────
+      # Runs only when `generate-command` is empty. When the detect step is
+      # skipped its `is_shell` output is empty, so every downstream
+      # `is_shell == 'true'` step skips too — the whole Flutter chain is inert
+      # in generic mode.
       - name: Detect Shell App
+        if: inputs.generate-command == ''
         id: detect
         run: |
           if [ -f "composer.json" ] || [ -f ".rokct/config/app_type" ]; then
@@ -235,4 +279,67 @@ jobs:
             echo "## 🧼 Clean HEAD — PASSED"
             echo ""
             echo "A fresh compose at this commit reproduces the committed tree exactly (no template drift)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Generic mode ────────────────────────────────────────────────────
+      # Runs only when `generate-command` is non-empty: the caller's own
+      # generation script replaces the Flutter compose pipeline, then the
+      # same clean-HEAD drift check applies.
+
+      - name: Setup Dart SDK (Generic Mode)
+        if: inputs.generate-command != '' && inputs.setup-dart
+        uses: dart-lang/setup-dart@7654d458321ee25acccccfdb86cd48bd95768ff1 # v1.8.0
+
+      - name: Install Python Packages (Generic Mode)
+        if: inputs.generate-command != '' && inputs.python-packages != ''
+        run: |
+          echo "🐍 Installing Python packages: ${{ inputs.python-packages }}"
+          python3 -m pip install ${{ inputs.python-packages }}
+
+      - name: Run Generate Command (Generic Mode)
+        if: inputs.generate-command != ''
+        run: |
+          echo "🚀 Running the caller's generate command from the repo root..."
+          ${{ inputs.generate-command }}
+          echo "ℹ️ Generated in place for comparison only — never committing (this is a check gate)."
+
+      - name: Verify Generated Files Are Clean at HEAD (Generic Mode)
+        if: inputs.generate-command != ''
+        run: |
+          # Same exclusions as the Flutter path: .rokct/ is per-session
+          # protocol state, never generator output; pubspec.lock churns with
+          # registry state over time, not with HEAD content.
+          EXCLUDES=(':(exclude).rokct' ':(exclude)pubspec.lock')
+
+          # --porcelain lists modified/deleted tracked files AND new untracked
+          # files, while respecting .gitignore (deliberately untracked
+          # generator output stays out of the gate).
+          DRIFT="$(git status --porcelain -- . "${EXCLUDES[@]}")"
+
+          if [ -n "$DRIFT" ]; then
+            echo "::error::Generated files are dirty at HEAD. Re-running this repo's generate command does not reproduce what is committed - generator drift. Re-run the generators and commit the result (or fix the generator source) before merging."
+            echo "❌ Drift detected between HEAD and a fresh generation:"
+            echo "$DRIFT"
+            {
+              echo "## 🧼 Clean HEAD — FAILED"
+              echo ""
+              echo "Running this repo's generate command at this commit changed committed files (or created new ones)."
+              echo "The generated output at HEAD has drifted from its generator source of truth."
+              echo ""
+              echo '```'
+              echo "$DRIFT"
+              echo '```'
+              echo ""
+              echo "Fix: re-run this repo's generate command locally and commit the result, or correct the generator/source input that caused the drift."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "--- Full diff of tracked files (first 400 lines) ---"
+            git --no-pager diff -- . "${EXCLUDES[@]}" | head -n 400
+            exit 1
+          fi
+
+          echo "✅ HEAD is clean: a fresh generation reproduces the committed tree exactly."
+          {
+            echo "## 🧼 Clean HEAD — PASSED"
+            echo ""
+            echo "A fresh generation at this commit reproduces the committed tree exactly (no generator drift)."
           } >> "$GITHUB_STEP_SUMMARY"
