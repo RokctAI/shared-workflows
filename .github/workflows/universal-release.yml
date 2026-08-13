@@ -891,6 +891,24 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
           flutter build windows --release
 
+          # Bundle the MSVC runtime (msvcp140/vcruntime140/vcruntime140_1)
+          # into the zip: on machines without the VC++ redistributable the
+          # exe otherwise dies in the loader before main() - instant silent
+          # exit, no window, no error. Missing redist on the runner only
+          # warns; the zip still ships.
+          try {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $vs = & $vswhere -latest -property installationPath
+            $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\*.CRT" -Directory | Select-Object -First 1
+            if ($crt) {
+              Copy-Item "$($crt.FullName)\msvcp140.dll","$($crt.FullName)\vcruntime140.dll","$($crt.FullName)\vcruntime140_1.dll" build\windows\x64\runner\Release\ -ErrorAction Continue
+            } else {
+              Write-Output "::warning::MSVC CRT redist not found under $vs; runtime DLLs not bundled."
+            }
+          } catch {
+            Write-Output "::warning::Could not bundle MSVC runtime DLLs: $_"
+          }
+
           # Zip the build
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
 
