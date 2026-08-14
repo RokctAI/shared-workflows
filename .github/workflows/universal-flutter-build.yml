@@ -358,11 +358,36 @@ jobs:
       - name: Get Dependencies
         id: build_process
         run: |
-          {
-            flutter pub get &&
-            dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
+
+      - name: Upload Build Log as Artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: android-build-log
+          path: build_log.txt
+          if-no-files-found: ignore
 
       - name: Parse build logs and create error_log.md
         if: env.build_failed == 'true'
@@ -373,7 +398,7 @@ jobs:
           import os
 
           try:
-              with open('build_log.txt', 'r') as f:
+              with open('build_log.txt', 'r', encoding='utf-8', errors='replace') as f:
                   log = f.read()
           except FileNotFoundError:
               sys.exit(0)
@@ -385,7 +410,7 @@ jobs:
           for filepath, details in matches:
               errors[filepath] = details.strip()
 
-          with open('error_log.md', 'w') as md:
+          with open('error_log.md', 'w', encoding='utf-8') as md:
               md.write('# 🤖 Android Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
 
@@ -890,11 +915,36 @@ jobs:
         id: build_process
         shell: bash
         run: |
-          {
-            flutter pub get &&
-            dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
+
+      - name: Upload Build Log as Artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-build-log
+          path: build_log.txt
+          if-no-files-found: ignore
 
       - name: Parse build logs and create error_log.md
         if: env.build_failed == 'true'
@@ -906,7 +956,7 @@ jobs:
           import os
 
           try:
-              with open('build_log.txt', 'r') as f:
+              with open('build_log.txt', 'r', encoding='utf-8', errors='replace') as f:
                   log = f.read()
           except FileNotFoundError:
               sys.exit(0)
@@ -918,7 +968,7 @@ jobs:
           for filepath, details in matches:
               errors[filepath] = details.strip()
 
-          with open('error_log.md', 'w') as md:
+          with open('error_log.md', 'w', encoding='utf-8') as md:
               md.write('# 🪟 Windows Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
 
@@ -1374,11 +1424,36 @@ jobs:
       - name: Get Dependencies
         id: build_process
         run: |
-          {
-            flutter pub get &&
-            dart run build_runner build --delete-conflicting-outputs
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
+
+      - name: Upload Build Log as Artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ios-macos-build-log
+          path: build_log.txt
+          if-no-files-found: ignore
 
       - name: Parse build logs and create error_log.md
         if: env.build_failed == 'true'
@@ -1389,7 +1464,7 @@ jobs:
           import os
 
           try:
-              with open('build_log.txt', 'r') as f:
+              with open('build_log.txt', 'r', encoding='utf-8', errors='replace') as f:
                   log = f.read()
           except FileNotFoundError:
               sys.exit(0)
@@ -1401,7 +1476,7 @@ jobs:
           for filepath, details in matches:
               errors[filepath] = details.strip()
 
-          with open('error_log.md', 'w') as md:
+          with open('error_log.md', 'w', encoding='utf-8') as md:
               md.write('# 🍎 iOS/MacOS Build Errors\n\n')
               md.write('The following syntax errors were found during the build process:\n\n')
 
