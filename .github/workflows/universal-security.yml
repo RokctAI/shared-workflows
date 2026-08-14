@@ -119,10 +119,8 @@ jobs:
           jq -r '.[] | "- Found: " + .Description + " in file: " + .File' gitleaks-report.json
           echo "-------------------------------------------------------"
 
-      - name: Create Remediation Issue
+      - name: Build Secret Remediation Notes
         if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
-        env:
-          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
           {
             echo "### 🔑 Secret Found in Repository"
@@ -177,17 +175,27 @@ jobs:
             echo ""
             echo "---"
             echo "> ⚠️ After force pushing, contact GitHub Support to purge any cached views of the old history."
-          } > remediation_issue_body.txt
-          gh issue create \
-            --title "🚨 Secret Detected in Git History" \
-            --label "Security" \
-            --body-file remediation_issue_body.txt \
-            || echo "⚠️ Issue may already exist, skipping."
+          } > "$RUNNER_TEMP/secret_remediation.md"
+
+      - name: Report Secret Scan to Central Repo
+        # One deduped, auto-closing issue per repo in RokctAI/platformstack
+        # (remediation notes embedded). No report on a tool crash (failure
+        # with no gitleaks-report.json) - that is not a finding, and it must
+        # not close an open issue either.
+        if: github.event_name != 'pull_request' && (steps.gitleaks.outcome == 'success' || (steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''))
+        continue-on-error: true
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: secret scan
+          label: secret-leak
+          findings: ${{ steps.gitleaks.outcome == 'failure' }}
+          extra-body-file: ${{ runner.temp }}/secret_remediation.md
 
       - name: Fail if Secret Found
         if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
         run: |
-          echo "❌ Secret detected. See the issue created for remediation steps."
+          echo "❌ Secret detected. See the central report issue in RokctAI/platformstack for remediation steps."
           exit 1
 
       - name: Warning on Tool Failure
@@ -260,21 +268,18 @@ jobs:
            echo "bandit_findings=false" >> "$GITHUB_ENV"
         fi
 
-    - name: Create Issue on Bandit Findings
-      if: env.bandit_findings == 'true' && steps.check_python.outputs.exists == 'true'
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-      run: |
-        {
-          echo "### 🐍 Python Security Scan Failure (Bandit)"
-          echo "**Commit:** ${{ github.sha }}"
-          echo ""
-          echo "#### Findings (High Severity):"
-          echo "\`\`\`"
-          head -c 2000 bandit_output.txt
-          echo "\`\`\`"
-        } > bandit_issue_body.txt
-        gh issue create --title "🚨 Security: Bandit High Severity Findings" --body-file bandit_issue_body.txt --label "Security" || echo "Issue already exists."
+    - name: Report Bandit Scan to Central Repo
+      # One deduped, auto-closing issue per repo in RokctAI/platformstack
+      # instead of a fresh per-repo issue on every red run.
+      if: steps.check_python.outputs.exists == 'true' && github.event_name != 'pull_request'
+      continue-on-error: true
+      uses: RokctAI/shared-workflows/.github/actions/central-report@main
+      with:
+        token: ${{ secrets.MONOREPO_PAT }}
+        check: bandit scan
+        label: security-scan-failure
+        findings: ${{ env.bandit_findings }}
+        output-file: bandit_output.txt
 
     - name: Run Pip Audit (Dependency Vulnerabilities)
       if: steps.check_python.outputs.exists == 'true'
@@ -291,23 +296,16 @@ jobs:
           echo "pip_audit_findings=false" >> "$GITHUB_ENV"
         fi
 
-    - name: Create Issue on Pip Audit Findings
-      if: env.pip_audit_findings == 'true' && steps.check_python.outputs.exists == 'true'
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-      run: |
-        if [ -f "pip_audit_output.txt" ]; then
-          {
-            echo "### 🐍 Python Dependency Audit Failure"
-            echo "**Commit:** ${{ github.sha }}"
-            echo ""
-            echo "#### Findings:"
-            echo "\`\`\`"
-            head -c 2000 pip_audit_output.txt
-            echo "\`\`\`"
-          } > pip_audit_issue_body.txt
-          gh issue create --title "🚨 Security: Pip Audit Vulnerabilities" --body-file pip_audit_issue_body.txt --label "Security" || echo "Issue already exists."
-        fi
+    - name: Report Pip Audit to Central Repo
+      if: steps.check_python.outputs.exists == 'true' && github.event_name != 'pull_request'
+      continue-on-error: true
+      uses: RokctAI/shared-workflows/.github/actions/central-report@main
+      with:
+        token: ${{ secrets.MONOREPO_PAT }}
+        check: pip audit
+        label: pip-audit-failure
+        findings: ${{ env.pip_audit_findings }}
+        output-file: pip_audit_output.txt
 
 # -----------------------------
 # Node Security
@@ -359,21 +357,18 @@ jobs:
             echo "npm_findings=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Create Issue on NPM Audit Findings
-        if: env.npm_findings == 'true' && steps.check_node.outputs.exists == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-        run: |
-          {
-            echo "### 📦 Node Security Audit Failure"
-            echo "**High/Critical vulnerabilities found.**"
-            echo ""
-            echo "#### Audit Summary:"
-            echo "\`\`\`"
-            head -c 2000 npm_audit_output.txt
-            echo "\`\`\`"
-          } > npm_audit_issue_body.txt
-          gh issue create --title "🚨 Security: Node Security Alert (High/Critical)" --body-file npm_audit_issue_body.txt --label "Security" || echo "Issue already exists."
+      - name: Report NPM Audit to Central Repo
+        # Same title key as universal-linter.yml's npm audit report, so both
+        # workflows track (and close) the SAME central issue for this check.
+        if: steps.check_node.outputs.exists == 'true' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: npm audit
+          label: npm-audit-failure
+          findings: ${{ env.npm_findings }}
+          output-file: npm_audit_output.txt
 
 # -----------------------------
 # Enable Push Protection
