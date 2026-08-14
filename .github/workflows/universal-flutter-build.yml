@@ -358,26 +358,27 @@ jobs:
       - name: Get Dependencies
         id: build_process
         run: |
-          {
-            flutter pub get &&
-            {
-              # build_runner >=2.15 AOT-compiles builders via 'dart compile',
-              # which refuses to run when any resolved package ships a
-              # native-asset build hook ("'dart compile' does not support
-              # build hooks"). --force-jit avoids that. Older build_runner
-              # versions do not know the flag at all, so if the flag itself
-              # is unrecognized, fall back to the plain invocation.
-              dart run build_runner build --force-jit --delete-conflicting-outputs ||
-              {
-                if grep -q 'Could not find an option named' build_log.txt; then
-                  echo 'build_runner does not recognize --force-jit (older version); retrying with plain build'
-                  dart run build_runner build --delete-conflicting-outputs
-                else
-                  false
-                fi
-              }
-            }
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
 
       - name: Upload Build Log as Artifact
@@ -914,26 +915,27 @@ jobs:
         id: build_process
         shell: bash
         run: |
-          {
-            flutter pub get &&
-            {
-              # build_runner >=2.15 AOT-compiles builders via 'dart compile',
-              # which refuses to run when any resolved package ships a
-              # native-asset build hook ("'dart compile' does not support
-              # build hooks"). --force-jit avoids that. Older build_runner
-              # versions do not know the flag at all, so if the flag itself
-              # is unrecognized, fall back to the plain invocation.
-              dart run build_runner build --force-jit --delete-conflicting-outputs ||
-              {
-                if grep -q 'Could not find an option named' build_log.txt; then
-                  echo 'build_runner does not recognize --force-jit (older version); retrying with plain build'
-                  dart run build_runner build --delete-conflicting-outputs
-                else
-                  false
-                fi
-              }
-            }
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
 
       - name: Upload Build Log as Artifact
@@ -1422,26 +1424,27 @@ jobs:
       - name: Get Dependencies
         id: build_process
         run: |
-          {
-            flutter pub get &&
-            {
-              # build_runner >=2.15 AOT-compiles builders via 'dart compile',
-              # which refuses to run when any resolved package ships a
-              # native-asset build hook ("'dart compile' does not support
-              # build hooks"). --force-jit avoids that. Older build_runner
-              # versions do not know the flag at all, so if the flag itself
-              # is unrecognized, fall back to the plain invocation.
-              dart run build_runner build --force-jit --delete-conflicting-outputs ||
-              {
-                if grep -q 'Could not find an option named' build_log.txt; then
-                  echo 'build_runner does not recognize --force-jit (older version); retrying with plain build'
-                  dart run build_runner build --delete-conflicting-outputs
-                else
-                  false
-                fi
-              }
-            }
-          } > build_log.txt 2>&1 || echo "build_failed=true" >> "$GITHUB_ENV"
+          rc=0
+          flutter pub get > build_log.txt 2>&1 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs >> build_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build' >> build_log.txt
+                dart run build_runner build --delete-conflicting-outputs >> build_log.txt 2>&1 || rc=$?
+              else
+                rc=1
+              fi
+            fi
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "build_failed=true" >> "$GITHUB_ENV"
+          fi
         continue-on-error: true
 
       - name: Upload Build Log as Artifact
