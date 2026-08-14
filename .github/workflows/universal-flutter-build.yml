@@ -18,7 +18,7 @@ on:
         required: false
         type: string
         default: "apk"
-        description: "Build type: apk, appbundle, all (apk + appbundle), develop (debug apk + appbundle), windows, or ios"
+        description: "Build type: apk, appbundle, all (apk + appbundle), develop (debug apk + appbundle), windows, ios, or macos"
       upload-artifact:
         required: false
         type: boolean
@@ -1114,7 +1114,7 @@ jobs:
     needs: [telemetry, compose-app]
     runs-on: macos-latest
 
-    if: inputs.build-type == 'ios'
+    if: inputs.build-type == 'ios' || inputs.build-type == 'macos'
     permissions: write-all
     env:
       IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
