@@ -142,6 +142,10 @@ jobs:
 
       - name: Compose Backend SDK Modules (If Shell App)
         shell: bash
+        env:
+          # SDK repos are private; the composer injects this token into its
+          # git clone URLs (see compose_backend.py authenticated_git_url).
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing backend SDK modules..."
