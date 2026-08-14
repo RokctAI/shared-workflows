@@ -1,0 +1,139 @@
+name: Central CI Report
+description: >
+  Files one deduplicated, auto-closing issue per (repo, check) in the central
+  report repo (RokctAI/platformstack), mirroring universal-flutter-build.yml's
+  report-build-status job. On findings it opens the issue - or comments the new
+  run link on the already-open one instead of creating a duplicate. On a clean
+  run it closes the open issue with a recovery comment. The stable dedupe key
+  is the exact title "<repo>: <check> failed". Degrades to a log line when the
+  token is unavailable; never fails the caller (pair with continue-on-error).
+
+inputs:
+  token:
+    description: Token with issue write access to the central repo (MONOREPO_PAT).
+    required: false
+    default: ""
+  check:
+    description: >
+      Check key, e.g. "flutter analyze". The issue title becomes
+      "<repo>: <check> failed" - keep it stable, it is the dedupe key.
+    required: true
+  label:
+    description: Per-check label applied to (and used to scope the search of) central issues.
+    required: true
+  findings:
+    description: '"true" when the check found problems, "false" when it is clean.'
+    required: true
+  output-file:
+    description: Path to the check's output; first 2000 chars are embedded in a new issue.
+    required: false
+    default: ""
+  extra-body-file:
+    description: Optional markdown appended to a new issue body (e.g. remediation steps).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Report to Central Repo
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CHECK: ${{ inputs.check }}
+        LABEL: ${{ inputs.label }}
+        FINDINGS: ${{ inputs.findings }}
+        OUT_FILE: ${{ inputs.output-file }}
+        EXTRA_BODY_FILE: ${{ inputs.extra-body-file }}
+        CENTRAL_REPO: RokctAI/platformstack
+      run: |
+        if [ -z "$GH_TOKEN" ]; then
+          echo "ℹ️ MONOREPO_PAT not available - skipping central reporting for '$CHECK'."
+          exit 0
+        fi
+
+        REPO_NAME="${GITHUB_REPOSITORY#*/}"
+        TITLE="${REPO_NAME}: ${CHECK} failed"
+        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        NOW_UTC="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+
+        # Real dedupe: exact-title match among OPEN issues with this check's
+        # label, not gh's fuzzy --search.
+        EXISTING="$(gh issue list -R "$CENTRAL_REPO" --state open --label "$LABEL" \
+          --json number,title --limit 100 2>/dev/null \
+          | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty')" || EXISTING=""
+
+        if [ "$FINDINGS" = "true" ]; then
+          # Ensure labels exist (no-op when already present)
+          gh label create "$LABEL" -R "$CENTRAL_REPO" \
+            --color "D93F0B" --description "Automated report: ${CHECK} is failing on mainline" \
+            2>/dev/null || true
+          gh label create "app:${REPO_NAME}" -R "$CENTRAL_REPO" \
+            --color "1D76DB" --description "Build reports for ${REPO_NAME}" \
+            2>/dev/null || true
+
+          if [ -n "$EXISTING" ]; then
+            echo "ℹ️ Open issue #$EXISTING already tracks '$TITLE'. Adding a comment instead of a duplicate."
+            {
+              echo "Still failing: new \`${CHECK}\` findings on \`${GITHUB_REF_NAME}\`."
+              echo ""
+              echo "- **Run:** ${RUN_URL}"
+              echo "- **Commit:** \`${GITHUB_SHA}\`"
+              echo "- **Time:** ${NOW_UTC}"
+            } > "$RUNNER_TEMP/central_comment_body.md"
+            gh issue comment "$EXISTING" -R "$CENTRAL_REPO" \
+              --body-file "$RUNNER_TEMP/central_comment_body.md" \
+              || echo "⚠️ Failed to comment on issue #$EXISTING."
+          else
+            {
+              echo "## 🚨 ${TITLE}"
+              echo ""
+              echo "| | |"
+              echo "|---|---|"
+              echo "| **Repository** | \`${GITHUB_REPOSITORY}\` |"
+              echo "| **Check** | \`${CHECK}\` |"
+              echo "| **Failing run** | ${RUN_URL} |"
+              echo "| **Branch** | \`${GITHUB_REF_NAME}\` |"
+              echo "| **Commit** | \`${GITHUB_SHA}\` |"
+              echo "| **Failed at** | ${NOW_UTC} |"
+              if [ -n "$OUT_FILE" ] && [ -f "$OUT_FILE" ]; then
+                echo ""
+                echo "### Output (first 2000 chars)"
+                echo ""
+                echo '````'
+                head -c 2000 "$OUT_FILE"
+                echo ""
+                echo '````'
+              fi
+              if [ -n "$EXTRA_BODY_FILE" ] && [ -f "$EXTRA_BODY_FILE" ]; then
+                echo ""
+                cat "$EXTRA_BODY_FILE"
+              fi
+              echo ""
+              echo "This issue stays open until the next clean \`${CHECK}\` run of ${REPO_NAME}, which will close it automatically."
+            } > "$RUNNER_TEMP/central_issue_body.md"
+            gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
+              --label "$LABEL" --label "app:${REPO_NAME}" \
+              --body-file "$RUNNER_TEMP/central_issue_body.md" \
+              || gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
+                   --body-file "$RUNNER_TEMP/central_issue_body.md" \
+              || echo "⚠️ Failed to open central issue for '$TITLE'."
+          fi
+        else
+          if [ -n "$EXISTING" ]; then
+            echo "✅ ${CHECK} recovered - closing central issue #$EXISTING."
+            {
+              echo "✅ Recovered: \`${CHECK}\` of \`${REPO_NAME}\` is clean again."
+              echo ""
+              echo "- **Run:** ${RUN_URL}"
+              echo "- **Branch:** \`${GITHUB_REF_NAME}\`"
+              echo "- **Commit:** \`${GITHUB_SHA}\`"
+              echo "- **Time:** ${NOW_UTC}"
+            } > "$RUNNER_TEMP/central_close_body.md"
+            gh issue close "$EXISTING" -R "$CENTRAL_REPO" \
+              --comment "$(cat "$RUNNER_TEMP/central_close_body.md")" \
+              || echo "⚠️ Failed to close issue #$EXISTING."
+          else
+            echo "ℹ️ ${CHECK} clean and no open central issue to close. Nothing to do."
+          fi
+        fi

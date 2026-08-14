@@ -418,39 +418,29 @@ jobs:
              { echo "ty_findings=false"; } >> "$GITHUB_ENV"
           fi
 
-      - name: Create Issue on Ruff Findings
-        if: env.findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          BODY="### 🐍 Python Lint Failure (Ruff)
-          **Commit:** ${{ github.sha }}
-          **Branch:** ${{ github.ref_name }}
-          
-          #### Error Summary:
-          \`\`\`
-          $(head -c 2000 ruff_output.txt)
-          \`\`\`
-          "
-          gh issue create --title "🚨 CI: Python Lint Failure (Ruff)" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
+      - name: Report Ruff Lint to Central Repo
+        # One deduped, auto-closing issue per repo in RokctAI/platformstack
+        # instead of a fresh per-repo issue on every red run.
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: ruff lint
+          label: lint-failure
+          findings: ${{ env.findings }}
+          output-file: ruff_output.txt
 
-      - name: Create Issue on ty Findings
-        if: env.ty_findings == 'true' && steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          BODY="### 🔍 Python Type Check Failure (ty)
-          **Commit:** ${{ github.sha }}
-          **Branch:** ${{ github.ref_name }}
-
-          > Type errors are common in AI-generated code. Fix these before they cause runtime bugs.
-
-          #### Type Errors:
-          \`\`\`
-          $(head -c 2000 ty_output.txt)
-          \`\`\`
-          "
-          gh issue create --title "🚨 CI: Python Type Errors Found" --body "$BODY" --label "CI Blocker" || echo "Issue already exists or failed to create."
+      - name: Report Python Type Check to Central Repo
+        if: steps.check_python.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: python type check
+          label: type-check-failure
+          findings: ${{ env.ty_findings }}
+          output-file: ty_output.txt
 
       - name: Check Python License Compatibility
         if: steps.check_python.outputs.exists == 'true'
@@ -1010,96 +1000,13 @@ jobs:
         # continue-on-error, and it degrades to a log line without MONOREPO_PAT.
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
-          CENTRAL_REPO: RokctAI/platformstack
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "ℹ️ MONOREPO_PAT not available - skipping central analysis reporting."
-            exit 0
-          fi
-
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          TITLE="${REPO_NAME}: flutter analyze failed"
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          NOW_UTC="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-
-          # Real dedupe: exact-title match among OPEN analysis-failure issues,
-          # not gh's fuzzy --search.
-          find_open_issue() {
-            gh issue list -R "$CENTRAL_REPO" --state open --label "analysis-failure" \
-              --json number,title --limit 100 2>/dev/null \
-              | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty'
-          }
-
-          if [ "$findings" = "true" ]; then
-            # Ensure labels exist (no-op when already present)
-            gh label create "analysis-failure" -R "$CENTRAL_REPO" \
-              --color "D93F0B" --description "Automated report: flutter analyze is failing on mainline" \
-              2>/dev/null || true
-            gh label create "app:${REPO_NAME}" -R "$CENTRAL_REPO" \
-              --color "1D76DB" --description "Build reports for ${REPO_NAME}" \
-              2>/dev/null || true
-
-            EXISTING="$(find_open_issue || true)"
-            if [ -n "$EXISTING" ]; then
-              echo "ℹ️ Open issue #$EXISTING already tracks '$TITLE'. Adding a comment instead of a duplicate."
-              {
-                echo "Still failing: new \`flutter analyze\` findings on \`${GITHUB_REF_NAME}\`."
-                echo ""
-                echo "- **Run:** ${RUN_URL}"
-                echo "- **Commit:** \`${GITHUB_SHA}\`"
-                echo "- **Time:** ${NOW_UTC}"
-              } > "$RUNNER_TEMP/central_comment_body.md"
-              gh issue comment "$EXISTING" -R "$CENTRAL_REPO" --body-file "$RUNNER_TEMP/central_comment_body.md" \
-                || echo "⚠️ Failed to comment on issue #$EXISTING."
-            else
-              {
-                echo "## 🚨 ${TITLE}"
-                echo ""
-                echo "| | |"
-                echo "|---|---|"
-                echo "| **Repository** | \`${GITHUB_REPOSITORY}\` |"
-                echo "| **Check** | \`flutter analyze\` |"
-                echo "| **Failing run** | ${RUN_URL} |"
-                echo "| **Branch** | \`${GITHUB_REF_NAME}\` |"
-                echo "| **Commit** | \`${GITHUB_SHA}\` |"
-                echo "| **Failed at** | ${NOW_UTC} |"
-                echo ""
-                echo "### Analyzer output (first 2000 chars)"
-                echo ""
-                echo '````'
-                head -c 2000 flutter_output.txt
-                echo ""
-                echo '````'
-                echo ""
-                echo "This issue stays open until the next clean \`flutter analyze\` run of ${REPO_NAME}, which will close it automatically."
-              } > "$RUNNER_TEMP/central_issue_body.md"
-              gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
-                --label "analysis-failure" --label "app:${REPO_NAME}" \
-                --body-file "$RUNNER_TEMP/central_issue_body.md" \
-                || gh issue create -R "$CENTRAL_REPO" --title "$TITLE" \
-                     --body-file "$RUNNER_TEMP/central_issue_body.md" \
-                || echo "⚠️ Failed to open central analysis-failure issue."
-            fi
-          else
-            EXISTING="$(find_open_issue || true)"
-            if [ -n "$EXISTING" ]; then
-              echo "✅ Analysis recovered - closing central issue #$EXISTING."
-              {
-                echo "✅ Recovered: \`flutter analyze\` of \`${REPO_NAME}\` is clean again."
-                echo ""
-                echo "- **Run:** ${RUN_URL}"
-                echo "- **Branch:** \`${GITHUB_REF_NAME}\`"
-                echo "- **Commit:** \`${GITHUB_SHA}\`"
-                echo "- **Time:** ${NOW_UTC}"
-              } > "$RUNNER_TEMP/central_close_body.md"
-              gh issue close "$EXISTING" -R "$CENTRAL_REPO" --comment "$(cat "$RUNNER_TEMP/central_close_body.md")" \
-                || echo "⚠️ Failed to close issue #$EXISTING."
-            else
-              echo "ℹ️ Analysis clean and no open central issue to close. Nothing to do."
-            fi
-          fi
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: flutter analyze
+          label: analysis-failure
+          findings: ${{ env.findings }}
+          output-file: flutter_output.txt
 
       - name: Setup Identity (Local)
         if: steps.check_flutter.outputs.exists == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || inputs.force-fix == true) && env.IS_SELF == 'true'
@@ -1297,20 +1204,18 @@ jobs:
              { echo "audit_findings=false"; } >> "$GITHUB_ENV"
           fi
 
-      - name: Create Issue on Audit Findings
-        if: env.audit_findings == 'true' && steps.check_node.outputs.exists == 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          BODY="### 📦 Node Security Audit Failure
-          **High/Critical vulnerabilities found.**
-          
-          #### Audit Summary:
-          \`\`\`
-          $(head -c 2000 npm_audit_output.txt)
-          \`\`\`
-          "
-          gh issue create --title "🚨 CI: Node Security Alert (High/Critical)" --body "$BODY" --label "Security" || echo "Issue already exists."
+      - name: Report NPM Audit to Central Repo
+        # Same title key as universal-security.yml's npm audit report, so both
+        # workflows track (and close) the SAME central issue for this check.
+        if: steps.check_node.outputs.exists == 'true' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: RokctAI/shared-workflows/.github/actions/central-report@main
+        with:
+          token: ${{ secrets.MONOREPO_PAT }}
+          check: npm audit
+          label: npm-audit-failure
+          findings: ${{ env.audit_findings }}
+          output-file: npm_audit_output.txt
 
       - name: Run ESLint
         if: steps.check_node.outputs.exists == 'true'
