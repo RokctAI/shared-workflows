@@ -1482,8 +1482,11 @@ jobs:
           echo "Build failed. Check the ios-macos-build-error-log artifact or the opened PR for details."
           exit 1
 
-      # Helper for iOS Pods
+      # Helper for iOS Pods (iOS only - `flutter build macos` runs its own
+      # pod install inside macos/, and a macos-only invocation must not
+      # spend time in - or fail on - the ios/ Pods)
       - name: Install Cocoapods
+        if: inputs.build-type == 'ios'
         run: |
            (
              cd ios || exit 1
@@ -1491,6 +1494,7 @@ jobs:
            )
 
       - name: Build IPA
+        if: inputs.build-type == 'ios'
         run: |
           BUILD_ARGS=(--release)
           if [ -f .env/production.env ]; then
@@ -1570,8 +1574,9 @@ jobs:
               RESULT="$WINDOWS_RESULT"
               ARTIFACT="windows-build-error-log"
               ;;
-            ios)
-              PLATFORM="ios"
+            ios|macos)
+              # Both Apple build-types run in the build-ios job.
+              PLATFORM="$BUILD_TYPE"
               RESULT="$IOS_RESULT"
               ARTIFACT="ios-macos-build-error-log"
               ;;
