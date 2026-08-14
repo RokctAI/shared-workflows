@@ -140,6 +140,7 @@ Ensure these are set in your Repository (or Org) settings. **All workflows use `
 
 *   **`MONOREPO_PAT`**: (Recommended) A GitHub Personal Access Token with read access to the `RokctAI/Occultation` repository.
 *   **`APP_ID` / `APP_PRIVATE_KEY`**: (Recommended) Used by the CI to bypass `GITHUB_TOKEN` rate limits and perform authenticated actions (like PR creation).
+*   **`EMAIL_ENCRYPTION_KEY`**: (Required for repos using the Privacy Safeguard) AES-256 key for PII encryption. See [section 4](#4-privacy-safeguard-pii-encryption-) below.
 
 ### 1. Android Signing 🤖
 *   **`KEY_JKS`**: Base64 encoded `.jks` file.
@@ -156,6 +157,14 @@ Ensure these are set in your Repository (or Org) settings. **All workflows use `
 
 ### 3. Telemetry 📡
 *   **`COUNTER_API_KEY`**: Key for the `counterapi.dev` badge. All standard workflows will try to ping this if present.
+
+### 4. Privacy Safeguard (PII Encryption) 🔒
+*   **`EMAIL_ENCRYPTION_KEY`**: The AES-256 key used by the **Universal Privacy Safeguard** (`.github/workflows/universal-privacy.yml`) to encrypt PII — email addresses and privileged role identifiers — inside agent job cards (`.rokct/agent/jobs/pending/*.md`) and recipient cards (`.rokct/recipients/*.md`) before they are committed to a repository.
+    *   **Consumed by**: `core/utils/agent_delegation/privacy.py` in [`RokctAI/The-Rokct-Protocol`](https://github.com/RokctAI/The-Rokct-Protocol), which performs AES-256-GCM encryption via `pycryptodome`. Fleet repos invoke it through the `.rokct/skills/agent_delegation/scripts/privacy_sync.py` scaffold from their local `privacy.yml` workflow (see `RokctAI/opportunities/.github/workflows/privacy.yml` for a reference caller).
+    *   **Format**: Base64-encoded 32 random bytes (the script runs `base64.b64decode` on the value and passes the raw key to `AES.new(key, AES.MODE_GCM)`). This is **not** a Fernet key.
+    *   *Generate*: `python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"`
+    *   **Where to set**: Add it as a GitHub Actions secret named `EMAIL_ENCRYPTION_KEY` (Repository or Org level). Caller workflows forward it to `universal-privacy.yml` (declared under `secrets:`), which exports it as the `EMAIL_ENCRYPTION_KEY` environment variable for the `fix` step. When run locally, `privacy.py` (`load_key()`) first looks for an `EMAIL_ENCRYPTION_KEY=<generated-key>` line in a parent `.env/production.env`, then falls back to the `EMAIL_ENCRYPTION_KEY` environment variable. `RokctAI/PlatformStack` also injects the same value into its containers (`platform/Dockerfile` build arg and `platform/docker-compose*.yml` environment passthrough).
+    *   **If missing**: `check` mode still runs (detection only), but `fix` mode fails with `EMAIL_ENCRYPTION_KEY not found. Cannot encrypt.` and the `encrypt`/`decrypt` subcommands exit with an error.
 
 ---
 
