@@ -2,5 +2,15 @@
 * text=auto
 
 # GitHub Release Archive Exclusions
-.github/ export-ignore
+# NOTE: .github/actions/ must NOT be export-ignored. GitHub resolves
+# remote-form `uses: RokctAI/shared-workflows/.github/actions/<name>@<ref>`
+# via the repo archive (which honors export-ignore), so a blanket
+# `.github/ export-ignore` makes every remote action reference fail at job
+# setup with "Can't find 'action.yml'". Enumerate the other .github
+# subpaths instead (gitattributes has no un-ignore for export-ignore).
+.github/ISSUE_TEMPLATE/ export-ignore
+.github/assets/ export-ignore
+.github/workflows/ export-ignore
+.github/PULL_REQUEST_TEMPLATE.md export-ignore
+.github/.rc-cleanup-done export-ignore
 .rokct/ export-ignore
