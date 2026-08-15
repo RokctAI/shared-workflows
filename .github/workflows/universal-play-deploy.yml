@@ -71,14 +71,21 @@ on:
         default: ".github/.play-store-release-state.json"
         description: "Path to the committed marker file used for weekly-limit + no-op tracking"
     secrets:
-      # Deploy credentials resolve with a per-secret fallback: a GitHub
-      # Actions secret always wins, but when one is unset the deploy job
-      # reads the same-named key from RokctAI/Occultation
-      # .env/production.env (fetched with MONOREPO_PAT). The fetched file
-      # never leaves that job, and every resolved value is masked before use.
+      # Deploy credentials resolve with a per-secret fallback chain. A GitHub
+      # Actions secret always wins. For the two JSON credentials the next stop
+      # is a dedicated JSON file in RokctAI/Occultation .env/ (fetched with
+      # MONOREPO_PAT), and only then the legacy base64 key in
+      # .env/production.env:
+      #   PLAY_STORE_SERVICE_ACCOUNT_JSON -> .env/play_store_service_account.json
+      #   GOOGLE_SERVICES_JSON            -> .env/google-services.json
+      # KEY_JKS / KEY_PASSWORD / ALIAS_PASSWORD still resolve secret-first,
+      # then from the same-named key in .env/production.env. Fetched files
+      # never leave the deploy job; JSON credentials are written straight to
+      # 0600 temp files (never echoed, deleted before the job ends) and
+      # env-file values are masked before use.
       PLAY_STORE_SERVICE_ACCOUNT_JSON:
         required: false
-        description: "Base64-encoded (or raw) Google Play service account JSON key with Release Manager access. If unset, read from the PLAY_STORE_SERVICE_ACCOUNT_JSON key in RokctAI/Occultation .env/production.env (requires MONOREPO_PAT)"
+        description: "Base64-encoded (or raw) Google Play service account JSON key with Release Manager access. If unset, fetched from RokctAI/Occultation .env/play_store_service_account.json, falling back to the legacy base64 PLAY_STORE_SERVICE_ACCOUNT_JSON key in .env/production.env (both require MONOREPO_PAT)"
       KEY_JKS:
         required: false
       KEY_PASSWORD:
@@ -257,14 +264,21 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # Resolve deploy credentials with a per-secret fallback to the central
-      # Occultation env file. Precedence per credential: the GitHub Actions
-      # secret wins if set; otherwise the same-named key is read from
-      # RokctAI/Occultation .env/production.env (fetched with MONOREPO_PAT,
-      # full file — secrets live below the END_FLUTTER marker that the
-      # build-env step strips). Every resolved value is masked before any
-      # use, exported only via GITHUB_ENV within this job (never through job
-      # outputs or workflow inputs), and the fetched file is deleted before
-      # the step exits.
+      # Occultation repo. Precedence:
+      #   - JSON credentials (PLAY_STORE_SERVICE_ACCOUNT_JSON,
+      #     GOOGLE_SERVICES_JSON): GitHub Actions secret -> dedicated JSON
+      #     file in RokctAI/Occultation .env/ (play_store_service_account.json
+      #     / google-services.json, fetched raw with MONOREPO_PAT) -> legacy
+      #     base64 key in .env/production.env. The resolved JSON is written
+      #     straight to a 0600 file under RUNNER_TEMP and only its PATH is
+      #     exported (as <KEY>_FILE) — multi-line JSON cannot be add-masked
+      #     line-safely, so the content is never echoed and never placed in
+      #     GITHUB_ENV. These files hold private-key material and are removed
+      #     by the always() cleanup step at the end of the job.
+      #   - KEY_JKS / KEY_PASSWORD / ALIAS_PASSWORD: GitHub Actions secret ->
+      #     same-named key in .env/production.env, masked before any use and
+      #     exported only via GITHUB_ENV within this job.
+      # Fetched files never leave this job (no job outputs, no artifacts).
       - name: Resolve Deploy Credentials
         env:
           SECRET_PLAY_STORE_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
@@ -274,6 +288,7 @@ jobs:
           SECRET_GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
           GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
         run: |
+          umask 077
           ENV_TMP="$RUNNER_TEMP/occultation-secrets.env"
           trap 'rm -f "$ENV_TMP"' EXIT
 
@@ -293,8 +308,81 @@ jobs:
           }
 
           read_env_value() {
-            grep -m1 "^${1}=" "$ENV_TMP" | cut -d= -f2- \
+            { grep -m1 "^${1}=" "$ENV_TMP" || true; } | cut -d= -f2- \
               | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+          }
+
+          # Fetch a raw file from Occultation straight to disk. The content is
+          # never captured in a shell variable and never echoed.
+          fetch_occultation_file() {
+            local src="$1" dest="$2"
+            if [ -z "$GH_TOKEN" ]; then
+              return 1
+            fi
+            rm -f "$dest"
+            if ! gh api "repos/RokctAI/Occultation/contents/${src}" \
+                 -H "Accept: application/vnd.github.v3.raw" > "$dest" 2>/dev/null; then
+              rm -f "$dest"
+              return 1
+            fi
+          }
+
+          # Write $1 (raw JSON or base64-encoded JSON) to file $2. Returns
+          # non-zero (with $2 removed) if neither form yields valid JSON.
+          write_json_value() {
+            local value="$1" dest="$2"
+            if printf '%s' "$value" | jq -e . >/dev/null 2>&1; then
+              printf '%s' "$value" > "$dest"
+            else
+              printf '%s' "$value" | base64 --decode > "$dest" 2>/dev/null || true
+            fi
+            if ! jq -e . "$dest" >/dev/null 2>&1; then
+              rm -f "$dest"
+              return 1
+            fi
+          }
+
+          # resolve_json KEY occultation-file dest-file
+          # Secret -> dedicated Occultation JSON file -> legacy production.env
+          # key. On success exports <KEY>_FILE=dest via GITHUB_ENV.
+          resolve_json() {
+            local key="$1" occ_file="$2" dest="$3" secret_var="SECRET_$1" value source=""
+            value="${!secret_var}"
+            if [ -n "$value" ]; then
+              # Actions secrets are auto-masked by the runner already.
+              if ! write_json_value "$value" "$dest"; then
+                echo "::error::${key} GitHub Actions secret is set but is neither valid JSON nor base64-encoded JSON."
+                exit 1
+              fi
+              source="github-secret"
+            elif fetch_occultation_file "$occ_file" "$dest"; then
+              if ! jq -e . "$dest" >/dev/null 2>&1; then
+                rm -f "$dest"
+                echo "::error::RokctAI/Occultation ${occ_file} was fetched but does not parse as JSON. Fix or remove that file."
+                exit 1
+              fi
+              source="occultation-file ${occ_file}"
+            elif fetch_env_file; then
+              value="$(read_env_value "$key")"
+              if [ -n "$value" ]; then
+                # Single line by construction (grep -m1) — safe to mask as-is,
+                # whether base64 or compact JSON.
+                echo "::add-mask::$value"
+                if ! write_json_value "$value" "$dest"; then
+                  echo "::error::${key} from RokctAI/Occultation .env/production.env is neither valid JSON nor base64-encoded JSON. Prefer dropping the raw JSON file at ${occ_file} instead."
+                  exit 1
+                fi
+                source="occultation-env (legacy)"
+              fi
+            fi
+            if [ -n "$source" ]; then
+              chmod 600 "$dest"
+              echo "${key}_FILE=$dest" >> "$GITHUB_ENV"
+              eval "RESOLVED_${key}=1"
+              echo "🔑 $key resolved from $source."
+            else
+              echo "ℹ️ $key not available from GitHub secrets, RokctAI/Occultation ${occ_file}, or the legacy ${key}= key in .env/production.env."
+            fi
           }
 
           resolve() {
@@ -326,14 +414,14 @@ jobs:
             fi
           }
 
-          resolve PLAY_STORE_SERVICE_ACCOUNT_JSON
+          resolve_json PLAY_STORE_SERVICE_ACCOUNT_JSON ".env/play_store_service_account.json" "$RUNNER_TEMP/play-store-service-account.json"
+          resolve_json GOOGLE_SERVICES_JSON ".env/google-services.json" "$RUNNER_TEMP/google-services.json"
           resolve KEY_JKS
           resolve KEY_PASSWORD
           resolve ALIAS_PASSWORD
-          resolve GOOGLE_SERVICES_JSON
 
           if [ -z "${RESOLVED_PLAY_STORE_SERVICE_ACCOUNT_JSON:-}" ]; then
-            echo "::error::PLAY_STORE_SERVICE_ACCOUNT_JSON is not available. Set it as a GitHub Actions secret on the calling repo, or add it (base64-encoded service account JSON) to RokctAI/Occultation .env/production.env and pass MONOREPO_PAT."
+            echo "::error::PLAY_STORE_SERVICE_ACCOUNT_JSON is not available. Set it as a GitHub Actions secret on the calling repo, or drop the service account JSON file at RokctAI/Occultation .env/play_store_service_account.json (or, legacy, a base64 PLAY_STORE_SERVICE_ACCOUNT_JSON= key in .env/production.env) and pass MONOREPO_PAT."
             exit 1
           fi
 
@@ -370,13 +458,15 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
-      - name: Decode Google Services JSON
-        if: env.GOOGLE_SERVICES_JSON != ''
+      - name: Install Google Services JSON
+        if: env.GOOGLE_SERVICES_JSON_FILE != ''
         run: |
+          # GOOGLE_SERVICES_JSON_FILE is the already-validated JSON file
+          # produced by the Resolve Deploy Credentials step.
           if [ -d "android" ] && [ ! -f "android/app/google-services.json" ]; then
             mkdir -p android/app
-            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
-            echo "✅ google-services.json decoded."
+            install -m 600 "$GOOGLE_SERVICES_JSON_FILE" android/app/google-services.json
+            echo "✅ google-services.json installed."
           fi
 
       - name: Decode Keystore
@@ -433,21 +523,15 @@ jobs:
           fi
           echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Decode Play Store Service Account Key
+      - name: Locate Play Store Service Account Key
         id: play_key
         run: |
-          # PLAY_STORE_SERVICE_ACCOUNT_JSON comes from the Resolve Deploy
-          # Credentials step (GitHub secret, or Occultation production.env).
-          KEY_PATH="$RUNNER_TEMP/play-store-service-account.json"
-          # Accept either raw JSON or base64-encoded JSON
-          if echo "$PLAY_STORE_SERVICE_ACCOUNT_JSON" | jq . >/dev/null 2>&1; then
-            printf '%s' "$PLAY_STORE_SERVICE_ACCOUNT_JSON" > "$KEY_PATH"
-          else
-            echo "$PLAY_STORE_SERVICE_ACCOUNT_JSON" | base64 --decode > "$KEY_PATH" 2>/dev/null || true
-          fi
-          if ! jq . "$KEY_PATH" >/dev/null 2>&1; then
-            rm -f "$KEY_PATH"
-            echo "::error::PLAY_STORE_SERVICE_ACCOUNT_JSON did not decode to valid JSON (expected raw JSON or base64-encoded JSON)."
+          # PLAY_STORE_SERVICE_ACCOUNT_JSON_FILE was written (and validated as
+          # JSON) by the Resolve Deploy Credentials step. Sanity-check it is
+          # still there and still JSON without ever printing its content.
+          KEY_PATH="$PLAY_STORE_SERVICE_ACCOUNT_JSON_FILE"
+          if [ -z "$KEY_PATH" ] || ! jq -e . "$KEY_PATH" >/dev/null 2>&1; then
+            echo "::error::Resolved Play Store service account key file is missing or not valid JSON (expected at \$RUNNER_TEMP/play-store-service-account.json)."
             exit 1
           fi
           echo "key_path=$KEY_PATH" >> "$GITHUB_OUTPUT"
@@ -467,9 +551,13 @@ jobs:
           track: ${{ inputs.track }}
           status: ${{ inputs.release_status }}
 
-      - name: Cleanup Play Store Key
+      - name: Cleanup Resolved Credential Files
         if: always()
-        run: rm -f "${{ steps.play_key.outputs.key_path }}"
+        # Remove every credential file the resolve step may have written
+        # (both hold private-key / API-key material).
+        run: |
+          rm -f "$RUNNER_TEMP/play-store-service-account.json" \
+                "$RUNNER_TEMP/google-services.json"
 
   # --- 3. RECORD STATE (only after a successful publish) ---
   record-state:
