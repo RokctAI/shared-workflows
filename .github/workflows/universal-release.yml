@@ -1718,20 +1718,23 @@ jobs:
               fi
            fi
 
-           # 6. Update File Content (MainActivity & Manifests)
-           # We check the file at the TARGET location now
-           MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
-
-           if [ -f "$MAIN_ACTIVITY" ]; then
+           # 6. Update File Content (all moved Kotlin sources & Manifests)
+           # We check the files at the TARGET location now.
+           # Every .kt file the move relocated must get the target package —
+           # a stale declaration (e.g. JuvoApplication.kt) compiles the class
+           # into the wrong package and the app crashes at launch with
+           # ClassNotFoundException.
+           for KT_FILE in "$BASE_DIR/$TARGET_PATH"/*.kt; do
+              [ -f "$KT_FILE" ] || continue
               # Check if we need to update package declaration
-              if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
-                  echo "✏️ Updating MainActivity.kt package declaration..."
+              if ! grep -q "^package $TARGET_PACKAGE$" "$KT_FILE"; then
+                  echo "✏️ Updating $(basename "$KT_FILE") package declaration..."
                   # We simply replace the line starting with 'package '
-                  sed -i "s/^package .*/package $TARGET_PACKAGE/" "$MAIN_ACTIVITY"
+                  sed -i "s/^package .*/package $TARGET_PACKAGE/" "$KT_FILE"
               else
-                  echo "✅ MainActivity.kt is correct."
+                  echo "✅ $(basename "$KT_FILE") is correct."
               fi
-           fi
+           done
 
            # Update build.gradle namespace
            BUILD_GRADLE="android/app/build.gradle"

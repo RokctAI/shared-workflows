@@ -674,16 +674,19 @@ jobs:
             fi
           fi
 
-          # 4. Update MainActivity.kt package
-          MAIN_ACTIVITY="$BASE_DIR/$TARGET_PATH/MainActivity.kt"
-          if [ -f "$MAIN_ACTIVITY" ]; then
-            if ! grep -q "package $TARGET_PACKAGE" "$MAIN_ACTIVITY"; then
-              echo "✏️ Updating MainActivity.kt package declaration..."
-              sed -i "s|^package .*|package $TARGET_PACKAGE|" "$MAIN_ACTIVITY"
+          # 4. Update package declaration in ALL moved Kotlin sources
+          # (MainActivity.kt, JuvoApplication.kt, and any other .kt file the
+          # move above relocated — a stale declaration compiles the class into
+          # the wrong package and crashes at launch with ClassNotFoundException)
+          for KT_FILE in "$BASE_DIR/$TARGET_PATH"/*.kt; do
+            [ -f "$KT_FILE" ] || continue
+            if ! grep -q "^package $TARGET_PACKAGE$" "$KT_FILE"; then
+              echo "✏️ Updating $(basename "$KT_FILE") package declaration..."
+              sed -i "s|^package .*|package $TARGET_PACKAGE|" "$KT_FILE"
             else
-              echo "✅ MainActivity.kt is correct."
+              echo "✅ $(basename "$KT_FILE") is correct."
             fi
-          fi
+          done
 
           # 5. Update build.gradle namespace & applicationId
           if [ -f "$GRADLE_FILE" ]; then
