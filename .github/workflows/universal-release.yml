@@ -789,6 +789,20 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           cache: true
 
+      - name: Force LF checkouts for composer SDK clones
+        # windows-latest ships Git with core.autocrlf=true, so the composer's
+        # own `git clone` of each SDK repo materializes install.py with CRLF
+        # line endings. enforce_sdk_pin (sdk_composer.py) hashes the on-disk
+        # bytes, and composer.json sha256 pins are of the committed LF bytes -
+        # the CRLF checkout made every pin "fail" on Windows while the same
+        # pins verified fine on the ubuntu compose jobs (supacharge run
+        # 31875490279: expected 60c14d48..., actual bdcd1f4a... = sha256 of
+        # the identical file with CRLF endings). autocrlf=input checks out
+        # blobs verbatim (LF), so the hash matches the pin on every OS.
+        # Same fix as universal-flutter-build.yml's Windows Build job (#410).
+        shell: bash
+        run: git config --global core.autocrlf input
+
       - name: Compose SDK Modules (If Shell App)
         shell: bash
         env:
