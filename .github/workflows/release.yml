@@ -60,7 +60,7 @@ jobs:
       one_time_cleanup_cutoff_date: '2026-01-30'
       
       # Brain Endpoint 
-      brain_endpoint: https://platform.rokct.ai/api/method/brain.api.generate_release_notes
+      brain_endpoint: https://platform.rokct.ai/api/v1/method/rokct.platform.api
 
       # Environment configuration
       node-version: ${{ inputs.node-version || '24' }}
