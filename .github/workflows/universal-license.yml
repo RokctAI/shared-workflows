@@ -44,23 +44,66 @@ jobs:
             echo "path=.licenserc.yaml" >> "$GITHUB_OUTPUT"
           else
             echo "No .licenserc.yaml in repository. Writing shared default config..."
+            # NOTE: license-eye only honours `paths`/`paths-ignore` when they
+            # are nested under `header:`. With them at the top level (as this
+            # config previously had) the tool silently fell back to checking
+            # every file in the repo ('**'), flagging docs, JSON, workflow
+            # YAML, images, etc. Keep them nested.
+            # NOTE: `content` must include substantive license text (the MIT
+            # permission notice). license-eye's normalizers strip bare
+            # copyright lines before matching, so a content of only
+            # "Copyright ... RokctAI" normalizes to an empty pattern and every
+            # file fails the check regardless of its header.
             cat > .licenserc.generated.yaml <<'EOF'
           header:
             license:
               spdx-id: MIT
+              copyright-owner: RokctAI
               content: |
-                Copyright 2024 RokctAI
-          paths:
-            - '**/*.py'
-            - '**/*.js'
-            - '**/*.ts'
-            - '**/*.dart'
-          paths-ignore:
-            - '**/*.json'
-            - '**/*.md'
-            - '**/*.yml'
-            - '**/dist/**'
-            - '**/node_modules/**'
+                Copyright (c) 2026 RokctAI
+
+                Permission is hereby granted, free of charge, to any person obtaining a copy
+                of this software and associated documentation files (the "Software"), to deal
+                in the Software without restriction, including without limitation the rights
+                to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+                copies of the Software, and to permit persons to whom the Software is
+                furnished to do so, subject to the following conditions:
+
+                The above copyright notice and this permission notice shall be included in all
+                copies or substantial portions of the Software.
+
+                THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+                IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+                FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+                AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+                LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+                OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+                SOFTWARE.
+            # Only real, hand-written source files need a header.
+            paths:
+              - '**/*.py'
+              - '**/*.js'
+              - '**/*.jsx'
+              - '**/*.ts'
+              - '**/*.tsx'
+              - '**/*.dart'
+            paths-ignore:
+              # Vendored / third-party code
+              - '**/node_modules/**'
+              - '**/vendor/**'
+              # Build output and generated code
+              - '**/dist/**'
+              - '**/build/**'
+              - '**/.dart_tool/**'
+              - '**/*.g.dart'
+              - '**/*.freezed.dart'
+              - '**/*.gr.dart'
+              - '**/*.min.js'
+              # Local environments
+              - '**/venv/**'
+              - '**/.venv/**'
+              # Agent-internal protocol state (mirrors per-repo configs)
+              - '.rokct/**'
           EOF
             echo "path=.licenserc.generated.yaml" >> "$GITHUB_OUTPUT"
           fi
