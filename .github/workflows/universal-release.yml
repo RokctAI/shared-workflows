@@ -707,6 +707,10 @@ jobs:
               if [ -n "$BRAIN_ENDPOINT" ] && [ -n "$BRAIN_TOKEN" ]; then
                  echo "    🧠 Calling Brain Writer API..."
                  JSON_PAYLOAD=$(jq -n --arg repo "${{ github.server_url }}/${{ github.repository }}" --arg ver "$TAG" --arg log "$LOG_INPUT" '{repo_url: $repo, version_name: $ver, commit_log: $log}')
+                 if [[ "$BRAIN_ENDPOINT" == *"rokct.platform.api" ]]; then
+                    # Universal gateway: wrap the request in a cmd/payload envelope
+                    JSON_PAYLOAD=$(echo "$JSON_PAYLOAD" | jq '{cmd: "api.brain.generate_release_notes", payload: {repo_url, version_name, commit_log}}')
+                 fi
                  RESPONSE=$(curl -s -m 30 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
                  if [[ "$RESPONSE" != *"AI Error"* ]] && [[ "$RESPONSE" != *"Traceback"* ]] && [[ "$RESPONSE" != "Curl Failed" ]] && [[ -n "$RESPONSE" ]]; then
                     if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
@@ -1894,6 +1898,11 @@ jobs:
                  --arg log "$LOG" \
                  --arg diff "$DIFF_STAT" \
                  '{repo_url: $repo, version_name: $ver, commit_log: $log, diff_summary: $diff}')
+
+               if [[ "$BRAIN_ENDPOINT" == *"rokct.platform.api" ]]; then
+                  # Universal gateway: wrap the request in a cmd/payload envelope
+                  JSON_PAYLOAD=$(echo "$JSON_PAYLOAD" | jq '{cmd: "api.brain.generate_release_notes", payload: {repo_url, version_name, commit_log}}')
+               fi
 
                RESPONSE=$(curl -s -m 60 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
 

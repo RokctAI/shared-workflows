@@ -94,7 +94,7 @@ jobs:
       one_time_cleanup_cutoff_date: '2026-01-30'
       
       # Brain Endpoint 
-      brain_endpoint: https://platform.rokct.ai/api/method/rcore.api.brain.generate_release_notes
+      brain_endpoint: https://platform.rokct.ai/api/method/rokct.platform.api
 
       # Build APK
       build_android: true
