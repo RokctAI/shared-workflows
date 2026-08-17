@@ -109,7 +109,12 @@ jobs:
           SCRIPT
           chmod +x verify_app.sh
 
+      # Emulator infra flakes (boot timeouts, adb "Broken pipe", dead adb
+      # daemon on port 5037) kill whole release runs. Give the job ONE retry
+      # with a freshly-created AVD before failing for real.
       - name: Run Emulator and Verify
+        id: verify
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
           PACKAGE_NAME: ${{ inputs.package_name }}
@@ -121,6 +126,41 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: bash ./verify_app.sh
+
+      - name: Reset Emulator State Before Retry
+        if: steps.verify.outcome == 'failure'
+        run: |
+          echo "First verify attempt failed — killing stale emulator/adb before retry."
+          adb emu kill || true
+          pkill -f "qemu-system" || true
+          adb kill-server || true
+          sleep 10
+
+      - name: Run Emulator and Verify (Retry)
+        id: verify-retry
+        if: steps.verify.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash ./verify_app.sh
+
+      - name: Verify Status
+        if: always()
+        run: |
+          if [ "${{ steps.verify.outcome }}" = "success" ] || [ "${{ steps.verify-retry.outcome }}" = "success" ]; then
+            echo "✅ Verification succeeded (first attempt: ${{ steps.verify.outcome }}, retry: ${{ steps.verify-retry.outcome }})."
+          else
+            echo "❌ Verification failed on both attempts (first: ${{ steps.verify.outcome }}, retry: ${{ steps.verify-retry.outcome }})."
+            exit 1
+          fi
 
       - name: Upload Verification Artifacts
         if: always()
