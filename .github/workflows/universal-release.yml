@@ -1908,7 +1908,7 @@ jobs:
 
                if [[ "$BRAIN_ENDPOINT" == *"rokct.platform.api" ]]; then
                   # Universal gateway: wrap the request in a cmd/payload envelope
-                  JSON_PAYLOAD=$(echo "$JSON_PAYLOAD" | jq '{cmd: "api.brain.generate_release_notes", payload: {repo_url, version_name, commit_log}}')
+                  JSON_PAYLOAD=$(echo "$JSON_PAYLOAD" | jq '{cmd: "api.brain.generate_release_notes", payload: {repo_url, version_name, commit_log, diff_summary}}')
                fi
 
                RESPONSE=$(curl -s -m 60 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$JSON_PAYLOAD" || echo "Curl Failed")
