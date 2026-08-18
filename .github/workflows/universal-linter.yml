@@ -183,8 +183,23 @@ jobs:
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
                 git checkout -b "$BRANCH_NAME" || git checkout "$BRANCH_NAME"
-                git push -f origin "$BRANCH_NAME"
-                exit 0
+                if git push -f origin "$BRANCH_NAME" 2>&1 | tee push_error.log; then
+                    echo "✅ Existing standardization branch updated."
+                    exit 0
+                else
+                    if grep -qi "workflows" push_error.log && grep -qi "permission" push_error.log; then
+                       {
+                         echo "### 🚨 Action Required: GitHub App Permissions"
+                         echo "The Fleet Standardizer attempted to update your workflow files but failed due to missing permissions."
+                         echo "- **Error**: $(grep -i "permission" push_error.log | head -n 1)"
+                         echo "- **Fix**: Go to your GitHub App settings > **Permissions & events** > **Repository permissions** > Set **Workflows** to **Read & Write**."
+                         echo "⚠️ CI is proceeding but your repository is out of sync with fleet standards."
+                       } >> "$GITHUB_STEP_SUMMARY"
+                       exit 0 # Non-blocking for permission issues
+                    fi
+                    echo "❌ Failed to push updates to existing branch."
+                    exit 1
+                fi
             fi
 
             git checkout -b "$BRANCH_NAME"
