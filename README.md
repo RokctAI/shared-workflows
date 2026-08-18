@@ -1,7 +1,7 @@
 ﻿# Universal Shared Workflows
 
 <!-- usage-badge-start -->
-![Total Builds](https://img.shields.io/badge/Total%20Builds-^23k-blue)
+![Total Builds](https://img.shields.io/badge/Total%20Builds-^24k-blue)
 ![Stable](https://img.shields.io/github/v/release/RokctAI/shared-workflows?label=Stable&color=0052cc)
 ![Candidate](https://img.shields.io/badge/Candidate-v1.1.3--rc-e67e22)
 <!-- usage-badge-end -->
