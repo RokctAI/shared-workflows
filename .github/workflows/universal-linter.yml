@@ -401,7 +401,7 @@ jobs:
             --select=E9,F63,F7,F82,E,W,C90,F \
             --ignore=E501,W503,W504,F401,F841 \
             --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
-            --output-format=text > ruff_output.txt 2>&1 || true
+            --output-format=concise > ruff_output.txt 2>&1 || true
 
           cat ruff_output.txt
 
@@ -416,7 +416,13 @@ jobs:
         run: |
           # ty catches type errors from AI-generated code before they cause runtime bugs
           ty check . \
-            --exclude ".github,.git,node_modules,env,venv,.venv,__pycache__" \
+            --exclude .github \
+            --exclude .git \
+            --exclude node_modules \
+            --exclude env \
+            --exclude venv \
+            --exclude .venv \
+            --exclude __pycache__ \
             > ty_output.txt 2>&1 || true
 
           cat ty_output.txt
