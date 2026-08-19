@@ -534,7 +534,14 @@ jobs:
             EXISTING_PR=$(gh pr list --head $BRANCH_NAME --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
                  echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
-                git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
+                # --is-ancestor guard: same-run peer jobs share ${{ github.sha }} as their base, so they
+                # stack on each other's fixes; a stale previous-day branch fails the check and is rebuilt
+                # from current main instead of rebasing today's work onto it. The rebase --abort closes
+                # the old hole of force-pushing a mid-rebase HEAD.
+                git fetch origin "$BRANCH_NAME" || true
+                if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
+                    git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                fi
                 git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
@@ -700,7 +707,14 @@ jobs:
             EXISTING_PR=$(gh pr list --head $BRANCH_NAME --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
-                git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
+                # --is-ancestor guard: same-run peer jobs share ${{ github.sha }} as their base, so they
+                # stack on each other's fixes; a stale previous-day branch fails the check and is rebuilt
+                # from current main instead of rebasing today's work onto it. The rebase --abort closes
+                # the old hole of force-pushing a mid-rebase HEAD.
+                git fetch origin "$BRANCH_NAME" || true
+                if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
+                    git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                fi
                 git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
@@ -873,7 +887,14 @@ jobs:
             EXISTING_PR=$(gh pr list --head $BRANCH_NAME --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
-                git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
+                # --is-ancestor guard: same-run peer jobs share ${{ github.sha }} as their base, so they
+                # stack on each other's fixes; a stale previous-day branch fails the check and is rebuilt
+                # from current main instead of rebasing today's work onto it. The rebase --abort closes
+                # the old hole of force-pushing a mid-rebase HEAD.
+                git fetch origin "$BRANCH_NAME" || true
+                if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
+                    git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                fi
                 git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
@@ -1113,7 +1134,14 @@ jobs:
               EXISTING_PR=$(gh pr list --head $BRANCH_NAME --json url --jq '.[0].url')
               if [ -n "$EXISTING_PR" ]; then
                   echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
-                  git pull origin $BRANCH_NAME --rebase || echo "Pull failed, forcing push..."
+                  # --is-ancestor guard: same-run peer jobs share ${{ github.sha }} as their base, so they
+                  # stack on each other's fixes; a stale previous-day branch fails the check and is rebuilt
+                  # from current main instead of rebasing today's work onto it. The rebase --abort closes
+                  # the old hole of force-pushing a mid-rebase HEAD.
+                  git fetch origin "$BRANCH_NAME" || true
+                  if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
+                      git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                  fi
                   git push -f origin HEAD:"$BRANCH_NAME"
                   exit 0
               fi
@@ -1347,7 +1375,14 @@ jobs:
             EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --json url --jq '.[0].url')
             if [ -n "$EXISTING_PR" ]; then
                 echo "ℹ️ Peer PR already exists: $EXISTING_PR. Updating existing branch."
-                git pull origin "$BRANCH_NAME" --rebase || echo "Pull failed, forcing push..."
+                # --is-ancestor guard: same-run peer jobs share ${{ github.sha }} as their base, so they
+                # stack on each other's fixes; a stale previous-day branch fails the check and is rebuilt
+                # from current main instead of rebasing today's work onto it. The rebase --abort closes
+                # the old hole of force-pushing a mid-rebase HEAD.
+                git fetch origin "$BRANCH_NAME" || true
+                if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
+                    git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                fi
                 git push -f origin HEAD:"$BRANCH_NAME"
                 exit 0
             fi
