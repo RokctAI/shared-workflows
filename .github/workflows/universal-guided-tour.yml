@@ -43,6 +43,11 @@ on:
         type: string
         default: 'main'
         description: "Ref to fetch SDK tour fragments from when the composed cache has none"
+      manifest-ref:
+        required: false
+        type: string
+        default: 'main'
+        description: "Ref of RokctAI/The-Rokct-Protocol to fetch the canonical composer manifest from"
       tour-manifest:
         required: false
         type: string
@@ -97,11 +102,13 @@ jobs:
 
       - name: Select Composer Manifest (If App Shell)
         shell: bash
+        env:
+          MANIFEST_REF: ${{ inputs.manifest-ref }}
         run: |
           if [ -f ".rokct/config/app_type" ]; then
             APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
-            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest..."
-            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest (ref: ${MANIFEST_REF})..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/${MANIFEST_REF}/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
             if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
               mv composer.json.tmp composer.json
               echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
