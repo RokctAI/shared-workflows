@@ -103,6 +103,48 @@ jobs:
               fi
             fi
           fi
+      - name: Compose SDK Modules (If Shell App)
+        shell: bash
+        env:
+          MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          set -euo pipefail
+          # Fleet-wide safety: every gate below exits 0 so repos without the
+          # composer contract are byte-identical to before this step existed.
+          if [ ! -f ".rokct/config/app_type" ] || [ ! -f "package.json" ]; then
+            echo "Not a composed Node shell. Skipping composition."
+            exit 0
+          fi
+          APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type | tr '[:upper:]' '[:lower:]')
+          if [ -z "$APP_TYPE" ]; then
+            echo "Empty app_type marker. Skipping composition."
+            exit 0
+          fi
+          PROTOCOL_DIR="${RUNNER_TEMP}/The-Rokct-Protocol"
+          rm -rf "$PROTOCOL_DIR"
+          if ! git clone --depth 1 "https://x-access-token:${MONOREPO_PAT:-}@github.com/RokctAI/The-Rokct-Protocol.git" "$PROTOCOL_DIR" 2>/dev/null; then
+            echo "::warning::Could not clone The-Rokct-Protocol. Skipping composition."
+            exit 0
+          fi
+          if ! grep -q "def resolve_composer_config" "$PROTOCOL_DIR/core/utils/nextjs/sdk_composer.py" 2>/dev/null; then
+            echo "Registry-template contract not on protocol main. Skipping composition."
+            exit 0
+          fi
+          TEMPLATE="$PROTOCOL_DIR/core/utils/frappe/composer/${APP_TYPE}.json"
+          if [ ! -f "$TEMPLATE" ] || ! python3 -c "import json,sys; t=json.load(open(sys.argv[1])); sys.exit(0 if any(s.get('enabled') for s in t.get('sdks', [])) else 1)" "$TEMPLATE"; then
+            echo "app_type '${APP_TYPE}' is a plain role marker here. Skipping composition."
+            exit 0
+          fi
+          echo "Composing shell app '${APP_TYPE}' from registry template..."
+          mkdir -p .rokct
+          cp "$PROTOCOL_DIR/core/utils/nextjs/sdk_installer_base.py" .rokct/sdk_installer_base.py
+          export ROKCT_PROTOCOL_DIR="$PROTOCOL_DIR"
+          export ROKCT_SKIP_NPM_INSTALL=1
+          export ROKCT_ALLOW_UNPINNED_SDKS=1
+          python3 "$PROTOCOL_DIR/core/utils/nextjs/sdk_composer.py"
+          echo "ROKCT_COMPOSED=true" >> "$GITHUB_ENV"
+          echo "Composition complete."
+
       #- name: Setup Node.js ${{ inputs.node-version }}
       #  uses: actions/setup-node@v6
       #  with:
@@ -121,7 +163,16 @@ jobs:
           cache: ${{ inputs.package-manager == 'pnpm' && 'pnpm' || inputs.package-manager }}
 
       - name: Install Dependencies
-        run: ${{ inputs.package-manager }} install
+        shell: bash
+        run: |
+          INSTALL_FLAGS=""
+          if [ "${ROKCT_COMPOSED:-}" = "true" ] && [ "${{ inputs.package-manager }}" = "pnpm" ]; then
+            # A composed package.json may drift from the committed lockfile;
+            # pnpm defaults to --frozen-lockfile in CI, so relax it here only.
+            INSTALL_FLAGS="--no-frozen-lockfile"
+            echo "Composed shell detected: installing with $INSTALL_FLAGS"
+          fi
+          ${{ inputs.package-manager }} install $INSTALL_FLAGS
 
       - name: Resolve Dynamic Client
         id: client
