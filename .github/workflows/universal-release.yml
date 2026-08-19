@@ -1934,6 +1934,24 @@ jobs:
              if [ "$AI_SUCCESS" = false ] && [ -n "$GROQ_API" ]; then
                 echo "☁️ Calling Groq AI Fallback..."
 
+               # AI changelog generation is best-effort: never let a failure inside
+               # this block kill the release job (Tier 3 plain git log always ships).
+               set +e
+
+               # Hard cap on any content fed to the AI. Groq rejects over-limit
+               # payloads outright ("Please reduce the length of the messages"),
+               # so truncate to a byte budget before building the payload.
+               cap_bytes() {
+                 local file="$1" budget="$2" total
+                 total=$(wc -c < "$file" 2>/dev/null || echo 0)
+                 if [ "${total:-0}" -gt "$budget" ]; then
+                   head -c "$budget" "$file" > "${file}.cap" 2>/dev/null
+                   printf '\n[diff truncated: %s of %s bytes shown]\n' "$budget" "$total" >> "${file}.cap"
+                   mv "${file}.cap" "$file"
+                   echo "  ✂️ Truncated $file: $total -> $(wc -c < "$file") bytes"
+                 fi
+               }
+
                # System Prompt for Groq - Enforcing human-readable logical feature summaries
                SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log and code diff.
 
@@ -1977,6 +1995,9 @@ jobs:
 
                echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
 
+               # groq/compound is ~70K TPM; keep the diff well under that (~4 bytes/token)
+               cap_bytes /tmp/diff_full.txt 150000
+
                # Build user message via temp file to avoid shell argument limits
                {
                  echo "Repository: ${{ github.repository }}"
@@ -1988,6 +2009,9 @@ jobs:
                  echo "Code Diff:"
                  cat /tmp/diff_full.txt
                } > /tmp/groq_user.txt
+
+               # Final guard: the commit log itself can be huge on big releases
+               cap_bytes /tmp/groq_user.txt 180000
 
                # --- TIER 2A: groq/compound (70K TPM) with full diff ---
                echo "  🧪 Trying groq/compound (70K TPM)..."
@@ -2029,17 +2053,23 @@ jobs:
                     ":!*.lock" ":!package-lock.json" ":!yarn.lock" ":!pnpm-lock.yaml" \
                     2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
 
+                  # head -100 caps lines, not bytes — minified files can be one huge line.
+                  # 70B tier is only 12K TPM, so cap hard.
+                  cap_bytes /tmp/diff_compact.txt 20000
+
                   # Build compact user message (cap commit log for token budget)
                   {
                     echo "Repository: ${{ github.repository }}"
                     echo "Version: $TAG"
                     echo ""
                     echo "Commit Log:"
-                    (echo "$LOG" | head -50) 2>/dev/null
+                    head -50 <<< "$LOG"
                     echo ""
                     echo "Code Diff (changes only):"
                     cat /tmp/diff_compact.txt
                   } > /tmp/groq_user_70b.txt
+
+                  cap_bytes /tmp/groq_user_70b.txt 24000
                   echo "  70B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
 
                   jq -n \
@@ -2073,6 +2103,9 @@ jobs:
                if [ "$AI_SUCCESS" = false ]; then
                   echo "⚠️ Groq AI Failed (all tiers exhausted)."
                fi
+
+               # Restore fail-fast for the rest of the step
+               set -e
              fi
 
             # --- TIER 3: DENOISED GIT LOG FALLBACK ---
