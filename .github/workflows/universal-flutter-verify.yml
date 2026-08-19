@@ -5,7 +5,8 @@ name: Universal Flutter Verify
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-permissions: write-all
+permissions:
+  contents: read
 on:
   workflow_call:
     inputs:

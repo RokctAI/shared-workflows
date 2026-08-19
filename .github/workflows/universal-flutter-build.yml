@@ -2,7 +2,9 @@
 
 name: Universal Flutter Build
 
-permissions: write-all
+permissions:
+  contents: write
+  pull-requests: write
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -87,7 +89,6 @@ jobs:
   compose-app:
     name: 🎨 Compose SDK Modules
     runs-on: ubuntu-latest
-    permissions: write-all
     # A hung SDK compose (network stall during clone/fetch) has squatted
     # runners for hours; kill the job instead of blocking the queue.
     timeout-minutes: 30
@@ -228,7 +229,6 @@ jobs:
     # ~10 minutes and then skipped every build step, producing nothing
     # (e.g. paas_manager run 31684759025, job 94403799142).
     if: inputs.build-type == 'apk' || inputs.build-type == 'appbundle' || inputs.build-type == 'all' || inputs.build-type == 'develop'
-    permissions: write-all
     outputs:
       package_name: ${{ steps.package.outputs.package_name }}
     env:
@@ -817,7 +817,6 @@ jobs:
     runs-on: windows-latest
 
     if: inputs.build-type == 'windows'
-    permissions: write-all
     env:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
@@ -1181,7 +1180,6 @@ jobs:
     runs-on: macos-latest
 
     if: inputs.build-type == 'ios' || inputs.build-type == 'macos'
-    permissions: write-all
     env:
       IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
       IOS_MOBILEPROVISION_BASE64: ${{ secrets.IOS_MOBILEPROVISION_BASE64 }}
@@ -1638,7 +1636,6 @@ jobs:
     needs: [compose-app, build-android, build-windows, build-ios]
     if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    permissions: write-all
     continue-on-error: true
     env:
       GH_TOKEN: ${{ secrets.MONOREPO_PAT }}

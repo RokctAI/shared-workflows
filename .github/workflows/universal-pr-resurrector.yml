@@ -1,6 +1,9 @@
 name: Universal PR Resurrector (Zombie Protection)
 
-permissions: write-all
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -16,7 +19,6 @@ on:
 jobs:
   resurrect:
     runs-on: ubuntu-latest
-    permissions: write-all
     steps:
       - name: Generate App Token
         id: app-token

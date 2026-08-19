@@ -5,7 +5,10 @@ env:
   PIP_BREAK_SYSTEM_PACKAGES: 1
   LEDGER: .rokct/agent/ledger.json
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 
 on:
   workflow_call:

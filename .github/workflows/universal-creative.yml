@@ -21,7 +21,8 @@ on:
       GROQ_API_KEY:
         required: false
 
-permissions: write-all
+permissions:
+  contents: read
 
 jobs:
   creative:

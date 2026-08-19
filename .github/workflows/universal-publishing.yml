@@ -16,7 +16,8 @@ on:
         required: false
         default: '3.10'
 
-permissions: write-all
+permissions:
+  contents: write
 
 jobs:
   publishing:

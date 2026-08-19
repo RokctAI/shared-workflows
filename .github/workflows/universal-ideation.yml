@@ -23,7 +23,8 @@ on:
       MONOREPO_PAT:
         required: false
 
-permissions: write-all
+permissions:
+  contents: write
 
 jobs:
   ideation:

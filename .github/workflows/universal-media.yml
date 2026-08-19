@@ -19,7 +19,8 @@ on:
       JULES_API_KEY:
         required: false
 
-permissions: write-all
+permissions:
+  contents: write
 
 jobs:
   media:

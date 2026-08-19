@@ -2,7 +2,10 @@
 
 name: Universal Release Workflow
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -200,7 +203,6 @@ jobs:
   # --- 2. AUTOMATED LTS BRANCHING (The Guard) ---
   lts-guard:
     needs: checks
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -384,7 +386,6 @@ jobs:
   # --- 2.5. DATE-BASED CLEANUP JOB (One-Time) ---
   manual-cleanup:
     needs: checks
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}

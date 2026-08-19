@@ -4,7 +4,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
 on:
   workflow_call:
     inputs:

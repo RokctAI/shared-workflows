@@ -2,7 +2,10 @@
 
 name: Universal Code Quality (Lint)
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PIP_BREAK_SYSTEM_PACKAGES: 1
@@ -68,7 +71,6 @@ on:
 jobs:
   standardize:
     name: 🔄 Fleet Standardizer (Auto-Fix)
-    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 45
     container:
@@ -291,7 +293,6 @@ jobs:
   lint-python:
     needs: telemetry
     name: 🐍 Python Lint (Ruff & ty)
-    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
@@ -586,7 +587,6 @@ jobs:
   lint-shell:
     needs: telemetry
     name: 🐚 Shell Script Lint (ShellCheck)
-    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
@@ -758,7 +758,6 @@ jobs:
   lint-powershell:
     needs: telemetry
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
-    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
@@ -940,7 +939,6 @@ jobs:
   lint-flutter:
     needs: telemetry
     name: 🐦 Flutter Analyze
-    permissions: write-all
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
@@ -1215,7 +1213,6 @@ jobs:
   lint-node:
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
-    permissions: write-all
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
@@ -1505,7 +1502,6 @@ jobs:
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions: write-all
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
