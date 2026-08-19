@@ -70,6 +70,7 @@ jobs:
     name: 🔄 Fleet Standardizer (Auto-Fix)
     permissions: write-all
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -229,6 +230,7 @@ jobs:
   telemetry:
     needs: standardize
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -250,6 +252,7 @@ jobs:
     needs: telemetry
     name: 📝 YAML Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -290,6 +293,7 @@ jobs:
     name: 🐍 Python Lint (Ruff & ty)
     permissions: write-all
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -584,6 +588,7 @@ jobs:
     name: 🐚 Shell Script Lint (ShellCheck)
     permissions: write-all
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root -v /var/run/docker.sock:/var/run/docker.sock
@@ -755,6 +760,7 @@ jobs:
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
     permissions: write-all
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -1174,6 +1180,7 @@ jobs:
   audit-data-leaks:
     name: 🔍 Data Leak Audit (Excel/CSV)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -1210,6 +1217,7 @@ jobs:
     name: 📦 JS/TS Lint (ESLint & Security)
     permissions: write-all
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
@@ -1411,6 +1419,7 @@ jobs:
     needs: telemetry
     name: 📝 Markdown Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1423,6 +1432,7 @@ jobs:
     needs: telemetry
     name: 🐳 Dockerfile Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1446,6 +1456,7 @@ jobs:
     needs: telemetry
     name: 📋 TODO/FIXME Checker
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1464,6 +1475,7 @@ jobs:
     needs: telemetry
     name: 📋 Issue Template Validator
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Validate Issue Template Syntax
@@ -1492,6 +1504,7 @@ jobs:
     needs: telemetry
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions: write-all
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
