@@ -469,14 +469,8 @@ jobs:
              bench set-config -g redis_socketio redis://redis:6379
           fi
 
-          # Fix for Missing pkg_resources in payments app
+          # Fix for Missing pkg_resources (setuptools no longer ships by default)
           bench pip install setuptools
-
-          # Install Payments if requested (Required by some apps like rcore)
-          if [ "${{ inputs.install-payments }}" = "true" ] && [ "${{ inputs.bootstrap }}" = "false" ]; then
-             echo "Installing Payments App..."
-             bench get-app https://github.com/Frappenize/payments.git --branch rokct --resolve-deps --skip-assets
-          fi
 
           # Install ERPNext if requested
           if [ "${{ inputs.install-erpnext }}" = "true" ] && [ "${{ inputs.bootstrap }}" = "false" ]; then
@@ -508,7 +502,7 @@ jobs:
           for d in *; do
             [ -d "$d" ] || continue
             case "$d" in
-              frappe|erpnext|payments) continue ;;
+              frappe|erpnext) continue ;;
             esac
             
             # Default to first one found if not set
@@ -627,10 +621,6 @@ jobs:
           # Use pipefail to ensure tee doesn't mask test failures
           set -o pipefail
            if [ "${{ inputs.bootstrap }}" = "false" ]; then
-             if [ "${{ inputs.install-payments }}" = "true" ]; then
-                echo "Installing payments app on $SITE_NAME..."
-                bench --site "$SITE_NAME" install-app payments
-             fi
              if [ "${{ inputs.install-erpnext }}" = "true" ]; then
                 echo "Installing erpnext app on $SITE_NAME..."
                 bench --site "$SITE_NAME" install-app erpnext
