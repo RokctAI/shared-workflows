@@ -162,6 +162,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "chore: automated fleet standardization [skip ci]"
@@ -224,6 +247,7 @@ jobs:
             fi
           else
             echo "🙌 Repository is already standardized."
+            reset_stale_rolling_branch
           fi
 
 
@@ -514,6 +538,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           # Clean up temporary findings files so they are not included in status check or commit
           rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
           
@@ -570,6 +617,7 @@ jobs:
             fi
           else
             echo "No changes to commit."
+            reset_stale_rolling_branch
           fi
 
       - name: Verify Python Formatting
@@ -691,6 +739,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated shell script formatting [skip ci]"
@@ -742,6 +813,9 @@ jobs:
                 echo "❌ Failed to push branch for PR."
                 exit 1
             fi
+          else
+            echo "No changes to commit."
+            reset_stale_rolling_branch
           fi
 
       - name: Verify Shell Formatting
@@ -872,6 +946,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           if [[ -n $(git status -s) ]]; then
             git add .
             git commit -m "style: automated powershell script formatting [skip ci]"
@@ -923,6 +1020,9 @@ jobs:
                 echo "❌ Failed to push branch for PR."
                 exit 1
             fi
+          else
+            echo "No changes to commit."
+            reset_stale_rolling_branch
           fi
 
       - name: Verify PowerShell Formatting
@@ -1114,6 +1214,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           # Clean up temporary findings files
           rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
 
@@ -1172,9 +1295,11 @@ jobs:
               fi
             else
               echo "Only pubspec.lock changed. Skipping commit."
+              reset_stale_rolling_branch
             fi
           else
             echo "No changes to commit."
+            reset_stale_rolling_branch
           fi
 
   audit-data-leaks:
@@ -1359,6 +1484,29 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          # Stale rolling-branch reset for no-op runs: the fix path below rebuilds
+          # a stale auto-std branch from current main, but a run that finds nothing
+          # to fix would otherwise exit without touching the branch - leaving a
+          # conflicted rolling PR dirty forever. Reuses the same --is-ancestor
+          # guard as the fix path: a branch already based on ${{ github.sha }}
+          # (e.g. pushed by a peer job of this run) is left alone; anything older
+          # is stale, so its PR is closed and the branch deleted so the next run
+          # with fixes recreates it cleanly from current main.
+          reset_stale_rolling_branch() {
+            RB_NAME="auto-std-${{ github.ref_name }}"
+            git fetch origin "$RB_NAME" 2>/dev/null || return 0
+            if git merge-base --is-ancestor "${{ github.sha }}" "origin/$RB_NAME" 2>/dev/null; then
+              echo "ℹ️ Rolling branch $RB_NAME is already based on the current ${{ github.ref_name }} head. Leaving it alone."
+              return 0
+            fi
+            echo "🧹 Rolling branch $RB_NAME is stale and this run produced no fixes. Resetting it."
+            RB_PR=$(gh pr list --head "$RB_NAME" --json number --jq '.[0].number')
+            if [ -n "$RB_PR" ]; then
+                gh pr close "$RB_PR" --comment "Superseded: rolling branch $RB_NAME diverged from ${{ github.ref_name }} with no fixes pending. The next run with fixes will recreate it from current ${{ github.ref_name }}." --delete-branch || true
+            fi
+            git push origin --delete "$RB_NAME" 2>/dev/null || true
+          }
+
           # Clean up temporary findings files
           rm -f ruff_output.txt flutter_output.txt npm_audit_output.txt ty_output.txt
 
@@ -1413,6 +1561,9 @@ jobs:
                 echo "❌ Failed to push branch for PR."
                 exit 1
             fi
+          else
+            echo "No changes to commit."
+            reset_stale_rolling_branch
           fi
 
   lint-markdown:
