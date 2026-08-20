@@ -18,6 +18,7 @@ import json
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -82,6 +83,12 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
 
+    # The driving shell sends SIGTERM once flutter test has exited (no more
+    # markers are coming then) - treat it as a graceful "wrap up now" so the
+    # manifest and the logcat dump below still get written.
+    stop_requested = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop_requested.set())
+
     proc = None
     try:
         adb(["logcat", "-c"], args.serial, timeout=30)
@@ -120,6 +127,9 @@ def main():
     log(f"watching logcat for tour markers (expected={args.expected}, timeout={args.timeout}s)")
 
     while time.monotonic() < deadline:
+        if stop_requested.is_set():
+            log("stop requested (driver signalled test exit) — wrapping up")
+            break
         try:
             line = lines.get(timeout=5)
         except queue.Empty:
@@ -154,7 +164,7 @@ def main():
             complete = True
             break
 
-    if not complete and time.monotonic() >= deadline:
+    if not complete and not stop_requested.is_set() and time.monotonic() >= deadline:
         warn(f"tour capture timed out after {args.timeout}s")
 
     if proc and proc.poll() is None:

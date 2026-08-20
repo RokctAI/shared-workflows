@@ -277,6 +277,16 @@ jobs:
             -d emulator-5554 --timeout none "${TEST_ARGS[@]}" || TEST_EXIT=$?
           echo "flutter test exit code: $TEST_EXIT"
 
+          # flutter test has exited, so no further markers are coming. Give
+          # the watcher a short grace window for trailing logcat lines, then
+          # signal it to wrap up (it handles SIGTERM by writing its manifest
+          # and the logcat dump) - without this, a failed test left the
+          # watcher idling out its full capture timeout (~40 minutes of dead
+          # emulator time on run 32386564857).
+          sleep 15
+          if kill -0 "$CAP_PID" 2>/dev/null; then
+            kill "$CAP_PID" 2>/dev/null || true
+          fi
           wait "$CAP_PID" || true
           COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "Captured $COUNT screenshots (expected ${EXPECTED_SHOTS:-0})"
