@@ -60,7 +60,11 @@ jobs:
             echo "safe=true" >> "$GITHUB_OUTPUT"
           fi
 
-          DIFF=$(gh pr diff "${{ github.event.pull_request.number }}")
+          # GitHub refuses to render diffs for PRs over 300 files (HTTP 406 too_large).
+          # Such a PR is by definition not trivial — treat it as non-trivial, don't fail.
+          if ! DIFF=$(gh pr diff "${{ github.event.pull_request.number }}"); then
+            DIFF="(diff unavailable: too large to render)"
+          fi
 
           if [ -z "$DIFF" ]; then
             echo "trivial=true" >> "$GITHUB_OUTPUT"
