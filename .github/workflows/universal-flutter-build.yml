@@ -184,6 +184,12 @@ jobs:
             # evidence needed to diagnose it - only the ephemeral runner ever had that log.
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            # Never commit nested git repos: a failed/interrupted compose can
+            # leave the composer's temp SDK clones (.rokct/cache/<repo>_sdk/.git)
+            # on disk, and `git add .` then records them as dangling gitlinks
+            # (no .gitmodules), which breaks every later checkout (rCore #121).
+            # Strip nested .git dirs before staging.
+            find .rokct/cache -mindepth 2 -type d -name .git -prune -exec rm -rf {} + 2>/dev/null || true
             git add .
             if [ "$COMPOSE_EXIT" -ne 0 ]; then
               git commit -m "🤖 [CI] Compose Flutter SDK modules FAILED - persisting logs [skip ci]" || echo "No changes to commit"

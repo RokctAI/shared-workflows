@@ -1,0 +1,432 @@
+# Copyright 2026 RokctAI
+
+name: Universal Guided Tour
+
+# Builds the calling app shell with its built-in demo dataset
+# (--dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true), walks a scripted
+# guided tour on a headless Android emulator, captures a screenshot per step,
+# assembles a markdown feature guide (required) and a vertical marketing
+# video (best-effort), and commits the outputs to marketing/tour/ in the
+# caller repo. Tour steps are merged from the app's tour/app.tour.yaml plus
+# the brand-neutral fragments each composed SDK ships in templates/tour/.
+# See scripts/tour/README.md in this repo for the format.
+
+permissions: write-all
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+on:
+  workflow_call:
+    inputs:
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+      flutter-version:
+        required: false
+        type: string
+        # Pinned for the same reason as universal-flutter-build: 3.47.0 hangs
+        # build_runner with freezed 2.x.
+        default: '3.44.9'
+      java-version:
+        required: false
+        type: string
+        default: '17'
+      tools-ref:
+        required: false
+        type: string
+        default: 'main'
+        description: "Ref of RokctAI/shared-workflows to take the tour scripts from"
+      fragments-ref:
+        required: false
+        type: string
+        default: 'main'
+        description: "Ref to fetch SDK tour fragments from when the composed cache has none"
+      manifest-ref:
+        required: false
+        type: string
+        default: 'main'
+        description: "Ref of RokctAI/The-Rokct-Protocol to fetch the canonical composer manifest from"
+      tour-manifest:
+        required: false
+        type: string
+        default: 'tour/app.tour.yaml'
+      output-dir:
+        required: false
+        type: string
+        default: 'marketing/tour'
+      commit-outputs:
+        required: false
+        type: boolean
+        default: true
+        description: "Commit the assembled outputs back to the caller repo"
+    secrets:
+      MONOREPO_PAT:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+
+jobs:
+  tour:
+    name: 🎬 Guided Tour
+    runs-on: ubuntu-latest
+    # Compose + build_runner + debug build + emulator tour is a long ride;
+    # cap it so a wedged emulator cannot squat a runner for hours.
+    timeout-minutes: 150
+    env:
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Tour Tooling (shared-workflows)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          ref: ${{ inputs.tools-ref }}
+          path: .tour-tools
+
+      - name: Initiate Protocol
+        shell: bash
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            python .rokct/initiate.py
+          else
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      - name: Select Composer Manifest (If App Shell)
+        shell: bash
+        env:
+          MANIFEST_REF: ${{ inputs.manifest-ref }}
+        run: |
+          if [ -f ".rokct/config/app_type" ]; then
+            APP_TYPE=$(tr -d '\r\n[:space:]' < .rokct/config/app_type)
+            echo "🔧 App shell detected (app_type=$APP_TYPE). Selecting composer manifest (ref: ${MANIFEST_REF})..."
+            curl -sSL "https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/${MANIFEST_REF}/core/utils/flutter/composer/${APP_TYPE}.json" -o composer.json.tmp
+            if [ -s composer.json.tmp ] && python3 -c "import json; json.load(open('composer.json.tmp'))" 2>/dev/null; then
+              mv composer.json.tmp composer.json
+              echo "✅ composer.json set from composer/${APP_TYPE}.json (overwritten)"
+            else
+              echo "::error::No composer manifest found for app_type='${APP_TYPE}' at core/utils/flutter/composer/${APP_TYPE}.json"
+              rm -f composer.json.tmp
+              exit 1
+            fi
+          else
+            echo "ℹ️ No .rokct/config/app_type - not an app shell. Skipping composer manifest selection."
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version }}
+
+      - name: Helper - Subosito Flutter
+        # Must run BEFORE the compose step: the composer itself invokes
+        # `flutter pub get` inside the SDK caches it clones.
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Compose Flutter SDK Modules (If Shell App)
+        shell: bash
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing SDK modules..."
+            if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+              echo "Canonical composer missing. Provisioning via .rokct/initiate.py..."
+              python .rokct/initiate.py
+            fi
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              python .rokct/skills/flutter/scripts/compose.py
+            elif [ -f ".rokct/compose.py" ]; then
+              python .rokct/compose.py
+            else
+              echo "::error::composer.json present but no composer found (no initiate.py, no skills composer, no legacy wrapper)."
+              exit 1
+            fi
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Building lib/ as-is."
+          fi
+
+      - name: Get Dependencies
+        shell: bash
+        run: |
+          flutter pub get
+          # See universal-flutter-build: build_runner >=2.15 needs --force-jit
+          # when any resolved package ships a native-asset build hook; older
+          # build_runner versions do not know the flag.
+          if ! dart run build_runner build --force-jit --delete-conflicting-outputs > build_runner_log.txt 2>&1; then
+            if grep -q 'Could not find an option named' build_runner_log.txt; then
+              echo 'build_runner does not recognize --force-jit (older version); retrying with plain build'
+              dart run build_runner build --delete-conflicting-outputs >> build_runner_log.txt 2>&1
+            else
+              tail -n 100 build_runner_log.txt
+              exit 1
+            fi
+          fi
+
+      - name: "Fetch/Decode Google Services JSON (Priority: Local > Occultation > Secret)"
+        env:
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          DEFAULT_JSON: "${{ secrets.GOOGLE_SERVICES_JSON }}"
+        shell: bash
+        run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "✅ android/app/google-services.json already exists. Skipping."
+          elif [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/google-services.json -H "Accept: application/vnd.github.v3.raw" > android/app/google-services.json 2>/dev/null; then
+            echo "✅ Successfully synced google-services.json from Occultation."
+          elif [ -n "$DEFAULT_JSON" ]; then
+            echo "$DEFAULT_JSON" | base64 --decode > android/app/google-services.json
+            echo "✅ Successfully decoded google-services.json from secrets."
+          else
+            echo "ℹ️ No Google Services configuration found."
+          fi
+
+      - name: Fetch Production Environment from Occultation
+        if: env.MONOREPO_PAT != ''
+        env:
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+        shell: bash
+        run: |
+          mkdir -p .env
+          echo "🔍 Fetching production.env from RokctAI/Occultation..."
+          gh api "repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > ".env/production.env"
+          if grep -q "##########END_FLUTTER##########" ".env/production.env"; then
+            sed -i '1,/##########END_FLUTTER##########/!d' ".env/production.env"
+          fi
+          sed -i 's/\r$//' ".env/production.env"
+          # dart-define-from-file does not support # comments or blank lines
+          sed -i '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ".env/production.env"
+          echo "✅ .env/production.env ready for Flutter ($(wc -l < .env/production.env) keys)."
+
+      - name: Install Tour Python Dependencies
+        shell: bash
+        run: python3 -m pip install --quiet pyyaml pillow
+
+      - name: Merge Tour Fragments and Generate Runner
+        id: merge
+        shell: bash
+        env:
+          FRAGMENTS_REF: ${{ inputs.fragments-ref }}
+        run: |
+          python3 .tour-tools/scripts/tour/merge_fragments.py \
+            --app-manifest "${{ inputs.tour-manifest }}" \
+            --composer composer.json \
+            --cache-dir .rokct/cache \
+            --fragments-ref "$FRAGMENTS_REF" \
+            --fallback-ref main \
+            --out-json tour.resolved.json \
+            --out-dart integration_test/tour_steps.g.dart
+
+      - name: Build Demo Debug APK (warm cache + compile gate)
+        shell: bash
+        run: |
+          BUILD_ARGS=(--debug --dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true)
+          if [ -f .env/production.env ]; then
+            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+          fi
+          flutter build apk "${BUILD_ARGS[@]}"
+
+      # reactivecircus/android-emulator-runner executes each line of its
+      # `script:` input as a SEPARATE `sh -c` command, so the whole tour flow
+      # lives in one script file handed over as a single line (same pattern
+      # as universal-flutter-verify).
+      - name: Prepare Tour Script
+        shell: bash
+        env:
+          EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+        run: |
+          cat > run_tour.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -uo pipefail
+
+          OUT=tour_screenshots
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          adb wait-for-device
+          # Portrait 1080x1920 canvas for the stills/video (9:16).
+          adb shell wm size 1080x1920 || true
+          adb shell wm density 400 || true
+
+          python3 .tour-tools/scripts/tour/capture_screenshots.py \
+            --out "$OUT" \
+            --expected "${EXPECTED_SHOTS:-0}" \
+            --timeout 2400 \
+            --serial emulator-5554 \
+            --logcat-dump tour_logcat.txt &
+          CAP_PID=$!
+
+          TEST_EXIT=0
+          TEST_ARGS=(--dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true)
+          if [ -f .env/production.env ]; then
+            TEST_ARGS+=(--dart-define-from-file=.env/production.env)
+          fi
+          flutter test integration_test/guided_tour_test.dart \
+            -d emulator-5554 --timeout none "${TEST_ARGS[@]}" || TEST_EXIT=$?
+          echo "flutter test exit code: $TEST_EXIT"
+
+          wait "$CAP_PID" || true
+          COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
+          echo "Captured $COUNT screenshots (expected ${EXPECTED_SHOTS:-0})"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Guided tour captured zero screenshots."
+            exit 1
+          fi
+          if [ "$TEST_EXIT" -ne 0 ]; then
+            echo "::warning::flutter test exited $TEST_EXIT but $COUNT screenshots were captured - continuing."
+          fi
+          exit 0
+          SCRIPT
+          chmod +x run_tour.sh
+
+      # Emulator infra flakes (boot timeouts, adb "Broken pipe", dead adb
+      # daemon) are a known hazard - give the tour ONE retry with a freshly
+      # created AVD before failing for real (same pattern as
+      # universal-flutter-verify).
+      - name: Run Emulator and Tour
+        id: tour
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash ./run_tour.sh
+
+      - name: Reset Emulator State Before Retry
+        if: steps.tour.outcome == 'failure'
+        run: |
+          echo "First tour attempt failed — killing stale emulator/adb before retry."
+          adb emu kill || true
+          pkill -f "qemu-system" || true
+          adb kill-server || true
+          sleep 10
+
+      - name: Run Emulator and Tour (Retry)
+        id: tour-retry
+        if: steps.tour.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash ./run_tour.sh
+
+      - name: Tour Status
+        if: always()
+        run: |
+          if [ "${{ steps.tour.outcome }}" = "success" ] || [ "${{ steps.tour-retry.outcome }}" = "success" ]; then
+            echo "✅ Tour succeeded (first attempt: ${{ steps.tour.outcome }}, retry: ${{ steps.tour-retry.outcome }})."
+          else
+            echo "❌ Tour failed on both attempts (first: ${{ steps.tour.outcome }}, retry: ${{ steps.tour-retry.outcome }})."
+            exit 1
+          fi
+
+      - name: Assemble Feature Guide (required)
+        shell: bash
+        run: |
+          python3 .tour-tools/scripts/tour/assemble.py \
+            --resolved tour.resolved.json \
+            --shots tour_screenshots \
+            --out "${{ inputs.output-dir }}" \
+            --guide
+
+      # Screenshots + guide are the required outputs; the video is
+      # best-effort by design - a video hiccup must never fail the run or
+      # block the committed stills.
+      - name: Assemble Tour Video (best-effort)
+        id: video
+        continue-on-error: true
+        shell: bash
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg fonts-dejavu-core
+          python3 .tour-tools/scripts/tour/assemble.py \
+            --resolved tour.resolved.json \
+            --shots tour_screenshots \
+            --out "${{ inputs.output-dir }}" \
+            --video --codec libx264 --container mp4
+
+      - name: Video Status
+        if: always()
+        run: |
+          if [ "${{ steps.video.outcome }}" = "success" ]; then
+            echo "✅ Tour video rendered."
+          else
+            echo "::warning::Tour video assembly failed or was skipped - screenshots and guide are unaffected."
+          fi
+
+      - name: Commit Tour Outputs
+        if: inputs.commit-outputs == true && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          # Stage ONLY the tour output directory - never `git add -A`/`.`:
+          # the workspace also holds the composer's .rokct/cache (which can
+          # contain nested git clones - committing those as dangling gitlinks
+          # broke rCore checkouts, see rCore #121) plus compose-time edits to
+          # tracked files. Refuse output-dir values that could widen the
+          # pathspec to any of that.
+          case "${{ inputs.output-dir }}" in
+            ""|"."|".."*|"/"*|".rokct"*|".git"*)
+              echo "::error::Refusing unsafe output-dir '${{ inputs.output-dir }}' for the commit-back pathspec."
+              exit 1
+              ;;
+          esac
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f "${{ inputs.output-dir }}"
+          if ! git commit -m "docs: refresh guided tour screenshots and feature guide [skip ci]"; then
+            echo "ℹ️ No changes in ${{ inputs.output-dir }} - nothing to commit."
+            exit 0
+          fi
+          # The workspace carries compose-time modifications to tracked files;
+          # drop them so the rebase below starts from a clean tree (only the
+          # tour outputs were staged into the commit above).
+          git checkout -- . || true
+          # Another workflow may have pushed to this ref while the tour ran;
+          # rebase our single output commit on top rather than failing.
+          git fetch origin "$GITHUB_REF"
+          if ! git rebase FETCH_HEAD; then
+            git rebase --abort
+            echo "::error::Tour output commit conflicts with new commits on $GITHUB_REF."
+            exit 1
+          fi
+          git push origin HEAD:${{ github.ref }}
+          echo "✅ Tour outputs committed to ${{ github.ref }}."
+
+      - name: Upload Tour Artifacts
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: guided-tour-results
+          path: |
+            tour_screenshots/
+            ${{ inputs.output-dir }}/
+            tour.resolved.json
+            tour_logcat.txt
+          if-no-files-found: warn
