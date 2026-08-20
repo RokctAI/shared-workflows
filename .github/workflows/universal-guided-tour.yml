@@ -385,6 +385,18 @@ jobs:
         if: inputs.commit-outputs == true && github.event_name != 'pull_request'
         shell: bash
         run: |
+          # Stage ONLY the tour output directory - never `git add -A`/`.`:
+          # the workspace also holds the composer's .rokct/cache (which can
+          # contain nested git clones - committing those as dangling gitlinks
+          # broke rCore checkouts, see rCore #121) plus compose-time edits to
+          # tracked files. Refuse output-dir values that could widen the
+          # pathspec to any of that.
+          case "${{ inputs.output-dir }}" in
+            ""|"."|".."*|"/"*|".rokct"*|".git"*)
+              echo "::error::Refusing unsafe output-dir '${{ inputs.output-dir }}' for the commit-back pathspec."
+              exit 1
+              ;;
+          esac
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -f "${{ inputs.output-dir }}"
