@@ -46,6 +46,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 
 WIDTH, HEIGHT = 1080, 1920
 ZOOM = 0.06  # gentle zoom across each still
@@ -97,9 +98,12 @@ def write_guide(resolved, shots, out_dir):
     for stale in glob.glob(os.path.join(shots_out, "*.png")):
         os.remove(stale)
 
+    # The fleet markdown linter enforces MD013 (80-column lines) and MD036
+    # (no emphasis-only paragraphs), and the guide is committed to repos
+    # that lint - everything generated here has to come out clean.
     lines = [f"# {app['name']} — Feature Guide", ""]
     if app.get("tagline"):
-        lines += [f"_{app['tagline']}_", ""]
+        lines += textwrap.wrap(str(app["tagline"]), width=80) + [""]
     lines += [
         "> This guide is generated automatically on every merge: CI builds the",
         "> app with its built-in demo dataset, walks the guided tour on an",
@@ -122,7 +126,7 @@ def write_guide(resolved, shots, out_dir):
         lines.append(f"![{step['title']}](screenshots/{name})")
         lines.append("")
         if step.get("caption"):
-            lines.append(step["caption"])
+            lines += textwrap.wrap(str(step["caption"]), width=80)
             lines.append("")
         embedded += 1
 
