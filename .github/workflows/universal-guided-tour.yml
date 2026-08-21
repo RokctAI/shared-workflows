@@ -318,6 +318,25 @@ jobs:
           SCRIPT
           chmod +x run_tour.sh
 
+      # GitHub's Linux runners support KVM, but /dev/kvm is not accessible
+      # to the runner user by default - without this rule the emulator
+      # action's hardware-acceleration probe fails and it silently launches
+      # qemu with `-accel off` (full software emulation). That is what made
+      # every earlier tour run crawl: 700-800s APK installs, the guest
+      # pinned at 100% CPU with system_server ANRs, and the on-device test
+      # isolate too slow to reach its first marker (runs 32386564857,
+      # 32456359666, 32468427355) - and run 32478818508's 600s boot
+      # timeouts. This is the setup step reactivecircus documents for
+      # GitHub-hosted Linux runners.
+      - name: Enable KVM for the Emulator
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "::warning::/dev/kvm still unavailable - emulator will fall back to software emulation"
+
       # Emulator infra flakes (boot timeouts, adb "Broken pipe", dead adb
       # daemon) are a known hazard - give the tour ONE retry with a freshly
       # created AVD before failing for real (same pattern as
