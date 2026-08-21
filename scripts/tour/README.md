@@ -11,8 +11,11 @@ shell repo under `marketing/tour/`:
 - `marketing/tour/screenshots/NN-key.png` — one still per tour step (required)
 - `marketing/tour/feature-guide.md` — stills + captions (required)
 - `marketing/tour/tour.mp4` — 1080x1920 9:16, 30fps, H.264, burned-in
-  captions, hook card first, ~6% zoom per still (best-effort; a video
-  failure never blocks the screenshots or the guide)
+  captions with optional accent-colour keyword highlights, ~3s hook card
+  first (when the manifest has a `video.hook`), ~6% zoom per still, ~3s
+  logo/offer end card last (when the manifest has a `video.offer` or an
+  `app.logo`) (best-effort; a video failure never blocks the screenshots
+  or the guide)
 
 ## Who owns what
 
@@ -34,9 +37,13 @@ shell repo under `marketing/tour/`:
 app:
   name: Supacharge            # substituted into {app_name}
   tagline: Live tutoring...   # substituted into {app_tagline}
+  logo: assets/logo.png       # optional; repo-relative, shown on the end card
 video:
-  hook: "Big test coming? Bring backup."   # first card of the video
+  hook: "Big test coming? Bring backup."   # optional; ~3s opening card
   seconds_per_step: 3
+  brand_color: "#0B2A4A"      # optional; hook/end card background
+  accent_color: "#41D68C"     # optional; caption keyword highlight colour
+  offer: "Start free today."  # optional; ~3s end card CTA line
 setup:                        # optional Dart run once before app.main()
   imports:
     - "import 'package:base_sdk/src/services/local_storage.dart';"
@@ -52,6 +59,13 @@ tour:
   - fragment: auth            # include an SDK fragment (clean SDK name)
   - fragment: lms
 ```
+
+The hook card, end card and colour keys are all optional: a manifest
+without them assembles exactly as before (no cards, plain captions).
+Captions (in manifests and fragments alike) may mark ONE key phrase with
+asterisks — `caption: "Rewatch *past lessons* whenever you like."` — and
+the video renders that phrase in the accent colour; the markers are
+stripped everywhere else, so the guide stays plain text.
 
 ## SDK fragment (`templates/tour/<sdk>.tour.yaml`)
 
@@ -113,3 +127,7 @@ Codec and container are parametrized because trimmed local ffmpeg builds
 often lack libx264; CI installs full ffmpeg via apt and uses the defaults
 (libx264/mp4/faststart). All zoom + caption work is done in Pillow and piped
 to ffmpeg as rawvideo, so no ffmpeg filters are required.
+
+`assemble.py --require-varied` turns the "every captured screenshot is
+byte-identical" warning (a sure sign the capture regressed to placeholder
+frames) into a hard failure; without the flag assembly stays best-effort.
