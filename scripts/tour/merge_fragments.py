@@ -62,6 +62,7 @@ except ImportError:  # pragma: no cover - CI installs pyyaml explicitly
     sys.exit(1)
 
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+HIGHLIGHT_RE = re.compile(r"\*([^*\n]+)\*")
 VALID_ACTIONS = ("wait", "route", "dart")
 DEFAULT_SETTLE_SECONDS = 5
 
@@ -203,6 +204,23 @@ def substitute(text, placeholders):
     return text
 
 
+def extract_highlight(caption, origin, key):
+    """Pull one *marked* phrase out of a caption.
+
+    ``caption: "Rewatch *past lessons* whenever you like."`` renders the
+    marked words in the brand accent colour in the tour video. The markers
+    are stripped here, so the guide, the resolved captions and captions
+    without any markup all stay plain text exactly as before.
+    """
+    matches = HIGHLIGHT_RE.findall(caption)
+    if not matches:
+        return caption, ""
+    if len(matches) > 1:
+        warn(f"{origin}: step '{key}' marks {len(matches)} phrases — only the first is highlighted")
+    plain = HIGHLIGHT_RE.sub(lambda m: m.group(1), caption)
+    return plain, matches[0].strip()
+
+
 def normalize_step(raw, origin, placeholders):
     if not isinstance(raw, dict):
         fail(f"{origin}: step must be a mapping")
@@ -227,10 +245,14 @@ def normalize_step(raw, origin, placeholders):
         fail(f"{origin}: step '{key}' settle must be a number of seconds")
     settle = max(0.0, min(60.0, settle))
     screenshot = bool(raw.get("screenshot", True))
+    caption, highlight = extract_highlight(
+        substitute(raw.get("caption") or "", placeholders).strip(), origin, key
+    )
     return {
         "key": str(key),
         "title": substitute(raw.get("title") or "", placeholders).strip(),
-        "caption": substitute(raw.get("caption") or "", placeholders).strip(),
+        "caption": caption,
+        "highlight": highlight,
         "action": action,
         "route": route if action == "route" else None,
         "dart": dart if action == "dart" else None,
@@ -378,10 +400,24 @@ def main():
         fail("every resolved step is screenshot: false — the tour would produce no stills")
 
     resolved = {
-        "app": {"name": app_name, "tagline": app_tagline},
+        "app": {
+            "name": app_name,
+            "tagline": app_tagline,
+            # Optional repo-relative logo path for the video end card;
+            # assemble.py skips the image gracefully when it does not exist.
+            "logo": str(app.get("logo") or "").strip(),
+        },
         "video": {
-            "hook": substitute(str(video.get("hook") or f"Meet {app_name}."), placeholders),
+            # No hook means no hook card — assemble.py skips it gracefully.
+            "hook": substitute(str(video.get("hook") or ""), placeholders).strip(),
             "seconds_per_step": float(video.get("seconds_per_step") or 3.0),
+            # Optional branding for the video cards and caption highlights
+            # ("#RGB"/"#RRGGBB"); assemble.py falls back to house defaults.
+            "brand_color": str(video.get("brand_color") or "").strip(),
+            "accent_color": str(video.get("accent_color") or "").strip(),
+            # Optional one-line offer/CTA; with a logo or an offer present
+            # the video closes on a ~3s end card.
+            "offer": substitute(str(video.get("offer") or ""), placeholders).strip(),
         },
         "steps": [
             {
@@ -389,6 +425,7 @@ def main():
                 "key": s["key"],
                 "title": s["title"] or s["key"].replace("_", " ").title(),
                 "caption": s["caption"],
+                "highlight": s["highlight"],
                 "settle_ms": s["settle_ms"],
                 "action": s["action"],
                 "route": s["route"],
