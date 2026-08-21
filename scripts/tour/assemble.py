@@ -26,20 +26,27 @@ Two independent products (so a video hiccup can never block the stills):
            <out>/screenshots/NN-key.png and writes <out>/feature-guide.md
            embedding each still with its caption.
 
-  --video  (best-effort)      renders <out>/tour.mp4 in the org's vertical
-           house style: 1080x1920 9:16, 30fps, a ~3s hook card first (brand
-           background, hook line, app name — only when the manifest supplies
-           a hook), then one captioned still per step with a gentle ~6% zoom,
-           then a ~3s end card (logo + app name + offer line — only when the
-           manifest supplies an offer or a logo). Each caption may carry one
-           key phrase highlighted in the brand accent colour. Captions are
-           burned in with Pillow (DejaVu Sans Bold); ffmpeg only encodes a
-           concatenated-JPEG frame stream, so no ffmpeg filters or pipe
-           protocols are needed. Codec/container are parametrized; CI uses
-           libx264 + mp4 + faststart.
+  --video  (best-effort)      renders ONE VIDEO PER CHAPTER as
+           <out>/tour-<chapter>.mp4 (a chapter = the steps one fragment
+           contributed; app-shell steps join the chapter they precede) in
+           the org's vertical house style: 1080x1920 9:16, 30fps, a ~3s
+           hook card first (brand background, hook line, app name — only
+           when the manifest supplies a hook), then one status-ad style
+           beat per step (~4s each): the screenshot floats in a
+           rounded-corner phone frame over the brand-colour background,
+           with a gentle vertical drift and the caption band above it,
+           then a ~3s end card (logo + app name + offer line — only when
+           the manifest supplies an offer or a logo). Each caption may
+           carry one key phrase highlighted in the brand accent colour.
+           Frames are drawn entirely with Pillow (DejaVu Sans Bold);
+           ffmpeg only encodes a concatenated-JPEG frame stream, so no
+           ffmpeg filters or pipe protocols are needed. Codec/container
+           are parametrized; CI uses libx264 + mp4 + faststart.
 
 Branding (app name, tagline, hook, colours, offer, logo) comes exclusively
 from the app shell's resolved tour plan — SDK fragments stay brand-neutral.
+Colours default to the composed app's AppStyle palette (resolved at merge
+time); explicit video.brand_color / video.accent_color manifest keys win.
 
 --require-varied makes the run fail loudly when every captured screenshot
 is byte-identical (a sure sign the capture regressed to placeholder
@@ -58,10 +65,19 @@ import tempfile
 import textwrap
 
 WIDTH, HEIGHT = 1080, 1920
-ZOOM = 0.06  # gentle zoom across each still
+BEAT_SECONDS = 4.0  # one caption beat per still (WhatsApp-status pacing)
 CARD_SECONDS = 3.0  # hook card and end card each hold for ~3s
 CARD_BG = (12, 14, 20)  # card background when the manifest has no brand colour
 ACCENT = (120, 200, 255)  # accent when the manifest has no accent colour
+# Floating phone frame each screenshot renders inside (all px on the
+# 1080x1920 canvas): dark rounded bezel, rounded-corner clip, drop shadow.
+FRAME_BEZEL = 30
+FRAME_RADIUS = 64
+FRAME_MAX_W, FRAME_MAX_H = 700, 1200  # screenshot fit box inside the bezel
+FRAME_MARGIN = 80  # transparent margin around the card so the shadow fits
+CAPTION_TOP = 140  # caption band sits in the top zone, above the phone
+FRAME_ZONE_TOP = 500  # phone frame floats below the caption zone
+DRIFT_PX = 60  # gentle vertical drift across each beat
 FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -216,22 +232,47 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-def cover_resize(img):
-    """Scale-to-cover + centre-crop to 1080x1920."""
-    from PIL import Image
+def phone_card(shot):
+    """Screenshot -> floating phone mockup (RGBA), like a status-ad insert.
 
-    scale = max(WIDTH / img.width, HEIGHT / img.height)
-    resized = img.resize(
-        (max(WIDTH, round(img.width * scale)), max(HEIGHT, round(img.height * scale))),
-        Image.LANCZOS,
+    Drawn programmatically with Pillow: a blurred drop shadow, a dark
+    rounded-rect bezel, and the screenshot clipped to rounded corners
+    inside it. The returned image carries a transparent FRAME_MARGIN on
+    every side so the shadow blur never clips.
+    """
+    from PIL import Image, ImageDraw, ImageFilter
+
+    scale = min(FRAME_MAX_W / shot.width, FRAME_MAX_H / shot.height)
+    inner_w = max(1, round(shot.width * scale))
+    inner_h = max(1, round(shot.height * scale))
+    inner = shot.resize((inner_w, inner_h), Image.LANCZOS)
+    clip = Image.new("L", (inner_w, inner_h), 0)
+    ImageDraw.Draw(clip).rounded_rectangle(
+        (0, 0, inner_w - 1, inner_h - 1), radius=FRAME_RADIUS - FRAME_BEZEL, fill=255
     )
-    left = (resized.width - WIDTH) // 2
-    top = (resized.height - HEIGHT) // 2
-    return resized.crop((left, top, left + WIDTH, top + HEIGHT))
+    card_w = inner_w + 2 * FRAME_BEZEL
+    card_h = inner_h + 2 * FRAME_BEZEL
+    card = Image.new("RGBA", (card_w + 2 * FRAME_MARGIN, card_h + 2 * FRAME_MARGIN), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", card.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        (FRAME_MARGIN, FRAME_MARGIN + 20, FRAME_MARGIN + card_w, FRAME_MARGIN + 20 + card_h),
+        radius=FRAME_RADIUS,
+        fill=(0, 0, 0, 150),
+    )
+    card.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(26)))
+    ImageDraw.Draw(card).rounded_rectangle(
+        (FRAME_MARGIN, FRAME_MARGIN, FRAME_MARGIN + card_w, FRAME_MARGIN + card_h),
+        radius=FRAME_RADIUS,
+        fill=(22, 22, 26, 255),
+        outline=(64, 64, 70, 255),
+        width=2,
+    )
+    card.paste(inner, (FRAME_MARGIN + FRAME_BEZEL, FRAME_MARGIN + FRAME_BEZEL), clip)
+    return card
 
 
 def caption_overlay(text, font_path="", highlight="", accent=ACCENT):
-    """Static bottom caption band, rendered once per step (RGBA).
+    """Static top caption band, rendered once per step (RGBA).
 
     ``highlight`` is one key phrase of ``text`` (whitespace-normalised)
     rendered in the brand accent colour; everything else stays white.
@@ -254,7 +295,7 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT):
     hl_end = hl_start + len(" ".join(highlight.split())) if hl_start >= 0 else -1
     line_height = 68
     band_height = 2 * pad + line_height * len(lines)
-    top = HEIGHT - 220 - band_height
+    top = CAPTION_TOP
     draw.rounded_rectangle(
         (margin, top, WIDTH - margin, top + band_height),
         radius=28,
@@ -356,27 +397,53 @@ def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT):
     return card
 
 
-def zoomed_frame(base, progress):
-    """base cover-sized RGB image, progress 0..1 -> zoomed 1080x1920 frame."""
-    from PIL import Image
-
-    z = 1.0 + ZOOM * progress
-    crop_w, crop_h = WIDTH / z, HEIGHT / z
-    left = (WIDTH - crop_w) / 2
-    top = (HEIGHT - crop_h) / 2
-    return base.crop(
-        (round(left), round(top), round(left + crop_w), round(top + crop_h))
-    ).resize((WIDTH, HEIGHT), Image.BILINEAR)
+def encode_stream(ffmpeg, stream_path, out_path, codec, container, fps):
+    """Encode one concatenated-JPEG frame stream to out_path via ffmpeg."""
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "image2pipe", "-framerate", str(fps),
+        # Input codec must be explicit: trimmed builds do not probe the
+        # JPEG stream ("Video: none ... no decoder found for: none").
+        "-c:v", "mjpeg",
+        "-i", stream_path,
+        "-an",
+        "-r", str(fps),
+        "-c:v", codec,
+    ]
+    if codec == "libx264":
+        cmd += ["-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p"]
+    elif codec in ("libvpx", "libvpx-vp9"):
+        cmd += ["-b:v", "2M"]
+    if container == "mp4":
+        cmd += ["-movflags", "+faststart"]
+    cmd.append(out_path)
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        fail(f"ffmpeg exited {result.returncode}")
 
 
 def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_path):
+    """Render one video per chapter: <out>/tour-<chapter>.<container>.
+
+    A chapter is the run of steps one fragment contributed (app-shell steps
+    were folded into the chapter they precede at merge time). Every chapter
+    video carries the same manifest hook card and logo/offer end card, with
+    the chapter's phone-framed caption beats in between.
+    """
     from PIL import Image
 
     app = resolved["app"]
     video_cfg = resolved.get("video", {})
-    steps = [s for s in resolved["steps"] if s["key"] in shots]
-    if not steps:
+    if not any(s["key"] in shots for s in resolved["steps"]):
         fail("video: no captured screenshots to render")
+
+    # Refresh the published videos wholesale (like the guide's stills) so
+    # the legacy single tour.<container> and removed chapters never linger
+    # in the committed outputs.
+    for stale in glob.glob(os.path.join(out_dir, f"tour.{container}")) + glob.glob(
+        os.path.join(out_dir, f"tour-*.{container}")
+    ):
+        os.remove(stale)
 
     brand_bg = parse_color(video_cfg.get("brand_color"), CARD_BG)
     accent = parse_color(video_cfg.get("accent_color"), ACCENT)
@@ -387,93 +454,100 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
 
     hook_seconds = CARD_SECONDS if hook else 0.0
     end_seconds = CARD_SECONDS if want_end_card else 0.0
-    per_step = float(video_cfg.get("seconds_per_step") or 3.0)
-    # Keep total inside the 20-45s house window (min 2s per still).
-    per_step = max(2.0, min(per_step, (45.0 - hook_seconds - end_seconds) / len(steps)))
-    total = hook_seconds + per_step * len(steps) + end_seconds
-    log(
-        f"video plan: hook {hook_seconds:.0f}s + {len(steps)} stills x {per_step:.1f}s "
-        f"+ end card {end_seconds:.0f}s = {total:.1f}s at {fps}fps ({codec}/{container})"
+    # Fixed beat per still — the total is however long the chapter needs
+    # (status-ad pacing), never crammed into a fixed window.
+    per_step = max(2.0, min(float(video_cfg.get("beat_seconds") or BEAT_SECONDS), 10.0))
+    if not hook:
+        log("no video.hook in the manifest — chapter videos start on the first beat")
+
+    hook_image = hook_card(app, hook, font_path, bg=brand_bg, accent=accent) if hook else None
+    end_image = (
+        end_card(app, offer, logo_path, font_path, bg=brand_bg, accent=accent)
+        if want_end_card
+        else None
     )
 
-    out_path = os.path.join(out_dir, f"tour.{container}")
+    def render_chapter(chapter, steps):
+        out_path = os.path.join(out_dir, f"tour-{chapter}.{container}")
+        total = hook_seconds + per_step * len(steps) + end_seconds
+        log(
+            f"chapter '{chapter}': hook {hook_seconds:.0f}s + {len(steps)} beats x "
+            f"{per_step:.1f}s + end card {end_seconds:.0f}s = {total:.1f}s at {fps}fps "
+            f"({codec}/{container})"
+        )
 
-    # All zoom + caption work happens in Pillow; ffmpeg only encodes a
-    # concatenated-JPEG stream read from ONE file with the image2pipe
-    # demuxer. This needs no ffmpeg filters and no pipe/fd protocols, so it
-    # works identically on CI's full apt ffmpeg and on trimmed local builds
-    # (Playwright's build ships only the `file` protocol and only the
-    # image2pipe + matroska demuxers).
-    frames_dir = tempfile.mkdtemp(prefix="tour_frames_")
-    stream_path = os.path.join(frames_dir, "frames.mjpeg")
-    stream = open(stream_path, "wb")
-    frames_written = 0
+        # All frame work happens in Pillow; ffmpeg only encodes a
+        # concatenated-JPEG stream read from ONE file with the image2pipe
+        # demuxer. This needs no ffmpeg filters and no pipe/fd protocols, so
+        # it works identically on CI's full apt ffmpeg and on trimmed local
+        # builds (Playwright's build ships only the `file` protocol and only
+        # the image2pipe + matroska demuxers).
+        frames_dir = tempfile.mkdtemp(prefix="tour_frames_")
+        stream_path = os.path.join(frames_dir, "frames.mjpeg")
+        stream = open(stream_path, "wb")
+        frames_written = 0
 
-    def push(image):
-        nonlocal frames_written
-        frames_written += 1
-        image.save(stream, format="JPEG", quality=92)
+        def push(image):
+            nonlocal frames_written
+            frames_written += 1
+            image.save(stream, format="JPEG", quality=92)
 
-    try:
-        if hook:
-            card = hook_card(app, hook, font_path, bg=brand_bg, accent=accent)
-            for _ in range(int(round(hook_seconds * fps))):
-                push(card)
-        else:
-            log("no video.hook in the manifest — skipping the hook card")
+        try:
+            if hook_image is not None:
+                for _ in range(int(round(hook_seconds * fps))):
+                    push(hook_image)
 
-        step_frames = int(round(per_step * fps))
-        for step in steps:
-            with Image.open(shots[step["key"]]) as raw:
-                base = cover_resize(raw.convert("RGB"))
-            overlay = caption_overlay(
-                step.get("caption") or step.get("title") or "",
-                font_path,
-                highlight=step.get("highlight") or "",
-                accent=accent,
-            )
-            for i in range(step_frames):
-                progress = i / max(1, step_frames - 1)
-                frame = zoomed_frame(base, progress).convert("RGBA")
-                frame.alpha_composite(overlay)
-                push(frame.convert("RGB"))
+            step_frames = int(round(per_step * fps))
+            for step in steps:
+                with Image.open(shots[step["key"]]) as raw:
+                    card = phone_card(raw.convert("RGB"))
+                # Caption band + brand background are static per beat;
+                # only the phone frame drifts.
+                backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
+                backdrop.alpha_composite(
+                    caption_overlay(
+                        step.get("caption") or step.get("title") or "",
+                        font_path,
+                        highlight=step.get("highlight") or "",
+                        accent=accent,
+                    )
+                )
+                x = (WIDTH - card.width) // 2
+                y_base = FRAME_ZONE_TOP + (HEIGHT - 40 - FRAME_ZONE_TOP - card.height) // 2
+                for i in range(step_frames):
+                    progress = i / max(1, step_frames - 1)
+                    ease = progress * progress * (3 - 2 * progress)  # smoothstep
+                    frame = backdrop.copy()
+                    frame.paste(card, (x, y_base + round(DRIFT_PX * (0.5 - ease))), card)
+                    push(frame.convert("RGB"))
 
-        if want_end_card:
-            card = end_card(app, offer, logo_path, font_path, bg=brand_bg, accent=accent)
-            for _ in range(int(round(end_seconds * fps))):
-                push(card)
+            if end_image is not None:
+                for _ in range(int(round(end_seconds * fps))):
+                    push(end_image)
 
-        stream.close()
-        cmd = [
-            ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "image2pipe", "-framerate", str(fps),
-            # Input codec must be explicit: trimmed builds do not probe the
-            # JPEG stream ("Video: none ... no decoder found for: none").
-            "-c:v", "mjpeg",
-            "-i", stream_path,
-            "-an",
-            "-r", str(fps),
-            "-c:v", codec,
-        ]
-        if codec == "libx264":
-            cmd += ["-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p"]
-        elif codec in ("libvpx", "libvpx-vp9"):
-            cmd += ["-b:v", "2M"]
-        if container == "mp4":
-            cmd += ["-movflags", "+faststart"]
-        cmd.append(out_path)
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            fail(f"ffmpeg exited {result.returncode}")
-    finally:
-        if not stream.closed:
             stream.close()
-        shutil.rmtree(frames_dir, ignore_errors=True)
-    size = os.path.getsize(out_path)
-    log(
-        f"wrote {out_path}: {frames_written} frames, "
-        f"{frames_written / fps:.1f}s, {size / 1_000_000:.2f} MB"
-    )
+            encode_stream(ffmpeg, stream_path, out_path, codec, container, fps)
+        finally:
+            if not stream.closed:
+                stream.close()
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        size = os.path.getsize(out_path)
+        log(
+            f"wrote {out_path}: {frames_written} frames, "
+            f"{frames_written / fps:.1f}s, {size / 1_000_000:.2f} MB"
+        )
+
+    # Group the plan's steps into chapters, preserving tour order. Steps
+    # from resolved plans that predate chapters all land in 'app'.
+    chapters = {}
+    for step in resolved["steps"]:
+        chapters.setdefault(str(step.get("chapter") or "app"), []).append(step)
+    for chapter, chapter_steps in chapters.items():
+        captured = [s for s in chapter_steps if s["key"] in shots]
+        if not captured:
+            log(f"chapter '{chapter}': no captured screenshots — skipping its video")
+            continue
+        render_chapter(chapter, captured)
 
 
 def main():

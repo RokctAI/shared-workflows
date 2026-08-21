@@ -9,13 +9,23 @@ tour on a headless Android emulator, and commits the outputs back to the app
 shell repo under `marketing/tour/`:
 
 - `marketing/tour/screenshots/NN-key.png` — one still per tour step (required)
-- `marketing/tour/feature-guide.md` — stills + captions (required)
-- `marketing/tour/tour.mp4` — 1080x1920 9:16, 30fps, H.264, burned-in
-  captions with optional accent-colour keyword highlights, ~3s hook card
-  first (when the manifest has a `video.hook`), ~6% zoom per still, ~3s
-  logo/offer end card last (when the manifest has a `video.offer` or an
-  `app.logo`) (best-effort; a video failure never blocks the screenshots
-  or the guide)
+- `marketing/tour/feature-guide.md` — one unified guide, stills + captions
+  (required)
+- `marketing/tour/tour-<chapter>.mp4` — ONE video per chapter (e.g.
+  `tour-auth.mp4`, `tour-lms.mp4`; a chapter = the steps one fragment
+  contributed, with app-shell steps folded into the chapter they precede).
+  1080x1920 9:16, 30fps, H.264, status-ad style: each screenshot floats in
+  a rounded-corner dark phone frame (drawn in Pillow — bezel, rounded clip,
+  drop shadow, gentle vertical drift) over the brand-colour background,
+  with the caption band above it and optional accent-colour keyword
+  highlights. Each video opens on the same ~3s hook card (when the
+  manifest has a `video.hook`), holds each screenshot for a fixed ~4s
+  caption beat (`video.beat_seconds` overrides), and closes on the same
+  ~3s logo/offer end card (when the manifest has a `video.offer` or an
+  `app.logo`). Total length is whatever the chapter needs — never crammed
+  into a fixed window. A chapter with no captured screenshots gets no
+  video (logged, never a failure); the whole video stage stays
+  best-effort — a video failure never blocks the screenshots or the guide.
 
 ## Who owns what
 
@@ -40,9 +50,9 @@ app:
   logo: assets/logo.png       # optional; repo-relative, shown on the end card
 video:
   hook: "Big test coming? Bring backup."   # optional; ~3s opening card
-  seconds_per_step: 3
-  brand_color: "#0B2A4A"      # optional; hook/end card background
-  accent_color: "#41D68C"     # optional; caption keyword highlight colour
+  beat_seconds: 4             # optional; seconds each still holds (default 4)
+  brand_color: "#0B2A4A"      # optional; card/beat background override
+  accent_color: "#41D68C"     # optional; keyword highlight colour override
   offer: "Start free today."  # optional; ~3s end card CTA line
 setup:                        # optional Dart run once before app.main()
   imports:
@@ -60,12 +70,30 @@ tour:
   - fragment: lms
 ```
 
-The hook card, end card and colour keys are all optional: a manifest
-without them assembles exactly as before (no cards, plain captions).
+Every `video` key is optional. When `brand_color` / `accent_color` are
+absent, the merge derives them from the composed app sources instead of
+falling back straight to house defaults: first the named `Color(0x...)`
+arguments of the `AppStyle.injectBrandColors(...)` call in the app's
+composed theme shim (`lib/presentation/theme/theme.dart`, override with
+`--app-theme`) — per-app palettes win — then base_sdk's own `AppStyle`
+field defaults in the composed cache
+(`.rokct/cache/base/lib/src/presentation/theme/app_style.dart`). The
+mapping is `accent_color <- primary` and `brand_color <- surfaceDark`;
+when neither file parses, assemble.py keeps its built-in defaults.
+`video.seconds_per_step` (the retired fixed-total-window pacing) is
+ignored; each still now holds a fixed `beat_seconds` beat.
 Captions (in manifests and fragments alike) may mark ONE key phrase with
 asterisks — `caption: "Rewatch *past lessons* whenever you like."` — and
 the video renders that phrase in the accent colour; the markers are
 stripped everywhere else, so the guide stays plain text.
+
+Each `fragment:` entry opens a video *chapter* named after the fragment;
+inline `step:` entries belong to the chapter they precede (trailing steps
+join the chapter before them; a tour with no fragments is a single `app`
+chapter). Every chapter renders to its own `tour-<chapter>.mp4` sharing
+the manifest's hook card and end card, so an app with `auth`, `lms` and
+`lms_admin` fragments publishes three short videos instead of one long
+one. The feature guide stays unified.
 
 ## SDK fragment (`templates/tour/<sdk>.tour.yaml`)
 
@@ -91,8 +119,12 @@ steps:
 
 `merge_fragments.py` resolves each `fragment:` entry in order:
 
-1. the composed SDK cache (`.rokct/cache/<sdk>/templates/tour/`) — the normal
-   path once the fragment is merged in the SDK repo;
+1. the composed SDK cache — first `.rokct/cache/<fragment>/templates/tour/`
+   (the SDK named after the fragment), then a scan of every composed SDK's
+   cache dir for `<fragment>.tour.yaml`, because one SDK may ship several
+   fragments (e.g. `lms`'s `templates/tour/` holding `lms.tour.yaml` and
+   `lms_partner.tour.yaml`); a fragment name shipped by more than one SDK
+   is an error;
 2. the SDK's source repo via the GitHub contents API at `--fragments-ref`,
    then `--fallback-ref` (repo + subpath come from the app's composer.json,
    auth via `MONOREPO_PAT`);
@@ -125,8 +157,9 @@ python3 scripts/tour/assemble.py \
 
 Codec and container are parametrized because trimmed local ffmpeg builds
 often lack libx264; CI installs full ffmpeg via apt and uses the defaults
-(libx264/mp4/faststart). All zoom + caption work is done in Pillow and piped
-to ffmpeg as rawvideo, so no ffmpeg filters are required.
+(libx264/mp4/faststart). All frame work (phone frame, cards, captions) is
+done in Pillow and fed to ffmpeg as a concatenated-JPEG stream, so no
+ffmpeg filters are required.
 
 `assemble.py --require-varied` turns the "every captured screenshot is
 byte-identical" warning (a sure sign the capture regressed to placeholder

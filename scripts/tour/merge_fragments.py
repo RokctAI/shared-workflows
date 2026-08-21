@@ -28,7 +28,11 @@ branded wording (app name, tagline, video hook). This script resolves the
 fragments, substitutes placeholders (``{app_name}``, ``{app_tagline}``) into
 fragment captions, and emits:
 
-  * a resolved JSON plan (consumed by capture/assemble), and
+  * a resolved JSON plan (consumed by capture/assemble) — each step is
+    tagged with its chapter (the fragment it came from; app-shell steps
+    join the chapter they precede) so assemble.py renders one video per
+    chapter, and video colours default to the composed app's AppStyle
+    palette when the manifest sets none, and
   * a generated Dart steps file for the app's committed integration_test
     runner (``integration_test/tour_steps.g.dart``).
 
@@ -65,6 +69,16 @@ KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HIGHLIGHT_RE = re.compile(r"\*([^*\n]+)\*")
 VALID_ACTIONS = ("wait", "route", "dart")
 DEFAULT_SETTLE_SECONDS = 5
+# One caption beat per still in the video (WhatsApp-status pacing);
+# video.beat_seconds in the manifest overrides it.
+DEFAULT_BEAT_SECONDS = 4.0
+# Brand-colour derivation from the composed app sources: named Color args
+# inside the app's AppStyle.injectBrandColors(...) call, and base_sdk's own
+# AppStyle field defaults (`static Color _primary = const Color(0xFFFF6600)`).
+COLOR_ARG_RE = re.compile(r"(\w+)\s*:\s*(?:const\s+)?Color\(\s*0x([0-9A-Fa-f]{8})\s*\)")
+APP_STYLE_COLOR_RE = re.compile(
+    r"static\s+Color\s+_?(primary|surfaceDark)\s*=\s*(?:const\s+)?Color\(\s*0x([0-9A-Fa-f]{8})\s*\)"
+)
 
 
 def log(msg):
@@ -174,7 +188,7 @@ def fetch_remote_fragment(entry, name, refs, token):
 
 
 def resolve_fragment(name, cache_dir, sdk_index, refs, token):
-    # 1. composed cache
+    # 1. composed cache — the SDK named after the fragment first
     tour_dir = os.path.join(cache_dir, name, "templates", "tour")
     exact = os.path.join(tour_dir, f"{name}.tour.yaml")
     if os.path.exists(exact):
@@ -184,6 +198,21 @@ def resolve_fragment(name, cache_dir, sdk_index, refs, token):
     if candidates:
         log(f"fragment '{name}': using composed cache copy {candidates[0]}")
         return load_yaml(candidates[0], candidates[0])
+    # 1b. any composed SDK may ship the fragment: one SDK can carry several
+    # (e.g. lms's templates/tour/ holds lms.tour.yaml AND
+    # lms_partner.tour.yaml), so scan the whole cache for <name>.tour.yaml.
+    matches = sorted(
+        glob.glob(os.path.join(cache_dir, "*", "**", "tour", f"{name}.tour.yaml"), recursive=True)
+    )
+    owners = sorted({os.path.relpath(m, cache_dir).split(os.sep)[0] for m in matches})
+    if len(owners) > 1:
+        fail(
+            f"fragment '{name}': shipped by multiple composed SDKs ({', '.join(owners)}) — "
+            f"fragment file names must be unique across the composed SDKs"
+        )
+    if matches:
+        log(f"fragment '{name}': using composed cache copy {matches[0]} (SDK '{owners[0]}')")
+        return load_yaml(matches[0], matches[0])
     # 2. remote
     fragment = fetch_remote_fragment(sdk_index.get(name), name, refs, token)
     if fragment is not None:
@@ -194,6 +223,62 @@ def resolve_fragment(name, cache_dir, sdk_index, refs, token):
         f"skipping its steps (this SDK has not adopted guided tours yet)"
     )
     return None
+
+
+def read_text(path):
+    """File content, or '' when unreadable — colour derivation is best-effort."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def inject_call_args(text):
+    """Named Color args inside the first injectBrandColors(...) call."""
+    idx = text.find("injectBrandColors(")
+    if idx < 0:
+        return {}
+    start = idx + len("injectBrandColors(")
+    depth, end = 1, start
+    while end < len(text) and depth > 0:
+        if text[end] == "(":
+            depth += 1
+        elif text[end] == ")":
+            depth -= 1
+        end += 1
+    return {m.group(1): m.group(2) for m in COLOR_ARG_RE.finditer(text[start : end - 1])}
+
+
+def derive_brand_colors(cache_dir, theme_path):
+    """Derive video brand/accent colours from the composed app sources.
+
+    Used only for colour keys the manifest does not set explicitly. Two
+    sources, per-app values first:
+
+      1. the app's composed theme shim (lib/presentation/theme/theme.dart),
+         whose AppStyle.injectBrandColors(...) call carries the app's own
+         palette overrides;
+      2. base_sdk's AppStyle field defaults in the composed cache
+         (<cache-dir>/base/lib/src/presentation/theme/app_style.dart).
+
+    accent_color <- primary, brand_color <- surfaceDark (ARGB hex in Dart,
+    emitted as #RRGGBB). Returns a possibly-empty dict; assemble.py keeps
+    its built-in defaults for anything missing.
+    """
+    app_args = inject_call_args(read_text(theme_path)) if theme_path else {}
+    app_style_path = os.path.join(
+        cache_dir, "base", "lib", "src", "presentation", "theme", "app_style.dart"
+    )
+    defaults = {m.group(1): m.group(2) for m in APP_STYLE_COLOR_RE.finditer(read_text(app_style_path))}
+    derived = {}
+    for out_key, dart_name in (("accent_color", "primary"), ("brand_color", "surfaceDark")):
+        argb = app_args.get(dart_name) or defaults.get(dart_name)
+        if argb:
+            source = theme_path if dart_name in app_args else app_style_path
+            derived[out_key] = "#" + argb[-6:].upper()
+            log(f"video {out_key}: {derived[out_key]} derived from AppStyle {dart_name} ({source})")
+    return derived
 
 
 def substitute(text, placeholders):
@@ -342,6 +427,11 @@ def main():
     parser.add_argument("--app-manifest", default="tour/app.tour.yaml")
     parser.add_argument("--composer", default="composer.json")
     parser.add_argument("--cache-dir", default=os.path.join(".rokct", "cache"))
+    parser.add_argument(
+        "--app-theme",
+        default=os.path.join("lib", "presentation", "theme", "theme.dart"),
+        help="composed theme shim parsed for brand colours when the manifest sets none",
+    )
     parser.add_argument("--fragments-ref", default="")
     parser.add_argument("--fallback-ref", default="main")
     parser.add_argument("--token-env", default="MONOREPO_PAT")
@@ -381,11 +471,33 @@ def main():
                 continue
             imports.extend(fragment.get("imports") or [])
             for raw in fragment.get("steps") or []:
-                steps.append(normalize_step(raw, f"fragment '{name}'", placeholders))
+                step = normalize_step(raw, f"fragment '{name}'", placeholders)
+                step["chapter"] = name
+                steps.append(step)
         elif "step" in entry:
-            steps.append(normalize_step(entry["step"], args.app_manifest, placeholders))
+            step = normalize_step(entry["step"], args.app_manifest, placeholders)
+            step["chapter"] = None  # app-shell step: chapter assigned below
+            steps.append(step)
         else:
             fail(f"{args.app_manifest}: tour entry needs 'step' or 'fragment', got {list(entry)}")
+
+    # Chapter assignment for app-shell steps: each video covers ONE chapter
+    # (the steps contributed by one fragment). An app-shell step joins the
+    # chapter it precedes (a welcome step before `fragment: auth` opens the
+    # auth chapter); trailing app-shell steps join the chapter before them;
+    # a tour with no fragments at all is a single 'app' chapter.
+    next_chapter = None
+    for step in reversed(steps):
+        if step["chapter"]:
+            next_chapter = step["chapter"]
+        else:
+            step["chapter"] = next_chapter
+    prev_chapter = None
+    for step in steps:
+        if step["chapter"]:
+            prev_chapter = step["chapter"]
+        else:
+            step["chapter"] = prev_chapter or "app"
 
     if not steps:
         fail("no tour steps resolved — nothing to run")
@@ -399,6 +511,16 @@ def main():
     if not visible:
         fail("every resolved step is screenshot: false — the tour would produce no stills")
 
+    # Branding colours: explicit manifest keys win; otherwise they are
+    # derived from the composed app's AppStyle (see derive_brand_colors),
+    # and assemble.py's built-in defaults cover anything still missing.
+    brand_color = str(video.get("brand_color") or "").strip()
+    accent_color = str(video.get("accent_color") or "").strip()
+    if not (brand_color and accent_color):
+        derived = derive_brand_colors(args.cache_dir, args.app_theme)
+        brand_color = brand_color or derived.get("brand_color", "")
+        accent_color = accent_color or derived.get("accent_color", "")
+
     resolved = {
         "app": {
             "name": app_name,
@@ -410,13 +532,14 @@ def main():
         "video": {
             # No hook means no hook card — assemble.py skips it gracefully.
             "hook": substitute(str(video.get("hook") or ""), placeholders).strip(),
-            "seconds_per_step": float(video.get("seconds_per_step") or 3.0),
-            # Optional branding for the video cards and caption highlights
-            # ("#RGB"/"#RRGGBB"); assemble.py falls back to house defaults.
-            "brand_color": str(video.get("brand_color") or "").strip(),
-            "accent_color": str(video.get("accent_color") or "").strip(),
+            # One ~4s caption beat per still (WhatsApp-status pacing);
+            # video.beat_seconds overrides. The old video.seconds_per_step
+            # key (fixed-total-window pacing) is ignored.
+            "beat_seconds": float(video.get("beat_seconds") or DEFAULT_BEAT_SECONDS),
+            "brand_color": brand_color,
+            "accent_color": accent_color,
             # Optional one-line offer/CTA; with a logo or an offer present
-            # the video closes on a ~3s end card.
+            # each chapter video closes on a ~3s end card.
             "offer": substitute(str(video.get("offer") or ""), placeholders).strip(),
         },
         "steps": [
@@ -429,6 +552,7 @@ def main():
                 "settle_ms": s["settle_ms"],
                 "action": s["action"],
                 "route": s["route"],
+                "chapter": s["chapter"],
             }
             for i, s in enumerate(visible)
         ],
