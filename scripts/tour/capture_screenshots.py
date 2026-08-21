@@ -18,13 +18,24 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""Watch adb logcat for guided-tour markers and capture a screenshot per step.
+"""Watch for guided-tour markers and capture a screenshot per step.
 
-The integration_test tour runner prints ``TOUR_SHOT:<key>`` to logcat when a
-screen has settled and then holds the frame still for a few seconds;
-this watcher answers each marker with ``adb exec-out screencap -p`` (the
-screencap path already proven by universal-flutter-verify on the same
-headless-emulator setup). ``TOUR_COMPLETE:<n>`` ends the run.
+The integration_test tour runner emits ``TOUR_SHOT:<key>`` when a screen has
+settled and then holds the frame still for a few seconds; this watcher
+answers each marker with ``adb exec-out screencap -p`` (the screencap path
+already proven by universal-flutter-verify on the same headless-emulator
+setup). ``TOUR_COMPLETE:<n>`` ends the run.
+
+Markers arrive on two transports and both are tailed:
+
+* the device's logcat (the runner writes markers via ``/system/bin/log``);
+* the host-side ``flutter test`` output (``--stdout-log FILE``, written by
+  ``tee`` in the driving shell). Under ``flutter test`` Dart prints reach
+  the HOST console rather than logcat, so this transport is the proven
+  fallback (run 32386564857 showed markers host-side while logcat stayed
+  empty).
+
+Duplicate markers for the same key (one per transport) are ignored.
 
 Exit code is 0 whenever at least one screenshot was captured (partial tours
 are committed with a warning; the calling shell decides what is fatal), and
@@ -97,6 +108,11 @@ def main():
     parser.add_argument("--timeout", type=int, default=2100, help="overall seconds to wait")
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL", ""))
     parser.add_argument("--logcat-dump", default="", help="write full logcat here on exit")
+    parser.add_argument(
+        "--stdout-log",
+        default="",
+        help="also tail this host-side file (tee'd flutter test output) for markers",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -138,6 +154,28 @@ def main():
 
     threading.Thread(target=reader, daemon=True).start()
 
+    if args.stdout_log:
+        def follow_stdout_log():
+            # The file appears once the driving shell starts flutter test;
+            # follow it tail -F style until the watcher stops.
+            pos = 0
+            while not stop_requested.is_set():
+                try:
+                    with open(args.stdout_log, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(pos)
+                        chunk = f.read()
+                        pos = f.tell()
+                    for line in chunk.splitlines():
+                        lines.put(line + "\n")
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+                time.sleep(0.5)
+
+        threading.Thread(target=follow_stdout_log, daemon=True).start()
+        log(f"also tailing host test output: {args.stdout_log}")
+
     captured = []  # ordered list of keys
     manifest = {}
     complete = False
@@ -153,6 +191,11 @@ def main():
         except queue.Empty:
             continue
         if line is None:
+            if args.stdout_log:
+                # The host test-output tail is still a live transport; keep
+                # watching it even if the logcat stream died.
+                log("logcat stream ended — continuing on host test output only")
+                continue
             log("logcat stream ended")
             break
 

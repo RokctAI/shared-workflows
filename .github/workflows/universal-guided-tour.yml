@@ -260,12 +260,14 @@ jobs:
           adb shell wm size 1080x1920 || true
           adb shell wm density 400 || true
 
+          rm -f tour_test_output.log
           python3 .tour-tools/scripts/tour/capture_screenshots.py \
             --out "$OUT" \
             --expected "${EXPECTED_SHOTS:-0}" \
             --timeout 2400 \
             --serial emulator-5554 \
-            --logcat-dump tour_logcat.txt &
+            --logcat-dump tour_logcat.txt \
+            --stdout-log tour_test_output.log &
           CAP_PID=$!
 
           TEST_EXIT=0
@@ -273,8 +275,23 @@ jobs:
           if [ -f .env/production.env ]; then
             TEST_ARGS+=(--dart-define-from-file=.env/production.env)
           fi
-          flutter test integration_test/guided_tour_test.dart \
-            -d emulator-5554 --timeout none "${TEST_ARGS[@]}" || TEST_EXIT=$?
+          # Bound the whole flutter test invocation (test-APK build, install,
+          # on-device run). On run 32456359666 a degraded runner left
+          # `flutter test` wedged after a 699s install with no output and no
+          # exit - unbounded, it consumed the entire 150-minute job, so the
+          # fresh-AVD retry leg never even got a chance. 35 minutes is over
+          # 2x the active phase observed on a healthy runner.
+          # Output is tee'd so the capture watcher can read markers from the
+          # host-side test console too - under `flutter test`, Dart prints
+          # reach the host, not logcat.
+          timeout --kill-after=60 2100 \
+            flutter test integration_test/guided_tour_test.dart \
+            -d emulator-5554 --timeout none "${TEST_ARGS[@]}" 2>&1 \
+            | tee tour_test_output.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          if [ "$TEST_EXIT" -eq 124 ] || [ "$TEST_EXIT" -eq 137 ]; then
+            echo "::warning::flutter test hit the 35-minute wall-clock bound and was terminated (exit $TEST_EXIT)."
+          fi
           echo "flutter test exit code: $TEST_EXIT"
 
           # flutter test has exited, so no further markers are coming. Give
@@ -316,6 +333,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel
+          # 3 of the runner's 4 vCPUs and 4GB guest RAM: run 32456359666's
+          # guest sat at 100% CPU (74% kernel) with system_server ANRs on
+          # the default 2-core/2GB allocation - the Gradle build is already
+          # done by the time the tour runs, so the host can spare the cores.
+          cores: 3
+          ram-size: 4096M
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
@@ -342,6 +365,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel
+          # 3 of the runner's 4 vCPUs and 4GB guest RAM: run 32456359666's
+          # guest sat at 100% CPU (74% kernel) with system_server ANRs on
+          # the default 2-core/2GB allocation - the Gradle build is already
+          # done by the time the tour runs, so the host can spare the cores.
+          cores: 3
+          ram-size: 4096M
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
@@ -439,4 +468,5 @@ jobs:
             ${{ inputs.output-dir }}/
             tour.resolved.json
             tour_logcat.txt
+            tour_test_output.log
           if-no-files-found: warn
