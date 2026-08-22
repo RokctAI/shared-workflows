@@ -31,22 +31,34 @@ Two independent products (so a video hiccup can never block the stills):
            contributed; app-shell steps join the chapter they precede) in
            the org's vertical house style: 1080x1920 9:16, 30fps, a ~3s
            hook card first (brand background, hook line, app name — only
-           when the manifest supplies a hook), then one status-ad style
-           beat per step (~4s each): the screenshot floats in a
-           rounded-corner phone frame over the brand-colour background,
-           with a gentle vertical drift and the caption band above it,
-           then a ~3s end card (logo + app name + offer line — only when
-           the manifest supplies an offer or a logo). Each caption may
-           carry one key phrase highlighted in the brand accent colour.
-           Frames are drawn entirely with Pillow (DejaVu Sans Bold);
-           ffmpeg only encodes a concatenated-JPEG frame stream, so no
-           ffmpeg filters or pipe protocols are needed. Codec/container
-           are parametrized; CI uses libx264 + mp4 + faststart.
+           when the manifest supplies a hook), then one store-ad style
+           beat per step (~4s each): the screenshot sits in a BLACK
+           rounded-bezel phone frame on the brand-primary canvas,
+           anchored to the bottom canvas edge with its lower part cropped
+           off-screen (WhatsApp-ad framing) and easing gently toward the
+           edge, with the bold caption lines drawn straight on the canvas
+           above it — then a ~3s end card (logo + app name + offer line —
+           only when the manifest supplies an offer or a logo).
+           video.chapter_frame_anchor flips named chapters to hang
+           top-cropped from the top edge instead (caption moves below the
+           phone), or to the legacy fully-visible floating phone. Caption
+           ink is black or white, whichever reads better on the canvas;
+           each caption may carry one key phrase in the accent colour
+           (underlined ink instead when the accent cannot read on the
+           canvas). Frames are drawn entirely with Pillow (DejaVu Sans
+           Bold); ffmpeg only encodes a concatenated-JPEG frame stream,
+           so no ffmpeg filters or pipe protocols are needed.
+           Codec/container are parametrized; CI uses libx264 + mp4 +
+           faststart. The video stage also exports <out>/store/NN-key.png
+           — one Play-Store-ready styled still per step (the beat
+           composition at rest, no cards, no drift), wholesale-refreshed
+           like the raw screenshots dir.
 
 Branding (app name, tagline, hook, colours, offer, logo) comes exclusively
 from the app shell's resolved tour plan — SDK fragments stay brand-neutral.
 Colours default to the composed app's AppStyle palette (resolved at merge
-time); explicit video.brand_color / video.accent_color manifest keys win.
+time; the canvas IS the brand primary colour); explicit video.brand_color /
+video.accent_color manifest keys win.
 
 --require-varied makes the run fail loudly when every captured screenshot
 is byte-identical (a sure sign the capture regressed to placeholder
@@ -69,15 +81,30 @@ BEAT_SECONDS = 4.0  # one caption beat per still (WhatsApp-status pacing)
 CARD_SECONDS = 3.0  # hook card and end card each hold for ~3s
 CARD_BG = (12, 14, 20)  # card background when the manifest has no brand colour
 ACCENT = (120, 200, 255)  # accent when the manifest has no accent colour
-# Floating phone frame each screenshot renders inside (all px on the
-# 1080x1920 canvas): dark rounded bezel, rounded-corner clip, drop shadow.
-FRAME_BEZEL = 30
-FRAME_RADIUS = 64
-FRAME_MAX_W, FRAME_MAX_H = 700, 1200  # screenshot fit box inside the bezel
+# Phone frame each screenshot renders inside (all px on the 1080x1920
+# canvas), styled after the WhatsApp store ads: thin BLACK bezel, large
+# corner radius, screen clipped to rounded corners inside it, soft shadow.
+FRAME_BEZEL = 24
+FRAME_RADIUS = 96
+FRAME_BLACK = (0, 0, 0, 255)
+# Screenshot fit boxes inside the bezel: edge-anchored phones render big
+# (their cropped edge leaves the canvas anyway); the legacy `full` anchor
+# keeps the smaller box so the whole phone stays visible.
+FRAME_MAX_W, FRAME_MAX_H = 780, 1500
+FULL_MAX_W, FULL_MAX_H = 700, 1200
 FRAME_MARGIN = 80  # transparent margin around the card so the shadow fits
-CAPTION_TOP = 140  # caption band sits in the top zone, above the phone
-FRAME_ZONE_TOP = 500  # phone frame floats below the caption zone
-DRIFT_PX = 60  # gentle vertical drift across each beat
+CROP_FRACTION = 0.16  # share of the phone's height cropped off-canvas at rest
+CAPTION_TOP = 140  # caption block top margin (bottom-anchored beats)
+CAPTION_BOTTOM = 140  # caption block bottom margin (top-anchored beats)
+FRAME_ZONE_TOP = 500  # `full` anchor: phone floats below the caption zone
+VALID_FRAME_ANCHORS = ("bottom", "top", "full")
+# Anchored phones ease this far INTO view per beat; the cropped edge never
+# re-enters the canvas because the rest crop is always deeper than the drift.
+DRIFT_PX = 40
+FULL_DRIFT_PX = 60  # legacy `full` anchor keeps the gentle two-way drift
+INK_DARK = (17, 17, 20)
+INK_LIGHT = (255, 255, 255)
+MIN_ACCENT_CONTRAST = 2.5  # below this the accent cannot read on the canvas
 FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -206,6 +233,42 @@ def parse_color(value, default):
     return default
 
 
+def rel_luminance(rgb):
+    """WCAG relative luminance of an (r, g, b) colour."""
+
+    def chan(c):
+        c /= 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (chan(c) for c in rgb[:3])
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a, b):
+    """WCAG contrast ratio between two (r, g, b) colours (1..21)."""
+    la, lb = rel_luminance(a), rel_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def ink_for(bg):
+    """Near-black or white ink — whichever reads better on the background.
+
+    The brand-primary canvas can be any colour (WhatsApp green, Supacharge
+    orange, a dark navy...), so every piece of text picks its ink against
+    the actual background instead of assuming white-on-dark.
+    """
+    dark, light = contrast_ratio(INK_DARK, bg), contrast_ratio(INK_LIGHT, bg)
+    return INK_DARK if dark >= light else INK_LIGHT
+
+
+def readable_accent(accent, bg, fallback):
+    """The accent colour when it reads on bg, else the fallback ink.
+
+    With colours derived from AppStyle the accent often EQUALS the canvas
+    colour — accent-coloured text would vanish, so it falls back."""
+    return tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(fallback)
+
+
 def load_font(size, font_path=""):
     from PIL import ImageFont
 
@@ -232,17 +295,18 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-def phone_card(shot):
-    """Screenshot -> floating phone mockup (RGBA), like a status-ad insert.
+def phone_card(shot, max_w=FRAME_MAX_W, max_h=FRAME_MAX_H):
+    """Screenshot -> phone mockup (RGBA), WhatsApp-store-ad style.
 
-    Drawn programmatically with Pillow: a blurred drop shadow, a dark
-    rounded-rect bezel, and the screenshot clipped to rounded corners
-    inside it. The returned image carries a transparent FRAME_MARGIN on
-    every side so the shadow blur never clips.
+    Drawn programmatically with Pillow: a soft blurred drop shadow, a
+    thin BLACK rounded-rect bezel with a large corner radius, and the
+    screenshot clipped to rounded corners inset inside it. The returned
+    image carries a transparent FRAME_MARGIN on every side so the shadow
+    blur never clips.
     """
     from PIL import Image, ImageDraw, ImageFilter
 
-    scale = min(FRAME_MAX_W / shot.width, FRAME_MAX_H / shot.height)
+    scale = min(max_w / shot.width, max_h / shot.height)
     inner_w = max(1, round(shot.width * scale))
     inner_h = max(1, round(shot.height * scale))
     inner = shot.resize((inner_w, inner_h), Image.LANCZOS)
@@ -255,28 +319,33 @@ def phone_card(shot):
     card = Image.new("RGBA", (card_w + 2 * FRAME_MARGIN, card_h + 2 * FRAME_MARGIN), (0, 0, 0, 0))
     shadow = Image.new("RGBA", card.size, (0, 0, 0, 0))
     ImageDraw.Draw(shadow).rounded_rectangle(
-        (FRAME_MARGIN, FRAME_MARGIN + 20, FRAME_MARGIN + card_w, FRAME_MARGIN + 20 + card_h),
+        (FRAME_MARGIN, FRAME_MARGIN + 16, FRAME_MARGIN + card_w, FRAME_MARGIN + 16 + card_h),
         radius=FRAME_RADIUS,
-        fill=(0, 0, 0, 150),
+        fill=(0, 0, 0, 110),
     )
-    card.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(26)))
+    card.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(30)))
     ImageDraw.Draw(card).rounded_rectangle(
         (FRAME_MARGIN, FRAME_MARGIN, FRAME_MARGIN + card_w, FRAME_MARGIN + card_h),
         radius=FRAME_RADIUS,
-        fill=(22, 22, 26, 255),
-        outline=(64, 64, 70, 255),
+        fill=FRAME_BLACK,
+        outline=(46, 46, 50, 255),
         width=2,
     )
     card.paste(inner, (FRAME_MARGIN + FRAME_BEZEL, FRAME_MARGIN + FRAME_BEZEL), clip)
     return card
 
 
-def caption_overlay(text, font_path="", highlight="", accent=ACCENT):
-    """Static top caption band, rendered once per step (RGBA).
+def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top"):
+    """Static caption block, rendered once per step (RGBA).
 
-    ``highlight`` is one key phrase of ``text`` (whitespace-normalised)
-    rendered in the brand accent colour; everything else stays white.
-    Captions without a highlight render exactly as before.
+    WhatsApp-ad style: bold left-aligned lines drawn straight on the
+    brand canvas (no band), in black or white ink — whichever reads
+    better on the background. ``highlight`` is one key phrase of ``text``
+    (whitespace-normalised) rendered in the brand accent colour when that
+    colour reads on the canvas; when it cannot (typically because the
+    derived accent IS the canvas colour) the phrase keeps the ink colour
+    and is underlined instead. ``position`` is "top" (above a
+    bottom-anchored phone) or "bottom" (below a top-anchored one).
     """
     from PIL import Image, ImageDraw
 
@@ -284,48 +353,50 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT):
     if not text:
         return overlay
     draw = ImageDraw.Draw(overlay)
-    font = load_font(54, font_path)
-    margin, pad = 56, 40
-    max_text_width = WIDTH - 2 * (margin + pad)
+    font = load_font(64, font_path)
+    margin = 72
+    max_text_width = WIDTH - 2 * margin
     # wrap_text splits on whitespace, so wrapped lines are substrings of the
     # normalised text; highlight offsets are tracked against that string.
     normalized = " ".join(text.split())
     lines = wrap_text(draw, normalized, font, max_text_width)
     hl_start = normalized.find(" ".join(highlight.split())) if highlight else -1
     hl_end = hl_start + len(" ".join(highlight.split())) if hl_start >= 0 else -1
-    line_height = 68
-    band_height = 2 * pad + line_height * len(lines)
-    top = CAPTION_TOP
-    draw.rounded_rectangle(
-        (margin, top, WIDTH - margin, top + band_height),
-        radius=28,
-        fill=(12, 14, 20, 210),
-    )
-    white = (255, 255, 255, 255)
-    accent_fill = tuple(accent) + (255,)
-    y = top + pad
+    line_height = 84
+    block_height = line_height * len(lines)
+    top = CAPTION_TOP if position == "top" else HEIGHT - CAPTION_BOTTOM - block_height
+    ink = tuple(ink_for(bg)) + (255,)
+    accent_reads = contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST
+    hl_fill = tuple(accent) + (255,) if accent_reads else ink
+    y = top
     offset = 0
     for line in lines:
-        w = draw.textlength(line, font=font)
-        x = (WIDTH - w) / 2
+        x = margin
         if hl_start < 0 or hl_end <= offset or hl_start >= offset + len(line):
-            draw.text((x, y), line, font=font, fill=white)
+            draw.text((x, y), line, font=font, fill=ink)
         else:
             seg_a = max(0, hl_start - offset)
             seg_b = min(len(line), hl_end - offset)
-            pieces = ((0, seg_a, white), (seg_a, seg_b, accent_fill), (seg_b, len(line), white))
-            for start, end, fill in pieces:
+            pieces = ((0, seg_a, ink), (seg_a, seg_b, hl_fill), (seg_b, len(line), ink))
+            for idx, (start, end, fill) in enumerate(pieces):
                 if end <= start:
                     continue
                 seg_x = x + draw.textlength(line[:start], font=font)
                 draw.text((seg_x, y), line[start:end], font=font, fill=fill)
+                if idx == 1 and not accent_reads:  # highlight without a readable accent
+                    seg_w = draw.textlength(line[start:end], font=font)
+                    draw.line((seg_x, y + 72, seg_x + seg_w, y + 72), fill=ink, width=6)
         offset += len(line) + 1  # +1 for the space wrap_text consumed
         y += line_height
     return overlay
 
 
 def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
-    """Opening full-frame card: brand background, hook line, app name."""
+    """Opening full-frame card: brand background, hook line, app name.
+
+    All text picks black-or-white ink against the actual background; the
+    app name uses the accent colour only when it reads on the canvas.
+    """
     from PIL import Image, ImageDraw
 
     card = Image.new("RGB", (WIDTH, HEIGHT), bg)
@@ -333,23 +404,25 @@ def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
     hook_font = load_font(96, font_path)
     name_font = load_font(64, font_path)
     tag_font = load_font(42, font_path)
+    ink = ink_for(bg)
+    muted = tuple(round(0.72 * i + 0.28 * b) for i, b in zip(ink, bg))
 
     lines = wrap_text(draw, hook, hook_font, WIDTH - 200)
     line_height = 118
     y = HEIGHT // 2 - (line_height * len(lines)) // 2 - 140
     for line in lines:
         w = draw.textlength(line, font=hook_font)
-        draw.text(((WIDTH - w) / 2, y), line, font=hook_font, fill=(255, 255, 255))
+        draw.text(((WIDTH - w) / 2, y), line, font=hook_font, fill=ink)
         y += line_height
 
     y += 90
     name = app.get("name", "")
     w = draw.textlength(name, font=name_font)
-    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=accent)
+    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=readable_accent(accent, bg, ink))
     if app.get("tagline"):
         y += 96
         w = draw.textlength(app["tagline"], font=tag_font)
-        draw.text(((WIDTH - w) / 2, y), app["tagline"], font=tag_font, fill=(200, 205, 215))
+        draw.text(((WIDTH - w) / 2, y), app["tagline"], font=tag_font, fill=muted)
     return card
 
 
@@ -361,6 +434,7 @@ def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT):
     draw = ImageDraw.Draw(card)
     name_font = load_font(96, font_path)
     offer_font = load_font(48, font_path)
+    ink = ink_for(bg)
 
     logo = None
     if logo_path:
@@ -386,13 +460,14 @@ def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT):
         y += logo.height + 96
     name = app.get("name", "")
     w = draw.textlength(name, font=name_font)
-    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=(255, 255, 255))
+    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=ink)
     y += 110
     if offer_lines:
         y += 60
+        offer_fill = readable_accent(accent, bg, ink)
         for line in offer_lines:
             w = draw.textlength(line, font=offer_font)
-            draw.text(((WIDTH - w) / 2, y), line, font=offer_font, fill=accent)
+            draw.text(((WIDTH - w) / 2, y), line, font=offer_font, fill=offer_fill)
             y += line_height
     return card
 
@@ -429,6 +504,12 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     were folded into the chapter they precede at merge time). Every chapter
     video carries the same manifest hook card and logo/offer end card, with
     the chapter's phone-framed caption beats in between.
+
+    video.chapter_frame_anchor (chapter -> bottom|top|full) controls how
+    each chapter's phone meets the canvas edge; unlisted chapters anchor
+    bottom-cropped, WhatsApp-ad style. Also exports <out>/store/NN-key.png
+    — one Play-Store-ready styled still per step, the beat composition at
+    rest (no hook/end cards, no drift) — refreshed wholesale.
     """
     from PIL import Image
 
@@ -467,13 +548,93 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         else None
     )
 
-    def render_chapter(chapter, steps):
+    anchors_cfg = video_cfg.get("chapter_frame_anchor") or {}
+    if not isinstance(anchors_cfg, dict):
+        warn("video.chapter_frame_anchor is not a map of chapter -> anchor — ignored")
+        anchors_cfg = {}
+
+    def chapter_anchor(chapter):
+        anchor = str(anchors_cfg.get(chapter) or "bottom").strip().lower()
+        if anchor not in VALID_FRAME_ANCHORS:
+            warn(
+                f"chapter '{chapter}': unknown frame anchor {anchor!r} "
+                f"(want one of {'/'.join(VALID_FRAME_ANCHORS)}) — using bottom"
+            )
+            anchor = "bottom"
+        return anchor
+
+    def build_beat(step, anchor):
+        """One beat's static parts: (backdrop+caption, phone card, x, y_at).
+
+        y_at(ease) is the card paste position for a settle progress in
+        0..1. Edge-anchored phones start DRIFT_PX further off-canvas and
+        ease toward their rest crop, so the cropped edge never re-enters
+        the canvas; the legacy `full` anchor keeps its two-way float.
+        """
+        with Image.open(shots[step["key"]]) as raw:
+            if anchor == "full":
+                card = phone_card(raw.convert("RGB"), FULL_MAX_W, FULL_MAX_H)
+            else:
+                card = phone_card(raw.convert("RGB"))
+        backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
+        backdrop.alpha_composite(
+            caption_overlay(
+                step.get("caption") or step.get("title") or "",
+                font_path,
+                highlight=step.get("highlight") or "",
+                accent=accent,
+                bg=brand_bg,
+                position="bottom" if anchor == "top" else "top",
+            )
+        )
+        x = (WIDTH - card.width) // 2
+        phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
+        crop = round(CROP_FRACTION * phone_h)
+
+        def y_at(ease):
+            if anchor == "full":
+                y_base = FRAME_ZONE_TOP + (HEIGHT - 40 - FRAME_ZONE_TOP - card.height) // 2
+                return y_base + round(FULL_DRIFT_PX * (0.5 - ease))
+            off = crop + round(DRIFT_PX * (1 - ease))
+            if anchor == "top":
+                return -off - FRAME_MARGIN
+            return HEIGHT + off - FRAME_MARGIN - phone_h  # bottom
+
+        return backdrop, card, x, y_at
+
+    def write_store_stills(chapters):
+        """<out>/store/NN-key.png — the beat composition at rest, per step.
+
+        Play-Store listing stills on the same 1080x1920 portrait canvas as
+        the video; numbering matches the guide's screenshots. Wholesale-
+        refreshed so removed or renamed steps never linger.
+        """
+        store_dir = os.path.join(out_dir, "store")
+        os.makedirs(store_dir, exist_ok=True)
+        for stale in glob.glob(os.path.join(store_dir, "*.png")):
+            os.remove(stale)
+        number = 0
+        for chapter, chapter_steps in chapters.items():
+            anchor = chapter_anchor(chapter)
+            for step in chapter_steps:
+                if step["key"] not in shots:
+                    continue
+                number += 1
+                backdrop, card, x, y_at = build_beat(step, anchor)
+                still = backdrop.copy()
+                still.paste(card, (x, y_at(0.5 if anchor == "full" else 1.0)), card)
+                still.convert("RGB").save(
+                    os.path.join(store_dir, f"{number:02d}-{step['key']}.png"), format="PNG"
+                )
+        log(f"wrote {number} styled store stills to {store_dir}")
+
+    def render_chapter(chapter, steps, anchor):
         out_path = os.path.join(out_dir, f"tour-{chapter}.{container}")
         total = hook_seconds + per_step * len(steps) + end_seconds
         log(
             f"chapter '{chapter}': hook {hook_seconds:.0f}s + {len(steps)} beats x "
             f"{per_step:.1f}s + end card {end_seconds:.0f}s = {total:.1f}s at {fps}fps "
-            f"({codec}/{container})"
+            f"({codec}/{container}, frame anchor: {anchor})"
         )
 
         # All frame work happens in Pillow; ffmpeg only encodes a
@@ -499,26 +660,14 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
 
             step_frames = int(round(per_step * fps))
             for step in steps:
-                with Image.open(shots[step["key"]]) as raw:
-                    card = phone_card(raw.convert("RGB"))
-                # Caption band + brand background are static per beat;
-                # only the phone frame drifts.
-                backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
-                backdrop.alpha_composite(
-                    caption_overlay(
-                        step.get("caption") or step.get("title") or "",
-                        font_path,
-                        highlight=step.get("highlight") or "",
-                        accent=accent,
-                    )
-                )
-                x = (WIDTH - card.width) // 2
-                y_base = FRAME_ZONE_TOP + (HEIGHT - 40 - FRAME_ZONE_TOP - card.height) // 2
+                # Caption + brand background are static per beat; only the
+                # phone frame eases toward its anchored rest position.
+                backdrop, card, x, y_at = build_beat(step, anchor)
                 for i in range(step_frames):
                     progress = i / max(1, step_frames - 1)
                     ease = progress * progress * (3 - 2 * progress)  # smoothstep
                     frame = backdrop.copy()
-                    frame.paste(card, (x, y_base + round(DRIFT_PX * (0.5 - ease))), card)
+                    frame.paste(card, (x, y_at(ease)), card)
                     push(frame.convert("RGB"))
 
             if end_image is not None:
@@ -542,12 +691,13 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     chapters = {}
     for step in resolved["steps"]:
         chapters.setdefault(str(step.get("chapter") or "app"), []).append(step)
+    write_store_stills(chapters)
     for chapter, chapter_steps in chapters.items():
         captured = [s for s in chapter_steps if s["key"] in shots]
         if not captured:
             log(f"chapter '{chapter}': no captured screenshots — skipping its video")
             continue
-        render_chapter(chapter, captured)
+        render_chapter(chapter, captured, chapter_anchor(chapter))
 
 
 def main():
