@@ -59,7 +59,15 @@ Two independent products (so a video hiccup can never block the stills):
            faststart. The video stage also exports <out>/store/NN-key.png
            — one Play-Store-ready styled still per step (the beat
            composition at rest, no cards, no drift), wholesale-refreshed
-           like the raw screenshots dir.
+           like the raw screenshots dir — plus the Play listing's two
+           LANDSCAPE assets: <out>/store/feature-graphic.png, the exact
+           1024x500 feature graphic (brand canvas; logo, app name and
+           tagline on the left; framed hero screenshot on the right), and
+           <out>/tour-wide.<container>, ONE 1920x1080 16:9 highlight reel
+           across all chapters (landscape splash opening card, caption
+           column beside the framed phone per beat, landscape end card),
+           kept short by selecting up to two highlighted beats per
+           chapter.
 
 Branding (app name, tagline, hook, colours, offer, logo) comes exclusively
 from the app shell's resolved tour plan — SDK fragments stay brand-neutral.
@@ -122,6 +130,24 @@ MIN_ACCENT_CONTRAST = 2.5  # below this the accent cannot stand apart from the c
 CHIP_PAD_X = 20
 CHIP_PAD_Y = 8
 CHIP_RADIUS = 18
+# --- landscape (Play listing) outputs, rendered by the same video stage ------
+# The Play Store listing also wants LANDSCAPE assets: the 1024x500 feature
+# graphic and ONE widescreen 16:9 promo reel across all chapters.
+WIDE_W, WIDE_H = 1920, 1080
+FEATURE_W, FEATURE_H = 1024, 500
+FEATURE_SS = 2  # the feature graphic renders supersampled, then downscales
+# Wide-reel phone boxes: the portrait phone sits in the RIGHT half of the
+# landscape canvas (caption in the left half), gently edge-cropped; the
+# legacy `full` anchor keeps the whole phone visible.
+WIDE_FRAME_MAX_W, WIDE_FRAME_MAX_H = 620, 1150
+WIDE_FULL_MAX_W, WIDE_FULL_MAX_H = 560, 920
+WIDE_CROP_FRACTION = 0.10  # gentler than portrait: most of the screen stays visible
+WIDE_CAPTION_MARGIN = 120
+# Reel beat selection: each chapter contributes its first captured steps
+# that carry a highlight phrase (up to WIDE_BEATS_PER_CHAPTER), else its
+# first captured step; the whole reel caps at WIDE_MAX_BEATS beats.
+WIDE_BEATS_PER_CHAPTER = 2
+WIDE_MAX_BEATS = 8
 FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -412,6 +438,34 @@ def wrap_tokens(draw, tokens, font, max_width):
     return lines
 
 
+def draw_caption_lines(draw, lines, font, origin_x, top, line_height, ink, chip_fill, chip_ink):
+    """Draw wrapped (word, is_highlight, glued) token lines with their chips.
+
+    Shared by the portrait caption block and the wide reel's caption
+    column so both render the exact same type treatment: left-aligned
+    bold lines, one filled rounded highlight chip around the key phrase.
+    """
+    ascent, descent = font.getmetrics()
+    space_w = draw.textlength(" ", font=font)
+    y = top
+    for line in lines:
+        x = origin_x
+        for index, (word, is_highlighted, glued) in enumerate(line):
+            if index and not glued:
+                x += space_w
+            width = draw.textlength(word, font=font)
+            if is_highlighted:
+                chip_w = width + 2 * CHIP_PAD_X
+                chip_box = (x, y - CHIP_PAD_Y, x + chip_w, y + ascent + descent + CHIP_PAD_Y)
+                draw.rounded_rectangle(chip_box, radius=CHIP_RADIUS, fill=chip_fill)
+                draw.text((x + CHIP_PAD_X, y), word, font=font, fill=chip_ink)
+                x += chip_w
+            else:
+                draw.text((x, y), word, font=font, fill=ink)
+                x += width
+        y += line_height
+
+
 def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top"):
     """Static caption block, rendered once per step (RGBA).
 
@@ -444,26 +498,74 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG,
     top = CAPTION_TOP if position == "top" else HEIGHT - CAPTION_BOTTOM - block_height
     ink = tuple(ink_for(bg)) + (255,)
     chip_fill, chip_ink = chip_colors(accent, bg)
-    ascent, descent = font.getmetrics()
-    space_w = draw.textlength(" ", font=font)
-    y = top
-    for line in lines:
-        x = margin
-        for index, (word, is_highlighted, glued) in enumerate(line):
-            if index and not glued:
-                x += space_w
-            width = draw.textlength(word, font=font)
-            if is_highlighted:
-                chip_w = width + 2 * CHIP_PAD_X
-                chip_box = (x, y - CHIP_PAD_Y, x + chip_w, y + ascent + descent + CHIP_PAD_Y)
-                draw.rounded_rectangle(chip_box, radius=CHIP_RADIUS, fill=chip_fill + (255,))
-                draw.text((x + CHIP_PAD_X, y), word, font=font, fill=chip_ink + (255,))
-                x += chip_w
-            else:
-                draw.text((x, y), word, font=font, fill=ink)
-                x += width
-        y += line_height
+    draw_caption_lines(
+        draw, lines, font, margin, top, line_height, ink, chip_fill + (255,), chip_ink + (255,)
+    )
     return overlay
+
+
+def caption_column(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG):
+    """Left-column caption block for one wide-reel beat (RGBA, WIDE_WxWIDE_H).
+
+    Same type treatment as the portrait beats (bold 64px lines, one
+    highlight chip via ``draw_caption_lines``), wrapped to the landscape
+    canvas' left half and vertically centred beside the phone.
+    """
+    from PIL import Image, ImageDraw
+
+    overlay = Image.new("RGBA", (WIDE_W, WIDE_H), (0, 0, 0, 0))
+    if not text:
+        return overlay
+    draw = ImageDraw.Draw(overlay)
+    font = load_font(64, font_path)
+    max_text_width = WIDE_W // 2 - WIDE_CAPTION_MARGIN - 40
+    normalized = " ".join(text.split())
+    lines = wrap_tokens(draw, highlight_tokens(normalized, highlight), font, max_text_width)
+    line_height = 84
+    top = max(WIDE_CAPTION_MARGIN, (WIDE_H - line_height * len(lines)) // 2)
+    ink = tuple(ink_for(bg)) + (255,)
+    chip_fill, chip_ink = chip_colors(accent, bg)
+    draw_caption_lines(
+        draw,
+        lines,
+        font,
+        WIDE_CAPTION_MARGIN,
+        top,
+        line_height,
+        ink,
+        chip_fill + (255,),
+        chip_ink + (255,),
+    )
+    return overlay
+
+
+def load_splash_art(splash_path):
+    """The splash asset as RGBA, or None (warned) when missing/unreadable."""
+    from PIL import Image
+
+    if not os.path.exists(splash_path):
+        warn(f"splash card: {splash_path!r} not found in the checkout — using the hook card")
+        return None
+    try:
+        with Image.open(splash_path) as raw:
+            return raw.convert("RGBA")
+    except OSError as e:
+        warn(f"splash card: could not read {splash_path!r} ({e}) — using the hook card")
+        return None
+
+
+def edge_average(art):
+    """Average colour of an image's outer 1px border, as (r, g, b)."""
+    rgb = art.convert("RGB")
+    w, h = rgb.size
+    pixels = []
+    for x in range(w):
+        pixels.append(rgb.getpixel((x, 0)))
+        pixels.append(rgb.getpixel((x, h - 1)))
+    for y in range(h):
+        pixels.append(rgb.getpixel((0, y)))
+        pixels.append(rgb.getpixel((w - 1, y)))
+    return tuple(round(sum(p[i] for p in pixels) / len(pixels)) for i in range(3))
 
 
 def splash_card(splash_path, bg=CARD_BG):
@@ -479,14 +581,8 @@ def splash_card(splash_path, bg=CARD_BG):
     """
     from PIL import Image
 
-    if not os.path.exists(splash_path):
-        warn(f"splash card: {splash_path!r} not found in the checkout — using the hook card")
-        return None
-    try:
-        with Image.open(splash_path) as raw:
-            art = raw.convert("RGBA")
-    except OSError as e:
-        warn(f"splash card: could not read {splash_path!r} ({e}) — using the hook card")
+    art = load_splash_art(splash_path)
+    if art is None:
         return None
     if art.height > art.width:  # portrait, like the canvas: full-bleed
         scale = max(WIDTH / art.width, HEIGHT / art.height)
@@ -503,16 +599,56 @@ def splash_card(splash_path, bg=CARD_BG):
     return card.convert("RGB")
 
 
-def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
+def splash_card_wide(splash_path, bg=CARD_BG):
+    """Landscape opening card for the wide reel (RGB, WIDE_WxWIDE_H) or None.
+
+    Portrait full-screen art cannot centre-crop to 16:9 without slicing
+    through its own typography, so it renders CONTAINED at full canvas
+    height, centred, with the side pillars filled with the art's own
+    border-average colour — flat-background splash art (the common case)
+    blends seamlessly. Full-bleed landscape art cover-crops to the canvas
+    like the portrait card does; a small square/landscape splash mark
+    sits centred on the brand canvas, alpha preserved.
+    """
+    from PIL import Image
+
+    art = load_splash_art(splash_path)
+    if art is None:
+        return None
+    if art.height > art.width:  # portrait art: contain at full height, pillar-fill
+        fill = edge_average(art)
+        scale = WIDE_H / art.height
+        art = art.resize((max(1, round(art.width * scale)), WIDE_H), Image.LANCZOS)
+        card = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(fill) + (255,))
+        card.alpha_composite(art, ((WIDE_W - art.width) // 2, 0))
+        return card.convert("RGB")
+    if art.width > SPLASH_FIT_W or art.height > SPLASH_FIT_H:  # full-bleed landscape art
+        scale = max(WIDE_W / art.width, WIDE_H / art.height)
+        art = art.resize(
+            (max(WIDE_W, round(art.width * scale)), max(WIDE_H, round(art.height * scale))),
+            Image.LANCZOS,
+        )
+        left = (art.width - WIDE_W) // 2
+        top = (art.height - WIDE_H) // 2
+        return art.crop((left, top, left + WIDE_W, top + WIDE_H)).convert("RGB")
+    card = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(bg) + (255,))
+    card.alpha_composite(art, ((WIDE_W - art.width) // 2, (WIDE_H - art.height) // 2))
+    return card.convert("RGB")
+
+
+def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=(WIDTH, HEIGHT)):
     """Legacy opening card: brand background, hook line, app name.
 
     Used only when no app splash image resolves (see ``splash_card``).
     All text picks black-or-white ink against the actual background; the
     app name uses the accent colour only when it reads on the canvas.
+    ``size`` defaults to the portrait canvas; the wide reel passes its
+    landscape one.
     """
     from PIL import Image, ImageDraw
 
-    card = Image.new("RGB", (WIDTH, HEIGHT), bg)
+    card_w, card_h = size
+    card = Image.new("RGB", (card_w, card_h), bg)
     draw = ImageDraw.Draw(card)
     hook_font = load_font(96, font_path)
     name_font = load_font(64, font_path)
@@ -520,30 +656,35 @@ def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
     ink = ink_for(bg)
     muted = tuple(round(0.72 * i + 0.28 * b) for i, b in zip(ink, bg))
 
-    lines = wrap_text(draw, hook, hook_font, WIDTH - 200)
+    lines = wrap_text(draw, hook, hook_font, card_w - 200)
     line_height = 118
-    y = HEIGHT // 2 - (line_height * len(lines)) // 2 - 140
+    y = card_h // 2 - (line_height * len(lines)) // 2 - 140
     for line in lines:
         w = draw.textlength(line, font=hook_font)
-        draw.text(((WIDTH - w) / 2, y), line, font=hook_font, fill=ink)
+        draw.text(((card_w - w) / 2, y), line, font=hook_font, fill=ink)
         y += line_height
 
     y += 90
     name = app.get("name", "")
     w = draw.textlength(name, font=name_font)
-    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=readable_accent(accent, bg, ink))
+    draw.text(((card_w - w) / 2, y), name, font=name_font, fill=readable_accent(accent, bg, ink))
     if app.get("tagline"):
         y += 96
         w = draw.textlength(app["tagline"], font=tag_font)
-        draw.text(((WIDTH - w) / 2, y), app["tagline"], font=tag_font, fill=muted)
+        draw.text(((card_w - w) / 2, y), app["tagline"], font=tag_font, fill=muted)
     return card
 
 
-def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT):
-    """Closing full-frame card: logo (when present), app name, offer line."""
+def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT, size=(WIDTH, HEIGHT)):
+    """Closing full-frame card: logo (when present), app name, offer line.
+
+    ``size`` defaults to the portrait canvas; the wide reel renders the
+    same centred stack on its landscape one.
+    """
     from PIL import Image, ImageDraw
 
-    card = Image.new("RGB", (WIDTH, HEIGHT), bg)
+    card_w, card_h = size
+    card = Image.new("RGB", (card_w, card_h), bg)
     draw = ImageDraw.Draw(card)
     name_font = load_font(96, font_path)
     offer_font = load_font(48, font_path)
@@ -562,25 +703,25 @@ def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT):
         else:
             warn(f"end card: logo {logo_path!r} not found in the checkout — rendering without it")
 
-    offer_lines = wrap_text(draw, offer, offer_font, WIDTH - 200) if offer else []
+    offer_lines = wrap_text(draw, offer, offer_font, card_w - 200) if offer else []
     line_height = 62
     block = (logo.height + 96 if logo else 0) + 110
     if offer_lines:
         block += 60 + line_height * len(offer_lines)
-    y = (HEIGHT - block) // 2
+    y = (card_h - block) // 2
     if logo:
-        card.paste(logo, ((WIDTH - logo.width) // 2, y), logo)
+        card.paste(logo, ((card_w - logo.width) // 2, y), logo)
         y += logo.height + 96
     name = app.get("name", "")
     w = draw.textlength(name, font=name_font)
-    draw.text(((WIDTH - w) / 2, y), name, font=name_font, fill=ink)
+    draw.text(((card_w - w) / 2, y), name, font=name_font, fill=ink)
     y += 110
     if offer_lines:
         y += 60
         offer_fill = readable_accent(accent, bg, ink)
         for line in offer_lines:
             w = draw.textlength(line, font=offer_font)
-            draw.text(((WIDTH - w) / 2, y), line, font=offer_font, fill=offer_fill)
+            draw.text(((card_w - w) / 2, y), line, font=offer_font, fill=offer_fill)
             y += line_height
     return card
 
@@ -610,6 +751,241 @@ def encode_stream(ffmpeg, stream_path, out_path, codec, container, fps):
         fail(f"ffmpeg exited {result.returncode}")
 
 
+def encode_frames(ffmpeg, out_path, codec, container, fps, frames):
+    """Encode an iterable of RGB Pillow frames to out_path; returns the count.
+
+    All frame work stays in Pillow; ffmpeg only encodes a
+    concatenated-JPEG stream read from ONE file with the image2pipe
+    demuxer. This needs no ffmpeg filters and no pipe/fd protocols, so it
+    works identically on CI's full apt ffmpeg and on trimmed local builds
+    (Playwright's build ships only the `file` protocol and only the
+    image2pipe + matroska demuxers).
+    """
+    frames_dir = tempfile.mkdtemp(prefix="tour_frames_")
+    stream_path = os.path.join(frames_dir, "frames.mjpeg")
+    count = 0
+    try:
+        with open(stream_path, "wb") as stream:
+            for frame in frames:
+                count += 1
+                frame.save(stream, format="JPEG", quality=92)
+        encode_stream(ffmpeg, stream_path, out_path, codec, container, fps)
+    finally:
+        shutil.rmtree(frames_dir, ignore_errors=True)
+    return count
+
+
+def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
+    """One wide-reel beat's static parts: (backdrop+caption, card, x, y_at).
+
+    Landscape composition: the caption column fills the LEFT half of the
+    canvas, the portrait framed phone sits centred in the RIGHT half.
+    The chapter's frame anchor still applies, just gentler than portrait
+    (``WIDE_CROP_FRACTION``): `bottom`/`top` phones rest lightly cropped
+    against that canvas edge and ease toward it; `full` keeps the whole
+    phone visible with the legacy two-way float.
+    """
+    from PIL import Image
+
+    with Image.open(shot_path) as raw:
+        if anchor == "full":
+            card = phone_card(raw.convert("RGB"), WIDE_FULL_MAX_W, WIDE_FULL_MAX_H)
+        else:
+            card = phone_card(raw.convert("RGB"), WIDE_FRAME_MAX_W, WIDE_FRAME_MAX_H)
+    backdrop = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(brand_bg) + (255,))
+    backdrop.alpha_composite(
+        caption_column(
+            step.get("caption") or step.get("title") or "",
+            font_path,
+            highlight=step.get("highlight") or "",
+            accent=accent,
+            bg=brand_bg,
+        )
+    )
+    x = WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2
+    phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
+    crop = round(WIDE_CROP_FRACTION * phone_h)
+
+    def y_at(ease):
+        if anchor == "full":
+            return (WIDE_H - card.height) // 2 + round(FULL_DRIFT_PX * (0.5 - ease))
+        off = crop + round(DRIFT_PX * (1 - ease))
+        if anchor == "top":
+            return -off - FRAME_MARGIN
+        return WIDE_H + off - FRAME_MARGIN - phone_h  # bottom
+
+    return backdrop, card, x, y_at
+
+
+def select_wide_beats(chapters, shots, chapter_anchor):
+    """Pick the highlight reel's beats, as a list of (step, anchor).
+
+    Selection rule: chapters keep tour order; each chapter contributes
+    its first WIDE_BEATS_PER_CHAPTER captured steps that carry a
+    highlight phrase (the manifest author's own emphasis is the best
+    available signal for a chapter's strongest beats), or its first
+    captured step when none carry one — so every chapter appears. The
+    reel then caps at WIDE_MAX_BEATS beats, dropping later chapters'
+    extra picks first (never a chapter's only beat), so the promo stays
+    short.
+    """
+    picks = []
+    for chapter, chapter_steps in chapters.items():
+        captured = [s for s in chapter_steps if s["key"] in shots]
+        if not captured:
+            continue
+        anchor = chapter_anchor(chapter)
+        strongest = [s for s in captured if str(s.get("highlight") or "").strip()]
+        chosen = strongest[:WIDE_BEATS_PER_CHAPTER] or captured[:1]
+        picks.append([(s, anchor) for s in chosen])
+    total = sum(len(p) for p in picks)
+    while total > WIDE_MAX_BEATS:
+        trimmed = False
+        for chapter_picks in reversed(picks):
+            if len(chapter_picks) > 1:
+                chapter_picks.pop()
+                total -= 1
+                trimmed = True
+                break
+        if not trimmed:
+            break
+    return [beat for chapter_picks in picks for beat in chapter_picks]
+
+
+def render_wide_video(
+    out_dir, beats, opening_image, end_image, brand_bg, accent, font_path, shots,
+    ffmpeg, codec, container, fps, per_step,
+):
+    """Render the single landscape highlight reel: <out>/tour-wide.<container>.
+
+    One 1920x1080 16:9 promo across ALL chapters (the Play listing's
+    widescreen video slot), sharing the chapter videos' fps, codec and
+    pacing: landscape opening splash card, the selected beats (see
+    ``select_wide_beats``), landscape end card.
+    """
+    out_path = os.path.join(out_dir, f"tour-wide.{container}")
+    opening_seconds = CARD_SECONDS if opening_image is not None else 0.0
+    end_seconds = CARD_SECONDS if end_image is not None else 0.0
+    total = opening_seconds + per_step * len(beats) + end_seconds
+    log(
+        f"wide reel: opening {opening_seconds:.0f}s + {len(beats)} beats x "
+        f"{per_step:.1f}s + end card {end_seconds:.0f}s = {total:.1f}s at {fps}fps "
+        f"({codec}/{container}, {WIDE_W}x{WIDE_H})"
+    )
+
+    def frames():
+        if opening_image is not None:
+            for _ in range(int(round(opening_seconds * fps))):
+                yield opening_image
+        step_frames = int(round(per_step * fps))
+        for step, anchor in beats:
+            backdrop, card, x, y_at = build_wide_beat(
+                step, anchor, shots[step["key"]], brand_bg, accent, font_path
+            )
+            for i in range(step_frames):
+                progress = i / max(1, step_frames - 1)
+                ease = progress * progress * (3 - 2 * progress)  # smoothstep
+                frame = backdrop.copy()
+                frame.paste(card, (x, y_at(ease)), card)
+                yield frame.convert("RGB")
+        if end_image is not None:
+            for _ in range(int(round(end_seconds * fps))):
+                yield end_image
+
+    count = encode_frames(ffmpeg, out_path, codec, container, fps, frames())
+    size = os.path.getsize(out_path)
+    log(
+        f"wrote {out_path}: {count} frames, "
+        f"{count / fps:.1f}s, {size / 1_000_000:.2f} MB"
+    )
+
+
+def pick_hero_step(chapters, shots):
+    """The feature graphic's hero still, or None when nothing was captured.
+
+    The first captured step of the SECOND chapter (the first chapter is
+    usually onboarding/sign-in, whose screens sell the app least),
+    falling back to the tour's first captured step.
+    """
+    names = list(chapters)
+    if len(names) > 1:
+        for step in chapters[names[1]]:
+            if step["key"] in shots:
+                return step
+    for chapter_steps in chapters.values():
+        for step in chapter_steps:
+            if step["key"] in shots:
+                return step
+    return None
+
+
+def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, font_path):
+    """<out>/store/feature-graphic.png — the Play listing's 1024x500 banner.
+
+    Brand-primary canvas; logo mark, app name and tagline stacked on the
+    left; the hero screenshot in the house phone frame on the right,
+    bottom edge cropped by the canvas. Composed to Play feature-graphic
+    conventions: minimal text, nothing critical near the edges or the
+    exact centre (Play crops the graphic in some placements and overlays
+    a play button on it when it fronts the promo video). Rendered at
+    FEATURE_SS x and downscaled so the type stays crisp.
+    """
+    from PIL import Image, ImageDraw
+
+    w, h = FEATURE_W * FEATURE_SS, FEATURE_H * FEATURE_SS
+    canvas = Image.new("RGBA", (w, h), tuple(brand_bg) + (255,))
+    draw = ImageDraw.Draw(canvas)
+    ink = ink_for(brand_bg)
+    muted = tuple(round(0.72 * i + 0.28 * b) for i, b in zip(ink, brand_bg))
+
+    # Framed hero phone on the right, rising past the bottom canvas edge.
+    with Image.open(hero_shot_path) as raw:
+        card = phone_card(raw.convert("RGB"), 620, 1200)
+    bezel_w = card.width - 2 * FRAME_MARGIN
+    canvas.alpha_composite(card, (w - 150 - bezel_w - FRAME_MARGIN, 130 - FRAME_MARGIN))
+
+    # Left text column: logo mark, app name (shrunk to fit), tagline.
+    margin, text_max = 160, 880
+    name = str(app.get("name") or "")
+    name_size = 150
+    name_font = load_font(name_size, font_path)
+    while name_size > 90 and draw.textlength(name, font=name_font) > text_max:
+        name_size -= 10
+        name_font = load_font(name_size, font_path)
+    tag_font = load_font(60, font_path)
+    tagline = str(app.get("tagline") or "")
+    tag_lines = wrap_text(draw, tagline, tag_font, text_max) if tagline else []
+    logo = None
+    if logo_path and os.path.exists(logo_path):
+        try:
+            with Image.open(logo_path) as raw:
+                logo = raw.convert("RGBA")
+            logo.thumbnail((280, 280), Image.LANCZOS)
+        except OSError as e:
+            warn(f"feature graphic: could not read logo {logo_path!r} ({e}) — omitting it")
+            logo = None
+    name_a, name_d = name_font.getmetrics()
+    tag_a, tag_d = tag_font.getmetrics()
+    tag_line_h = tag_a + tag_d + 10
+    block = (logo.height + 60 if logo else 0) + name_a + name_d
+    if tag_lines:
+        block += 28 + tag_line_h * len(tag_lines)
+    y = (h - block) // 2
+    if logo:
+        canvas.alpha_composite(logo, (margin, y))
+        y += logo.height + 60
+    draw.text((margin, y), name, font=name_font, fill=ink)
+    y += name_a + name_d + 28
+    for line in tag_lines:
+        draw.text((margin, y), line, font=tag_font, fill=muted)
+        y += tag_line_h
+
+    out_path = os.path.join(out_dir, "store", "feature-graphic.png")
+    graphic = canvas.convert("RGB").resize((FEATURE_W, FEATURE_H), Image.LANCZOS)
+    graphic.save(out_path, format="PNG")
+    log(f"wrote {out_path} ({FEATURE_W}x{FEATURE_H})")
+
+
 def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_path):
     """Render one video per chapter: <out>/tour-<chapter>.<container>.
 
@@ -623,7 +999,11 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     each chapter's phone meets the canvas edge; unlisted chapters anchor
     bottom-cropped, WhatsApp-ad style. Also exports <out>/store/NN-key.png
     — one Play-Store-ready styled still per step, the beat composition at
-    rest (no hook/end cards, no drift) — refreshed wholesale.
+    rest (no hook/end cards, no drift) — refreshed wholesale, plus the
+    landscape Play-listing assets: <out>/store/feature-graphic.png
+    (1024x500, see ``write_feature_graphic``) and the single 16:9
+    highlight reel <out>/tour-wide.<container> across all chapters (see
+    ``select_wide_beats`` / ``render_wide_video``).
     """
     from PIL import Image
 
@@ -760,27 +1140,10 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             f"({codec}/{container}, frame anchor: {anchor})"
         )
 
-        # All frame work happens in Pillow; ffmpeg only encodes a
-        # concatenated-JPEG stream read from ONE file with the image2pipe
-        # demuxer. This needs no ffmpeg filters and no pipe/fd protocols, so
-        # it works identically on CI's full apt ffmpeg and on trimmed local
-        # builds (Playwright's build ships only the `file` protocol and only
-        # the image2pipe + matroska demuxers).
-        frames_dir = tempfile.mkdtemp(prefix="tour_frames_")
-        stream_path = os.path.join(frames_dir, "frames.mjpeg")
-        stream = open(stream_path, "wb")
-        frames_written = 0
-
-        def push(image):
-            nonlocal frames_written
-            frames_written += 1
-            image.save(stream, format="JPEG", quality=92)
-
-        try:
+        def frames():
             if opening_image is not None:
                 for _ in range(int(round(opening_seconds * fps))):
-                    push(opening_image)
-
+                    yield opening_image
             step_frames = int(round(per_step * fps))
             for step in steps:
                 # Caption + brand background are static per beat; only the
@@ -791,18 +1154,12 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                     ease = progress * progress * (3 - 2 * progress)  # smoothstep
                     frame = backdrop.copy()
                     frame.paste(card, (x, y_at(ease)), card)
-                    push(frame.convert("RGB"))
-
+                    yield frame.convert("RGB")
             if end_image is not None:
                 for _ in range(int(round(end_seconds * fps))):
-                    push(end_image)
+                    yield end_image
 
-            stream.close()
-            encode_stream(ffmpeg, stream_path, out_path, codec, container, fps)
-        finally:
-            if not stream.closed:
-                stream.close()
-            shutil.rmtree(frames_dir, ignore_errors=True)
+        frames_written = encode_frames(ffmpeg, out_path, codec, container, fps, frames())
         size = os.path.getsize(out_path)
         log(
             f"wrote {out_path}: {frames_written} frames, "
@@ -815,12 +1172,42 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     for step in resolved["steps"]:
         chapters.setdefault(str(step.get("chapter") or "app"), []).append(step)
     write_store_stills(chapters)
+    hero = pick_hero_step(chapters, shots)
+    if hero is not None:
+        write_feature_graphic(out_dir, app, shots[hero["key"]], logo_path, brand_bg, font_path)
     for chapter, chapter_steps in chapters.items():
         captured = [s for s in chapter_steps if s["key"] in shots]
         if not captured:
             log(f"chapter '{chapter}': no captured screenshots — skipping its video")
             continue
+        if chapter == "wide":
+            warn(
+                "chapter 'wide' shares the landscape reel's output name "
+                f"tour-wide.{container} — the reel overwrites it; rename the fragment"
+            )
         render_chapter(chapter, captured, chapter_anchor(chapter))
+
+    # The single landscape highlight reel across ALL chapters (the Play
+    # listing's widescreen promo-video slot).
+    beats = select_wide_beats(chapters, shots, chapter_anchor)
+    if beats:
+        wide_opening = splash_card_wide(splash_path, bg=brand_bg) if splash_path else None
+        if wide_opening is None and hook:
+            wide_opening = hook_card(
+                app, hook, font_path, bg=brand_bg, accent=accent, size=(WIDE_W, WIDE_H)
+            )
+        wide_end = (
+            end_card(
+                app, offer, logo_path, font_path,
+                bg=brand_bg, accent=accent, size=(WIDE_W, WIDE_H),
+            )
+            if want_end_card
+            else None
+        )
+        render_wide_video(
+            out_dir, beats, wide_opening, wide_end, brand_bg, accent, font_path, shots,
+            ffmpeg, codec, container, fps, per_step,
+        )
 
 
 def main():
