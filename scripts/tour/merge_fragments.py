@@ -77,8 +77,11 @@ DEFAULT_BEAT_SECONDS = 4.0
 # AppStyle field defaults (`static Color _primary = const Color(0xFFFF6600)`).
 COLOR_ARG_RE = re.compile(r"(\w+)\s*:\s*(?:const\s+)?Color\(\s*0x([0-9A-Fa-f]{8})\s*\)")
 APP_STYLE_COLOR_RE = re.compile(
-    r"static\s+Color\s+_?(primary|surfaceDark)\s*=\s*(?:const\s+)?Color\(\s*0x([0-9A-Fa-f]{8})\s*\)"
+    r"static\s+Color\s+_?(primary)\s*=\s*(?:const\s+)?Color\(\s*0x([0-9A-Fa-f]{8})\s*\)"
 )
+# How each chapter's phone frame meets the canvas edge in the video
+# (video.chapter_frame_anchor in the manifest; default is bottom).
+VALID_FRAME_ANCHORS = ("bottom", "top", "full")
 
 
 def log(msg):
@@ -262,9 +265,11 @@ def derive_brand_colors(cache_dir, theme_path):
       2. base_sdk's AppStyle field defaults in the composed cache
          (<cache-dir>/base/lib/src/presentation/theme/app_style.dart).
 
-    accent_color <- primary, brand_color <- surfaceDark (ARGB hex in Dart,
-    emitted as #RRGGBB). Returns a possibly-empty dict; assemble.py keeps
-    its built-in defaults for anything missing.
+    Both accent_color and brand_color derive from AppStyle primary (ARGB
+    hex in Dart, emitted as #RRGGBB): the video canvas IS the brand's
+    primary colour, WhatsApp-ad style, and assemble.py picks readable ink
+    against it. Returns a possibly-empty dict; assemble.py keeps its
+    built-in defaults for anything missing.
     """
     app_args = inject_call_args(read_text(theme_path)) if theme_path else {}
     app_style_path = os.path.join(
@@ -272,7 +277,7 @@ def derive_brand_colors(cache_dir, theme_path):
     )
     defaults = {m.group(1): m.group(2) for m in APP_STYLE_COLOR_RE.finditer(read_text(app_style_path))}
     derived = {}
-    for out_key, dart_name in (("accent_color", "primary"), ("brand_color", "surfaceDark")):
+    for out_key, dart_name in (("accent_color", "primary"), ("brand_color", "primary")):
         argb = app_args.get(dart_name) or defaults.get(dart_name)
         if argb:
             source = theme_path if dart_name in app_args else app_style_path
@@ -521,6 +526,25 @@ def main():
         brand_color = brand_color or derived.get("brand_color", "")
         accent_color = accent_color or derived.get("accent_color", "")
 
+    # Per-chapter phone-frame anchoring: the phone is cropped off the
+    # bottom canvas edge by default (WhatsApp-ad style); a manifest map
+    # like `chapter_frame_anchor: {auth: top}` flips named chapters to
+    # hang top-cropped instead (or `full` for the legacy floating phone).
+    frame_anchors = {}
+    raw_anchors = video.get("chapter_frame_anchor") or {}
+    if not isinstance(raw_anchors, dict):
+        warn("video.chapter_frame_anchor must be a map of chapter -> bottom|top|full — ignored")
+        raw_anchors = {}
+    for chapter, anchor in raw_anchors.items():
+        anchor = str(anchor or "").strip().lower()
+        if anchor in VALID_FRAME_ANCHORS:
+            frame_anchors[str(chapter)] = anchor
+        else:
+            warn(
+                f"video.chapter_frame_anchor.{chapter}: unknown anchor {anchor!r} "
+                f"(want one of {'/'.join(VALID_FRAME_ANCHORS)}) — using the default"
+            )
+
     resolved = {
         "app": {
             "name": app_name,
@@ -538,6 +562,8 @@ def main():
             "beat_seconds": float(video.get("beat_seconds") or DEFAULT_BEAT_SECONDS),
             "brand_color": brand_color,
             "accent_color": accent_color,
+            # Chapters not named here anchor bottom-cropped (the default).
+            "chapter_frame_anchor": frame_anchors,
             # Optional one-line offer/CTA; with a logo or an offer present
             # each chapter video closes on a ~3s end card.
             "offer": substitute(str(video.get("offer") or ""), placeholders).strip(),
