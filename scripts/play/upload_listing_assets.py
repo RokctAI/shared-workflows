@@ -24,8 +24,9 @@ app's checkout, exactly where the tour pipeline writes them:
       fails the deploy.
 
   marketing/store/video.txt
-      Single line holding a YouTube URL for the listing's promo-video
-      slot. Play does NOT accept video file uploads through the API —
+      Holds the YouTube URL for the listing's promo-video slot: blank
+      lines and '#' comment lines are ignored, the first remaining line
+      is the URL (the tour pipeline seeds a comment-only placeholder). Play does NOT accept video file uploads through the API —
       the reel itself must be published to YouTube once, by a human;
       this script only points the listing at it, patching ONLY the
       `video` field of the existing listing (titles/descriptions are
@@ -141,18 +142,31 @@ def discover_images(store_dir):
 
 
 def discover_video(app_dir):
-    """The promo video's YouTube URL from marketing/store/video.txt, or None."""
+    """The promo video's YouTube URL from marketing/store/video.txt, or None.
+
+    Blank lines and '#' comment lines are ignored; the first remaining
+    line is the URL. A blank/comment-only file (the placeholder the tour
+    pipeline seeds) is a clean "not set yet", never an error.
+    """
     video_path = os.path.join(app_dir, VIDEO_FILE)
     if not os.path.isfile(video_path):
         return None
     try:
         with open(video_path, encoding="utf-8") as handle:
-            lines = [line.strip() for line in handle if line.strip()]
+            lines = [
+                stripped
+                for line in handle
+                if (stripped := line.strip()) and not stripped.startswith("#")
+            ]
     except OSError as e:
         log(f"skipping promo video: could not read {video_path} ({e})")
         return None
     if not lines:
-        log(f"skipping promo video: {video_path} is empty")
+        log(
+            f"no video URL set yet: {video_path} holds only blank/comment "
+            "lines - add the promo reel's YouTube URL to fill the listing's "
+            "video slot"
+        )
         return None
     url = lines[0]
     if len(lines) > 1:
