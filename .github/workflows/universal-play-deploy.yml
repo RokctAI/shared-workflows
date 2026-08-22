@@ -551,6 +551,39 @@ jobs:
           track: ${{ inputs.track }}
           status: ${{ inputs.release_status }}
 
+      # The action above only ships the AAB. Store LISTING assets rendered
+      # by the tour pipeline into the caller's checkout (this job's Checkout
+      # Code step checks out the calling app repo, marketing/ included) are
+      # pushed through the Google Play Edits API directly — Python +
+      # google-api-python-client, matching this repo's tooling; still no
+      # fastlane, for the same reason as above. The script maps
+      # marketing/tour/store/ portrait stills -> phoneScreenshots (max 8,
+      # skips logged), a 1024x500 image -> featureGraphic, and
+      # marketing/store/video.txt (a YouTube URL — Play accepts no video
+      # file uploads) -> the listing's promo-video field, and exits 0
+      # cleanly when nothing valid is found. The hashFiles gate skips the
+      # sparse checkout + pip install entirely for apps that ship no
+      # marketing assets, so their deploys run exactly as before.
+      - name: Checkout Listing Assets Script
+        if: hashFiles('marketing/tour/store/**', 'marketing/store/video.txt') != ''
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+          sparse-checkout: scripts/play
+
+      - name: Push Store Listing Assets
+        if: hashFiles('marketing/tour/store/**', 'marketing/store/video.txt') != ''
+        env:
+          PACKAGE_NAME: ${{ needs.gate.outputs.package_name }}
+          PLAY_STORE_SERVICE_ACCOUNT_JSON_FILE: ${{ steps.play_key.outputs.key_path }}
+        run: |
+          python3 -m pip install --quiet google-api-python-client google-auth Pillow
+          python3 .github/shared-workflows/scripts/play/upload_listing_assets.py \
+            --app-dir . --language en-US
+          rm -rf .github/shared-workflows
+
       - name: Cleanup Resolved Credential Files
         if: always()
         # Remove every credential file the resolve step may have written
