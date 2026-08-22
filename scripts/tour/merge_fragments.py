@@ -31,8 +31,11 @@ fragment captions, and emits:
   * a resolved JSON plan (consumed by capture/assemble) — each step is
     tagged with its chapter (the fragment it came from; app-shell steps
     join the chapter they precede) so assemble.py renders one video per
-    chapter, and video colours default to the composed app's AppStyle
-    palette when the manifest sets none, and
+    chapter, video colours default to the composed app's AppStyle palette
+    when the manifest sets none, and the splash image the videos open on
+    is auto-detected from the checkout (flutter_native_splash config,
+    then the conventional committed asset) when the manifest sets no
+    app.splash, and
   * a generated Dart steps file for the app's committed integration_test
     runner (``integration_test/tour_steps.g.dart``).
 
@@ -286,6 +289,43 @@ def derive_brand_colors(cache_dir, theme_path):
     return derived
 
 
+def derive_splash(splash_config):
+    """Auto-detect the app's splash image in the checkout, '' when none.
+
+    The chapter videos open on the app's real splash image (assemble.py
+    falls back to the legacy hook card when this stays empty). Used only
+    when the manifest sets no explicit ``app.splash``. Candidates, in
+    order, mirroring where composed Flutter apps actually keep the asset:
+
+      1. flutter_native_splash's config (``flutter_native_splash.yaml``
+         by default): its ``background_image`` (the full-screen art),
+         then its ``image`` (a centred splash mark);
+      2. the conventional committed asset ``assets/images/splash.png``.
+
+    Only paths that exist in the checkout are returned, so a stale config
+    entry can never surface a broken opening card.
+    """
+    candidates = []
+    if splash_config and os.path.exists(splash_config):
+        try:
+            with open(splash_config, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError) as e:
+            warn(f"could not parse {splash_config} ({e}) — skipping it for splash detection")
+            data = None
+        section = data.get("flutter_native_splash") if isinstance(data, dict) else None
+        if isinstance(section, dict):
+            candidates += [section.get("background_image"), section.get("image")]
+    candidates.append(os.path.join("assets", "images", "splash.png"))
+    for candidate in candidates:
+        path = str(candidate or "").strip()
+        if path and os.path.exists(path):
+            log(f"app splash: {path} (auto-detected — the videos open on it)")
+            return path.replace(os.sep, "/")
+    log("app splash: none detected — videos open on the hook card when the manifest has one")
+    return ""
+
+
 def substitute(text, placeholders):
     if not isinstance(text, str):
         return text
@@ -437,6 +477,11 @@ def main():
         default=os.path.join("lib", "presentation", "theme", "theme.dart"),
         help="composed theme shim parsed for brand colours when the manifest sets none",
     )
+    parser.add_argument(
+        "--splash-config",
+        default="flutter_native_splash.yaml",
+        help="flutter_native_splash config parsed for the splash image when the manifest sets none",
+    )
     parser.add_argument("--fragments-ref", default="")
     parser.add_argument("--fallback-ref", default="main")
     parser.add_argument("--token-env", default="MONOREPO_PAT")
@@ -552,6 +597,11 @@ def main():
             # Optional repo-relative logo path for the video end card;
             # assemble.py skips the image gracefully when it does not exist.
             "logo": str(app.get("logo") or "").strip(),
+            # Repo-relative splash image the videos OPEN on: an explicit
+            # app.splash manifest key wins, otherwise it is auto-detected
+            # from the checkout (see derive_splash). Empty means no splash
+            # — assemble.py falls back to the legacy hook card.
+            "splash": str(app.get("splash") or "").strip() or derive_splash(args.splash_config),
         },
         "video": {
             # No hook means no hook card — assemble.py skips it gracefully.

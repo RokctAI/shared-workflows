@@ -30,8 +30,12 @@ Two independent products (so a video hiccup can never block the stills):
            <out>/tour-<chapter>.mp4 (a chapter = the steps one fragment
            contributed; app-shell steps join the chapter they precede) in
            the org's vertical house style: 1080x1920 9:16, 30fps, a ~3s
-           hook card first (brand background, hook line, app name — only
-           when the manifest supplies a hook), then one store-ad style
+           opening card first — the app's real SPLASH IMAGE full-frame
+           when the resolved plan carries one (app.splash, auto-derived
+           at merge time from flutter_native_splash.yaml / the committed
+           splash asset), else the legacy hook card (brand background,
+           hook line, app name — only when the manifest supplies a
+           hook) — then one store-ad style
            beat per step (~4s each): the screenshot sits in a BLACK
            rounded-bezel phone frame on the brand-primary canvas,
            anchored to the bottom canvas edge with its lower part cropped
@@ -95,6 +99,9 @@ FRAME_BLACK = (0, 0, 0, 255)
 # keeps the smaller box so the whole phone stays visible.
 FRAME_MAX_W, FRAME_MAX_H = 780, 1500
 FULL_MAX_W, FULL_MAX_H = 700, 1200
+# A square/landscape splash mark (not full-screen art) fits inside this
+# box, centred on the brand canvas.
+SPLASH_FIT_W, SPLASH_FIT_H = 900, 900
 FRAME_MARGIN = 80  # transparent margin around the card so the shadow fits
 CROP_FRACTION = 0.16  # share of the phone's height cropped off-canvas at rest
 CAPTION_TOP = 140  # caption block top margin (bottom-anchored beats)
@@ -459,9 +466,47 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG,
     return overlay
 
 
-def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
-    """Opening full-frame card: brand background, hook line, app name.
+def splash_card(splash_path, bg=CARD_BG):
+    """Opening full-frame card: the app's real splash image.
 
+    Portrait art (like Supacharge's full-screen native splash) fills the
+    whole 1080x1920 frame — cover-scaled and centre-cropped, which stays
+    faithful to how flutter_native_splash stretches a background_image to
+    the device screen. A square or landscape asset (a splash logo mark)
+    instead sits centred on the brand canvas, alpha preserved. Returns
+    None when the file is missing or unreadable so the caller can fall
+    back to the legacy hook card.
+    """
+    from PIL import Image
+
+    if not os.path.exists(splash_path):
+        warn(f"splash card: {splash_path!r} not found in the checkout — using the hook card")
+        return None
+    try:
+        with Image.open(splash_path) as raw:
+            art = raw.convert("RGBA")
+    except OSError as e:
+        warn(f"splash card: could not read {splash_path!r} ({e}) — using the hook card")
+        return None
+    if art.height > art.width:  # portrait, like the canvas: full-bleed
+        scale = max(WIDTH / art.width, HEIGHT / art.height)
+        art = art.resize(
+            (max(WIDTH, round(art.width * scale)), max(HEIGHT, round(art.height * scale))),
+            Image.LANCZOS,
+        )
+        left = (art.width - WIDTH) // 2
+        top = (art.height - HEIGHT) // 2
+        return art.crop((left, top, left + WIDTH, top + HEIGHT)).convert("RGB")
+    art.thumbnail((SPLASH_FIT_W, SPLASH_FIT_H), Image.LANCZOS)
+    card = Image.new("RGBA", (WIDTH, HEIGHT), tuple(bg) + (255,))
+    card.alpha_composite(art, ((WIDTH - art.width) // 2, (HEIGHT - art.height) // 2))
+    return card.convert("RGB")
+
+
+def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT):
+    """Legacy opening card: brand background, hook line, app name.
+
+    Used only when no app splash image resolves (see ``splash_card``).
     All text picks black-or-white ink against the actual background; the
     app name uses the accent colour only when it reads on the canvas.
     """
@@ -570,8 +615,9 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
 
     A chapter is the run of steps one fragment contributed (app-shell steps
     were folded into the chapter they precede at merge time). Every chapter
-    video carries the same manifest hook card and logo/offer end card, with
-    the chapter's phone-framed caption beats in between.
+    video carries the same opening card (the app's splash image when the
+    plan resolves one, else the manifest hook card) and logo/offer end
+    card, with the chapter's phone-framed caption beats in between.
 
     video.chapter_frame_anchor (chapter -> bottom|top|full) controls how
     each chapter's phone meets the canvas edge; unlisted chapters anchor
@@ -599,17 +645,26 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     hook = str(video_cfg.get("hook") or "").strip()
     offer = str(video_cfg.get("offer") or "").strip()
     logo_path = str(app.get("logo") or "").strip()
+    splash_path = str(app.get("splash") or "").strip()
     want_end_card = bool(offer or logo_path)
 
-    hook_seconds = CARD_SECONDS if hook else 0.0
+    # Opening card: the app's real splash image when the plan resolves
+    # one; the legacy hook card when it does not but the manifest has a
+    # hook; nothing otherwise (the video starts on the first beat).
+    opening_image = splash_card(splash_path, bg=brand_bg) if splash_path else None
+    if opening_image is not None:
+        log(f"opening card: app splash image {splash_path}")
+    elif hook:
+        opening_image = hook_card(app, hook, font_path, bg=brand_bg, accent=accent)
+        log("opening card: hook card (no app splash image resolved)")
+    else:
+        log("no app splash or video.hook — chapter videos start on the first beat")
+
+    opening_seconds = CARD_SECONDS if opening_image is not None else 0.0
     end_seconds = CARD_SECONDS if want_end_card else 0.0
     # Fixed beat per still — the total is however long the chapter needs
     # (status-ad pacing), never crammed into a fixed window.
     per_step = max(2.0, min(float(video_cfg.get("beat_seconds") or BEAT_SECONDS), 10.0))
-    if not hook:
-        log("no video.hook in the manifest — chapter videos start on the first beat")
-
-    hook_image = hook_card(app, hook, font_path, bg=brand_bg, accent=accent) if hook else None
     end_image = (
         end_card(app, offer, logo_path, font_path, bg=brand_bg, accent=accent)
         if want_end_card
@@ -698,9 +753,9 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
 
     def render_chapter(chapter, steps, anchor):
         out_path = os.path.join(out_dir, f"tour-{chapter}.{container}")
-        total = hook_seconds + per_step * len(steps) + end_seconds
+        total = opening_seconds + per_step * len(steps) + end_seconds
         log(
-            f"chapter '{chapter}': hook {hook_seconds:.0f}s + {len(steps)} beats x "
+            f"chapter '{chapter}': opening {opening_seconds:.0f}s + {len(steps)} beats x "
             f"{per_step:.1f}s + end card {end_seconds:.0f}s = {total:.1f}s at {fps}fps "
             f"({codec}/{container}, frame anchor: {anchor})"
         )
@@ -722,9 +777,9 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             image.save(stream, format="JPEG", quality=92)
 
         try:
-            if hook_image is not None:
-                for _ in range(int(round(hook_seconds * fps))):
-                    push(hook_image)
+            if opening_image is not None:
+                for _ in range(int(round(opening_seconds * fps))):
+                    push(opening_image)
 
             step_frames = int(round(per_step * fps))
             for step in steps:
