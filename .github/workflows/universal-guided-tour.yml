@@ -457,6 +457,14 @@ jobs:
           esac
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Seed the promo-video link file on the first run so nobody has to
+          # create it by hand - but NEVER touch an existing one: it holds the
+          # YouTube URL that universal-play-deploy pushes to the Play listing.
+          [ -f marketing/store/video.txt ] || {
+            mkdir -p marketing/store
+            echo "# Replace this line with the public YouTube URL of the promo reel (https://youtu.be/...). The Play deploy sets it on the store listing." > marketing/store/video.txt
+            git add -f marketing/store/video.txt
+          }
           git add -f "${{ inputs.output-dir }}"
           if ! git commit -m "docs: refresh guided tour screenshots and feature guide [skip ci]"; then
             echo "ℹ️ No changes in ${{ inputs.output-dir }} - nothing to commit."
