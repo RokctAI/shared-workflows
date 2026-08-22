@@ -28,11 +28,14 @@ shell repo under `marketing/tour/`:
   `video.chapter_frame_anchor` flips named chapters to hang top-cropped
   from the top edge (caption moves below the phone — right for chapters
   whose key content is bottom sheets) or to the legacy fully-visible
-  floating phone. Each video opens on the same ~3s hook card (when the
-  manifest has a `video.hook`), holds each screenshot for a fixed ~4s
-  caption beat (`video.beat_seconds` overrides), and closes on the same
-  ~3s logo/offer end card (when the manifest has a `video.offer` or an
-  `app.logo`). Total length is whatever the chapter needs — never crammed
+  floating phone. Each video opens on the same ~3s opening card — the
+  app's real splash image when one resolves (`app.splash`, or
+  auto-detected from the checkout; portrait art renders full-bleed,
+  a square/landscape mark sits centred on the brand canvas), else the
+  legacy hook card (when the manifest has a `video.hook`) — holds each
+  screenshot for a fixed ~4s caption beat (`video.beat_seconds`
+  overrides), and closes on the same ~3s logo/offer end card (when the
+  manifest has a `video.offer` or an `app.logo`). Total length is whatever the chapter needs — never crammed
   into a fixed window. A chapter with no captured screenshots gets no
   video (logged, never a failure); the whole video stage stays
   best-effort — a video failure never blocks the screenshots or the guide.
@@ -64,8 +67,10 @@ app:
   name: Supacharge            # substituted into {app_name}
   tagline: Live tutoring...   # substituted into {app_tagline}
   logo: assets/logo.png       # optional; repo-relative, shown on the end card
+  splash: assets/splash.png   # optional; repo-relative, the ~3s opening card
+                              # (auto-detected when absent — see below)
 video:
-  hook: "Big test coming? Bring backup."   # optional; ~3s opening card
+  hook: "Big test coming? Bring backup."   # optional; hook-card fallback
   beat_seconds: 4             # optional; seconds each still holds (default 4)
   brand_color: "#0B2A4A"      # optional; card/beat background override
   accent_color: "#41D68C"     # optional; keyword highlight colour override
@@ -103,6 +108,20 @@ picked per background (black or white, whichever reads better), so any
 primary colour works. `video.seconds_per_step` (the retired
 fixed-total-window pacing) is ignored; each still now holds a fixed
 `beat_seconds` beat.
+
+Each chapter video OPENS on the app's real splash image (~3s) when one
+resolves. An explicit `app.splash` (repo-relative) wins; when absent the
+merge auto-detects it from the checkout — the flutter_native_splash
+config (`flutter_native_splash.yaml`, override with `--splash-config`):
+its `background_image`, then its `image`; then the conventional
+committed asset `assets/images/splash.png` — taking the first path that
+actually exists. Portrait splash art fills the whole 1080x1920 frame
+(cover-scaled, centre-cropped, faithful to how the native splash
+stretches to the device screen); a square or landscape splash mark sits
+centred on the brand canvas instead. When no splash resolves, the video
+falls back to the legacy hook card (`video.hook`), and with neither it
+simply starts on the first beat — manifests without a splash render
+exactly as before.
 Captions (in manifests and fragments alike) may mark ONE key phrase with
 asterisks — `caption: "Rewatch *past lessons* whenever you like."` — and
 the video (and the store stills) draw that phrase inside a filled rounded
