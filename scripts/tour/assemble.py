@@ -43,9 +43,12 @@ Two independent products (so a video hiccup can never block the stills):
            top-cropped from the top edge instead (caption moves below the
            phone), or to the legacy fully-visible floating phone. Caption
            ink is black or white, whichever reads better on the canvas;
-           each caption may carry one key phrase in the accent colour
-           (underlined ink instead when the accent cannot read on the
-           canvas). Frames are drawn entirely with Pillow (DejaVu Sans
+           each caption may carry one key phrase inside a filled rounded
+           highlight chip — accent-filled when the accent stands apart
+           from the canvas, filled with the black/white contrast ink when
+           it does not — with the keyword ink picked black or white
+           against the chip fill. The phrase never splits across a line
+           wrap. Frames are drawn entirely with Pillow (DejaVu Sans
            Bold); ffmpeg only encodes a concatenated-JPEG frame stream,
            so no ffmpeg filters or pipe protocols are needed.
            Codec/container are parametrized; CI uses libx264 + mp4 +
@@ -104,7 +107,14 @@ DRIFT_PX = 40
 FULL_DRIFT_PX = 60  # legacy `full` anchor keeps the gentle two-way drift
 INK_DARK = (17, 17, 20)
 INK_LIGHT = (255, 255, 255)
-MIN_ACCENT_CONTRAST = 2.5  # below this the accent cannot read on the canvas
+MIN_ACCENT_CONTRAST = 2.5  # below this the accent cannot stand apart from the canvas
+# Keyword highlight chip: a filled rounded rectangle behind the caption's
+# one *key phrase*. Modest padding so the chip hugs the word without
+# colliding with neighbouring words; the vertical pad keeps the chip
+# inside the caption's line box so stacked lines never touch it.
+CHIP_PAD_X = 20
+CHIP_PAD_Y = 8
+CHIP_RADIUS = 18
 FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
@@ -269,6 +279,19 @@ def readable_accent(accent, bg, fallback):
     return tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(fallback)
 
 
+def chip_colors(accent, bg):
+    """(fill, keyword ink) for the highlight chip on canvas ``bg``.
+
+    The chip fills with the accent colour when that stands apart from the
+    canvas; when it cannot (with AppStyle-derived colours the accent often
+    EQUALS the canvas) it fills with the black/white contrast ink for the
+    canvas instead — either way the chip itself always reads. The keyword
+    ink is then black or white against the CHIP fill, never the canvas.
+    """
+    fill = tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(ink_for(bg))
+    return fill, tuple(ink_for(fill))
+
+
 def load_font(size, font_path=""):
     from PIL import ImageFont
 
@@ -335,17 +358,68 @@ def phone_card(shot, max_w=FRAME_MAX_W, max_h=FRAME_MAX_H):
     return card
 
 
+def highlight_tokens(normalized, highlight):
+    """Whitespace-normalised caption -> (word, is_highlight, glued) tokens.
+
+    The highlight phrase (when present in the caption) becomes ONE token,
+    so wrapping can treat it as unbreakable. ``glued`` marks a token that
+    followed its neighbour with no space in the caption (punctuation
+    around the phrase, e.g. ``... *one clean schedule*.``) so layout can
+    keep it flush against the chip instead of inserting a gap.
+    """
+    phrase = " ".join(highlight.split()) if highlight else ""
+    start = normalized.find(phrase) if phrase else -1
+    if start < 0:
+        return [(word, False, False) for word in normalized.split()]
+    pre, post = normalized[:start], normalized[start + len(phrase) :]
+    tokens = [(word, False, False) for word in pre.split()]
+    tokens.append((phrase, True, bool(pre) and not pre.endswith(" ")))
+    post_tokens = [(word, False, False) for word in post.split()]
+    if post_tokens and not post.startswith(" "):
+        post_tokens[0] = (post_tokens[0][0], False, True)
+    return tokens + post_tokens
+
+
+def wrap_tokens(draw, tokens, font, max_width):
+    """Greedy-wrap (word, is_highlight, glued) tokens into lines of tokens.
+
+    A highlight token measures with the chip's horizontal padding
+    included and NEVER splits across lines: when the whole phrase (chip
+    and all) does not fit the current line, it drops whole to the next
+    row, so each caption draws exactly one chip on one line.
+    """
+    space_w = draw.textlength(" ", font=font)
+    lines, current, current_w = [], [], 0.0
+    for token in tokens:
+        word, is_highlighted, glued = token
+        width = draw.textlength(word, font=font) + (2 * CHIP_PAD_X if is_highlighted else 0)
+        trial = current_w + (space_w if current and not glued else 0) + width
+        if trial <= max_width or not current:
+            current.append(token)
+            current_w = trial
+        else:
+            lines.append(current)
+            current, current_w = [token], width
+    if current:
+        lines.append(current)
+    return lines
+
+
 def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top"):
     """Static caption block, rendered once per step (RGBA).
 
     WhatsApp-ad style: bold left-aligned lines drawn straight on the
     brand canvas (no band), in black or white ink — whichever reads
     better on the background. ``highlight`` is one key phrase of ``text``
-    (whitespace-normalised) rendered in the brand accent colour when that
-    colour reads on the canvas; when it cannot (typically because the
-    derived accent IS the canvas colour) the phrase keeps the ink colour
-    and is underlined instead. ``position`` is "top" (above a
-    bottom-anchored phone) or "bottom" (below a top-anchored one).
+    (whitespace-normalised) drawn inside a filled rounded highlight chip:
+    accent-filled when the accent stands apart from the canvas, filled
+    with the black/white contrast ink when it cannot (typically because
+    the derived accent IS the canvas colour), with the keyword ink picked
+    black or white against the chip fill (see ``chip_colors``). The
+    phrase never splits across a line wrap — when it does not fit the
+    current line it drops whole to the next row. ``position`` is "top"
+    (above a bottom-anchored phone) or "bottom" (below a top-anchored
+    one).
     """
     from PIL import Image, ImageDraw
 
@@ -356,37 +430,31 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG,
     font = load_font(64, font_path)
     margin = 72
     max_text_width = WIDTH - 2 * margin
-    # wrap_text splits on whitespace, so wrapped lines are substrings of the
-    # normalised text; highlight offsets are tracked against that string.
     normalized = " ".join(text.split())
-    lines = wrap_text(draw, normalized, font, max_text_width)
-    hl_start = normalized.find(" ".join(highlight.split())) if highlight else -1
-    hl_end = hl_start + len(" ".join(highlight.split())) if hl_start >= 0 else -1
+    lines = wrap_tokens(draw, highlight_tokens(normalized, highlight), font, max_text_width)
     line_height = 84
     block_height = line_height * len(lines)
     top = CAPTION_TOP if position == "top" else HEIGHT - CAPTION_BOTTOM - block_height
     ink = tuple(ink_for(bg)) + (255,)
-    accent_reads = contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST
-    hl_fill = tuple(accent) + (255,) if accent_reads else ink
+    chip_fill, chip_ink = chip_colors(accent, bg)
+    ascent, descent = font.getmetrics()
+    space_w = draw.textlength(" ", font=font)
     y = top
-    offset = 0
     for line in lines:
         x = margin
-        if hl_start < 0 or hl_end <= offset or hl_start >= offset + len(line):
-            draw.text((x, y), line, font=font, fill=ink)
-        else:
-            seg_a = max(0, hl_start - offset)
-            seg_b = min(len(line), hl_end - offset)
-            pieces = ((0, seg_a, ink), (seg_a, seg_b, hl_fill), (seg_b, len(line), ink))
-            for idx, (start, end, fill) in enumerate(pieces):
-                if end <= start:
-                    continue
-                seg_x = x + draw.textlength(line[:start], font=font)
-                draw.text((seg_x, y), line[start:end], font=font, fill=fill)
-                if idx == 1 and not accent_reads:  # highlight without a readable accent
-                    seg_w = draw.textlength(line[start:end], font=font)
-                    draw.line((seg_x, y + 72, seg_x + seg_w, y + 72), fill=ink, width=6)
-        offset += len(line) + 1  # +1 for the space wrap_text consumed
+        for index, (word, is_highlighted, glued) in enumerate(line):
+            if index and not glued:
+                x += space_w
+            width = draw.textlength(word, font=font)
+            if is_highlighted:
+                chip_w = width + 2 * CHIP_PAD_X
+                chip_box = (x, y - CHIP_PAD_Y, x + chip_w, y + ascent + descent + CHIP_PAD_Y)
+                draw.rounded_rectangle(chip_box, radius=CHIP_RADIUS, fill=chip_fill + (255,))
+                draw.text((x + CHIP_PAD_X, y), word, font=font, fill=chip_ink + (255,))
+                x += chip_w
+            else:
+                draw.text((x, y), word, font=font, fill=ink)
+                x += width
         y += line_height
     return overlay
 

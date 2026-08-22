@@ -20,9 +20,11 @@ shell repo under `marketing/tour/`:
   shadow) anchored to the bottom canvas edge with its lower part cropped
   off-screen, easing gently toward the edge each beat. Bold caption lines
   are drawn straight on the canvas above the phone, in black or white ink
-  (whichever reads better on the canvas) with optional accent-colour
-  keyword highlights (underlined ink instead when the accent cannot read
-  on the canvas — e.g. when both derive from the same primary).
+  (whichever reads better on the canvas); an optional keyword sits inside
+  a filled rounded highlight chip — accent-filled when the accent stands
+  apart from the canvas, filled with the black/white contrast ink when it
+  cannot (e.g. when both derive from the same primary) — with the keyword
+  ink picked black or white against the chip fill.
   `video.chapter_frame_anchor` flips named chapters to hang top-cropped
   from the top edge (caption moves below the phone — right for chapters
   whose key content is bottom sheets) or to the legacy fully-visible
@@ -103,10 +105,15 @@ fixed-total-window pacing) is ignored; each still now holds a fixed
 `beat_seconds` beat.
 Captions (in manifests and fragments alike) may mark ONE key phrase with
 asterisks — `caption: "Rewatch *past lessons* whenever you like."` — and
-the video renders that phrase in the accent colour when it reads against
-the canvas (an accent that matches the canvas — the derived default —
-falls back to underlined ink); the markers are stripped everywhere else,
-so the guide stays plain text.
+the video (and the store stills) draw that phrase inside a filled rounded
+highlight chip: the chip fills with the accent colour when the accent
+stands apart from the canvas, and with the black/white contrast ink when
+it cannot (the derived default, where accent and canvas share the
+primary); the keyword's own ink is black or white against the chip fill,
+so the chip always provides its own contrast. The phrase never splits
+across a line wrap — when it does not fit the current line it drops whole
+to the next row. The markers are stripped everywhere else, so the guide
+stays plain text.
 
 `video.chapter_frame_anchor` maps chapter names (fragment names, plus
 `app` for pre-chapter plans) to how that chapter's phone frame meets the
