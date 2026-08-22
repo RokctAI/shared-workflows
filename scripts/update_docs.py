@@ -808,11 +808,12 @@ def append_heading(lines, level, name, args, fn_prefix, lang, signature=None):
 
 def lint_clean_markdown(text):
     """Final normalization pass: exactly one blank line around headings,
-    no consecutive blank lines, single trailing newline. Fenced blocks are
-    left untouched."""
+    no consecutive blank lines, no trailing whitespace (MD009), single
+    trailing newline. Fenced block content is otherwise left untouched."""
     out = []
     in_fence = False
     for line in text.splitlines():
+        line = line.rstrip()
         stripped = line.strip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             if not in_fence and out and out[-1] != "":
