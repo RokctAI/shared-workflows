@@ -45,6 +45,37 @@ shell repo under `marketing/tour/`:
   its chapter's anchor crop, brand background, caption — with no hook/end
   cards and no drift. Numbering matches `screenshots/`; the directory is
   refreshed wholesale so renamed or removed steps never linger.
+- `marketing/tour/store/feature-graphic.png` — the Play listing's
+  LANDSCAPE feature graphic, exactly 1024x500 (rendered supersampled at
+  2x so the type stays crisp): brand-primary canvas; the app logo, app
+  name and tagline stacked on the left; the hero screenshot in the house
+  phone frame on the right, its bottom edge cropped by the canvas. The
+  hero still is the first captured step of the SECOND chapter (the first
+  chapter is usually onboarding/sign-in), falling back to the tour's
+  first captured step. Composed to Play feature-graphic conventions:
+  minimal text, nothing critical near the edges or the exact centre
+  (Play crops the graphic in some placements and overlays a play button
+  on it when it fronts the promo video).
+- `marketing/tour/tour-wide.mp4` — ONE widescreen 16:9 highlight reel
+  across ALL chapters (1920x1080, same fps/codec/pacing as the chapter
+  videos), for the Play listing's landscape promo-video slot. Landscape
+  composition: the caption (same type treatment, same highlight chip)
+  fills the left half of the brand canvas; the portrait framed phone
+  sits in the right half, gently edge-cropped per its chapter's anchor
+  (`full` keeps it fully visible). It opens on a landscape splash card —
+  portrait splash art renders CONTAINED at full canvas height with the
+  side pillars filled with the art's own border-average colour (16:9
+  centre-cropping full-screen portrait art would slice through its
+  typography); full-bleed landscape art cover-crops; a small mark sits
+  centred on the brand canvas — and closes on the landscape logo/offer
+  end card. Beat selection keeps the reel short: chapters keep tour
+  order; each contributes its first TWO captured steps that carry a
+  `*highlight*` phrase (the manifest author's own emphasis is the best
+  available signal for a chapter's strongest beats), or its first
+  captured step when none do — so every chapter appears — capped at 8
+  beats overall, trimming later chapters' second picks first. The name
+  `tour-wide.mp4` is reserved: a fragment named `wide` would collide
+  with it (the assembler warns and the reel wins).
 
 ## Who owns what
 
