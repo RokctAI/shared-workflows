@@ -986,6 +986,43 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
     log(f"wrote {out_path} ({FEATURE_W}x{FEATURE_H})")
 
 
+def write_app_icon(out_dir, logo_path, brand_bg):
+    """<out>/store/icon-512.png — the Play listing's 512x512 app icon.
+
+    The app logo centred on the brand-primary canvas with breathing
+    room, exactly 512x512 (Play's icon spec: 512x512 PNG, at most 1MB —
+    a flat-background PNG at this size is nowhere near the limit). The
+    Play-deploy uploader classifies it by its dimensions, like the
+    feature graphic. Skipped (logged) when the plan resolves no logo.
+    """
+    from PIL import Image
+
+    if not logo_path or not os.path.exists(logo_path):
+        log("app icon: no app logo in the resolved plan — skipping store/icon-512.png")
+        return
+    try:
+        with Image.open(logo_path) as raw:
+            logo = raw.convert("RGBA")
+    except OSError as e:
+        warn(f"app icon: could not read logo {logo_path!r} ({e}) — skipping it")
+        return
+    side = 512
+    # Scale to FIT a 360px box (up or down — unlike thumbnail, small
+    # committed logo rasters must still fill the icon): the logo is the
+    # icon's whole content, with ~30% canvas breathing room around it.
+    box = 360
+    scale = box / max(logo.width, logo.height)
+    logo = logo.resize(
+        (max(1, round(logo.width * scale)), max(1, round(logo.height * scale))),
+        Image.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (side, side), tuple(brand_bg) + (255,))
+    canvas.alpha_composite(logo, ((side - logo.width) // 2, (side - logo.height) // 2))
+    out_path = os.path.join(out_dir, "store", "icon-512.png")
+    canvas.convert("RGB").save(out_path, format="PNG")
+    log(f"wrote {out_path} ({side}x{side}, {os.path.getsize(out_path) / 1024:.0f} KB)")
+
+
 def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_path):
     """Render one video per chapter: <out>/tour-<chapter>.<container>.
 
@@ -1001,9 +1038,10 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     — one Play-Store-ready styled still per step, the beat composition at
     rest (no hook/end cards, no drift) — refreshed wholesale, plus the
     landscape Play-listing assets: <out>/store/feature-graphic.png
-    (1024x500, see ``write_feature_graphic``) and the single 16:9
-    highlight reel <out>/tour-wide.<container> across all chapters (see
-    ``select_wide_beats`` / ``render_wide_video``).
+    (1024x500, see ``write_feature_graphic``), the 512x512
+    <out>/store/icon-512.png (see ``write_app_icon``) and the single
+    16:9 highlight reel <out>/tour-wide.<container> across all chapters
+    (see ``select_wide_beats`` / ``render_wide_video``).
     """
     from PIL import Image
 
@@ -1175,6 +1213,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     hero = pick_hero_step(chapters, shots)
     if hero is not None:
         write_feature_graphic(out_dir, app, shots[hero["key"]], logo_path, brand_bg, font_path)
+    write_app_icon(out_dir, logo_path, brand_bg)
     for chapter, chapter_steps in chapters.items():
         captured = [s for s in chapter_steps if s["key"] in shots]
         if not captured:
