@@ -39,9 +39,12 @@ Two independent products (so a video hiccup can never block the stills):
            beat per step (~4s each): the screenshot sits in a BLACK
            rounded-bezel phone frame on the brand-primary canvas,
            anchored to the bottom canvas edge with its lower part cropped
-           off-screen (WhatsApp-ad framing) and easing gently toward the
-           edge, with the bold caption lines drawn straight on the canvas
-           above it — then a ~3s end card (logo + app name + offer line —
+           off-screen (WhatsApp-ad framing). Each beat opens with the
+           phone SLIDING IN from fully off-canvas past its anchored edge,
+           decelerating into its rest crop over the beat's first quarter;
+           the bold caption lines (drawn straight on the canvas, tight
+           against the phone's near edge) fade in as the slide lands —
+           then a ~3s end card (logo + app name + offer line —
            only when the manifest supplies an offer or a logo).
            video.chapter_frame_anchor flips named chapters to hang
            top-cropped from the top edge instead (caption moves below the
@@ -114,12 +117,22 @@ FRAME_MARGIN = 80  # transparent margin around the card so the shadow fits
 CROP_FRACTION = 0.16  # share of the phone's height cropped off-canvas at rest
 CAPTION_TOP = 140  # caption block top margin (bottom-anchored beats)
 CAPTION_BOTTOM = 140  # caption block bottom margin (top-anchored beats)
+CAPTION_MIN_EDGE = 72  # caption never gets closer than this to a canvas edge
+CAPTION_PHONE_GAP = 48  # px between the caption block and the phone's near edge
 FRAME_ZONE_TOP = 500  # `full` anchor: phone floats below the caption zone
 VALID_FRAME_ANCHORS = ("bottom", "top", "full")
-# Anchored phones ease this far INTO view per beat; the cropped edge never
-# re-enters the canvas because the rest crop is always deeper than the drift.
+# Chapter-beat entrance: the phone starts FULLY off-canvas past its anchored
+# edge (below for bottom/full, above for top) and decelerates (cubic
+# ease-out) into its rest position over the beat's first quarter, then
+# holds. The caption stays hidden while the phone travels and fades in as
+# the slide-in lands (~80% through the entrance).
+ENTRANCE_FRACTION = 0.25  # share of the beat the slide-in takes
+CAPTION_APPEAR_AT = 0.20  # beat progress when the caption starts fading in
+CAPTION_FADE_FRACTION = 0.10  # share of the beat the caption fade takes
+# Wide-reel phones keep the legacy gentle settle instead (the landscape
+# promo reads calmer with most of the screen already in view).
 DRIFT_PX = 40
-FULL_DRIFT_PX = 60  # legacy `full` anchor keeps the gentle two-way drift
+FULL_DRIFT_PX = 60  # legacy `full` anchor drift (wide reel only)
 INK_DARK = (17, 17, 20)
 INK_LIGHT = (255, 255, 255)
 MIN_ACCENT_CONTRAST = 2.5  # below this the accent cannot stand apart from the canvas
@@ -466,7 +479,67 @@ def draw_caption_lines(draw, lines, font, origin_x, top, line_height, ink, chip_
         y += line_height
 
 
-def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top"):
+def entrance_ease(progress):
+    """Beat progress 0..1 -> phone slide-in progress 0..1 (cubic ease-out).
+
+    The whole travel happens inside the beat's first ENTRANCE_FRACTION,
+    decelerating into the rest position (no overshoot); the phone then
+    holds at 1.0 for the remainder of the beat.
+    """
+    t = min(1.0, progress / ENTRANCE_FRACTION)
+    return 1.0 - (1.0 - t) ** 3
+
+
+def caption_alpha(progress):
+    """Beat progress 0..1 -> caption opacity 0..1.
+
+    Zero while the phone travels, ramping to full over
+    CAPTION_FADE_FRACTION once the slide-in is nearly done
+    (CAPTION_APPEAR_AT sits at ~80% of the entrance window).
+    """
+    return max(0.0, min(1.0, (progress - CAPTION_APPEAR_AT) / CAPTION_FADE_FRACTION))
+
+
+def with_alpha(overlay, alpha):
+    """``overlay`` (RGBA) scaled to ``alpha`` opacity (0..1); 1.0 is free."""
+    if alpha >= 1.0:
+        return overlay
+    faded = overlay.copy()
+    faded.putalpha(faded.getchannel("A").point(lambda a: round(a * alpha)))
+    return faded
+
+
+def beat_frames(backdrop, caption, card, x, y_at, step_frames):
+    """Yield one chapter beat's RGB frames: slide-in, caption fade, hold.
+
+    The phone slides in from fully off-canvas (``entrance_ease``) while
+    the caption stays hidden, then the caption fades in as the slide
+    lands (``caption_alpha``); once both settle the frame is static, so
+    it renders once and repeats for the rest of the beat.
+    """
+    settled = None
+    for i in range(step_frames):
+        progress = i / max(1, step_frames - 1)
+        ease = entrance_ease(progress)
+        alpha = caption_alpha(progress)
+        if ease >= 1.0 and alpha >= 1.0:
+            if settled is None:
+                rest = backdrop.copy()
+                rest.alpha_composite(caption)
+                rest.paste(card, (x, y_at(1.0)), card)
+                settled = rest.convert("RGB")
+            yield settled
+            continue
+        frame = backdrop.copy()
+        if alpha > 0.0:
+            frame.alpha_composite(with_alpha(caption, alpha))
+        frame.paste(card, (x, y_at(ease)), card)
+        yield frame.convert("RGB")
+
+
+def caption_overlay(
+    text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top", phone_edge=None
+):
     """Static caption block, rendered once per step (RGBA).
 
     WhatsApp-ad style: bold left-aligned lines drawn straight on the
@@ -480,7 +553,10 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG,
     phrase never splits across a line wrap — when it does not fit the
     current line it drops whole to the next row. ``position`` is "top"
     (above a bottom-anchored phone) or "bottom" (below a top-anchored
-    one).
+    one). ``phone_edge`` is the canvas y of the phone's nearest bezel
+    edge at rest: when given, the block hugs it (CAPTION_PHONE_GAP away,
+    clamped CAPTION_MIN_EDGE from the canvas edge) instead of hanging at
+    the fixed canvas margin.
     """
     from PIL import Image, ImageDraw
 
@@ -495,7 +571,14 @@ def caption_overlay(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG,
     lines = wrap_tokens(draw, highlight_tokens(normalized, highlight), font, max_text_width)
     line_height = 84
     block_height = line_height * len(lines)
-    top = CAPTION_TOP if position == "top" else HEIGHT - CAPTION_BOTTOM - block_height
+    if position == "top":
+        top = CAPTION_TOP
+        if phone_edge is not None:
+            top = max(CAPTION_MIN_EDGE, phone_edge - CAPTION_PHONE_GAP - block_height)
+    else:
+        top = HEIGHT - CAPTION_BOTTOM - block_height
+        if phone_edge is not None:
+            top = min(HEIGHT - CAPTION_MIN_EDGE - block_height, phone_edge + CAPTION_PHONE_GAP)
     ink = tuple(ink_for(bg)) + (255,)
     chip_fill, chip_ink = chip_colors(accent, bg)
     draw_caption_lines(
@@ -1105,12 +1188,15 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         return anchor
 
     def build_beat(step, anchor):
-        """One beat's static parts: (backdrop+caption, phone card, x, y_at).
+        """One beat's static parts: (backdrop, caption, phone card, x, y_at).
 
-        y_at(ease) is the card paste position for a settle progress in
-        0..1. Edge-anchored phones start DRIFT_PX further off-canvas and
-        ease toward their rest crop, so the cropped edge never re-enters
-        the canvas; the legacy `full` anchor keeps its two-way float.
+        y_at(ease) is the card paste position for an entrance progress in
+        0..1: at 0 the phone sits FULLY off-canvas past its anchored edge
+        (below the canvas for bottom/full, above it for top), at 1 it
+        rests at its final crop. The caption overlay is returned
+        separately (not baked into the backdrop) so the render loop can
+        fade it in once the slide-in lands; it hugs the phone's resting
+        edge (see ``caption_overlay``'s ``phone_edge``).
         """
         with Image.open(shots[step["key"]]) as raw:
             if anchor == "full":
@@ -1118,30 +1204,37 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             else:
                 card = phone_card(raw.convert("RGB"))
         backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
-        backdrop.alpha_composite(
-            caption_overlay(
-                step.get("caption") or step.get("title") or "",
-                font_path,
-                highlight=step.get("highlight") or "",
-                accent=accent,
-                bg=brand_bg,
-                position="bottom" if anchor == "top" else "top",
-            )
-        )
         x = (WIDTH - card.width) // 2
         phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
         crop = round(CROP_FRACTION * phone_h)
 
-        def y_at(ease):
-            if anchor == "full":
-                y_base = FRAME_ZONE_TOP + (HEIGHT - 40 - FRAME_ZONE_TOP - card.height) // 2
-                return y_base + round(FULL_DRIFT_PX * (0.5 - ease))
-            off = crop + round(DRIFT_PX * (1 - ease))
-            if anchor == "top":
-                return -off - FRAME_MARGIN
-            return HEIGHT + off - FRAME_MARGIN - phone_h  # bottom
+        if anchor == "full":
+            y_rest = FRAME_ZONE_TOP + (HEIGHT - 40 - FRAME_ZONE_TOP - card.height) // 2
+            y_start = HEIGHT  # fully below the canvas, shadow and all
+        elif anchor == "top":
+            y_rest = -crop - FRAME_MARGIN
+            y_start = -card.height  # fully above the canvas
+        else:  # bottom
+            y_rest = HEIGHT + crop - FRAME_MARGIN - phone_h
+            y_start = HEIGHT  # fully below the canvas, shadow and all
 
-        return backdrop, card, x, y_at
+        def y_at(ease):
+            return round(y_rest + (y_start - y_rest) * (1.0 - ease))
+
+        if anchor == "top":
+            phone_edge = y_rest + FRAME_MARGIN + phone_h  # bezel bottom at rest
+        else:
+            phone_edge = y_rest + FRAME_MARGIN  # bezel top at rest
+        caption = caption_overlay(
+            step.get("caption") or step.get("title") or "",
+            font_path,
+            highlight=step.get("highlight") or "",
+            accent=accent,
+            bg=brand_bg,
+            position="bottom" if anchor == "top" else "top",
+            phone_edge=phone_edge,
+        )
+        return backdrop, caption, card, x, y_at
 
     def write_store_stills(chapters):
         """<out>/store/NN-key.png — the beat composition at rest, per step.
@@ -1161,9 +1254,10 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 if step["key"] not in shots:
                     continue
                 number += 1
-                backdrop, card, x, y_at = build_beat(step, anchor)
+                backdrop, caption, card, x, y_at = build_beat(step, anchor)
                 still = backdrop.copy()
-                still.paste(card, (x, y_at(0.5 if anchor == "full" else 1.0)), card)
+                still.alpha_composite(caption)
+                still.paste(card, (x, y_at(1.0)), card)
                 still.convert("RGB").save(
                     os.path.join(store_dir, f"{number:02d}-{step['key']}.png"), format="PNG"
                 )
@@ -1184,15 +1278,8 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                     yield opening_image
             step_frames = int(round(per_step * fps))
             for step in steps:
-                # Caption + brand background are static per beat; only the
-                # phone frame eases toward its anchored rest position.
-                backdrop, card, x, y_at = build_beat(step, anchor)
-                for i in range(step_frames):
-                    progress = i / max(1, step_frames - 1)
-                    ease = progress * progress * (3 - 2 * progress)  # smoothstep
-                    frame = backdrop.copy()
-                    frame.paste(card, (x, y_at(ease)), card)
-                    yield frame.convert("RGB")
+                backdrop, caption, card, x, y_at = build_beat(step, anchor)
+                yield from beat_frames(backdrop, caption, card, x, y_at, step_frames)
             if end_image is not None:
                 for _ in range(int(round(end_seconds * fps))):
                     yield end_image
