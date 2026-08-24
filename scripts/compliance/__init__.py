@@ -19,6 +19,7 @@
 # SOFTWARE.
 
 import ast
+import re
 from compliance.base import PlatformComplianceVisitor, FILE_CHECKERS, collect_suppressions, is_suppressed
 from compliance import controls
 
@@ -45,9 +46,38 @@ import compliance.layer_19
 from compliance.layer_3 import check_database_migrations
 
 
+# Install-time template placeholder, e.g. `from {app_name}.polaris import x`.
+# Conservative on purpose: lowercase snake_case identifiers in single braces —
+# the spelling actually used by fleet templates ({app_name}, {module_name},
+# {site_name}, ...). The substitution path only runs AFTER ast.parse has raised
+# a SyntaxError, so valid files containing dict/set literals or f-strings
+# (where `{name}` is legal syntax) never go near it.
+TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{[a-z_][a-z0-9_]*\}")
+
+
+def is_template_syntax_error(source, filepath):
+    """True if `source` only fails to parse because of template placeholders.
+
+    Replaces `{app_name}`-style tokens with a bare valid identifier and
+    re-parses. A clean re-parse means the file is an install-time template
+    (composed into a host app before it ever runs), not broken Python, so a
+    syntax-error finding would be pure noise. Any other failure — or a source
+    with no placeholder tokens at all — leaves the original finding intact.
+    """
+    substituted, n_subs = TEMPLATE_PLACEHOLDER_RE.subn("_tmpl_placeholder_", source)
+    if not n_subs:
+        return False
+    try:
+        ast.parse(substituted, filepath)
+        return True
+    except Exception:
+        return False
+
+
 def scan_file(filepath, severity_overrides=None):
     errors = []
     if filepath.endswith(".py"):
+        source = None
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 source = f.read()
@@ -55,6 +85,11 @@ def scan_file(filepath, severity_overrides=None):
             visitor = PlatformComplianceVisitor(filepath)
             visitor.visit(tree)
             errors.extend(visitor.errors)
+        except SyntaxError as e:
+            # Placeholder-aware pass: template files ({app_name}-style tokens)
+            # are not valid Python until composed — don't report them as broken.
+            if source is None or not is_template_syntax_error(source, filepath):
+                errors.append({"line": 1, "type": "Syntax Error", "message": str(e)})
         except Exception as e:
             errors.append({"line": 1, "type": "Syntax Error", "message": str(e)})
 

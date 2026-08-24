@@ -55,12 +55,15 @@ CONFIG_FILENAME = "compliance.config.json"
 #
 # "frappe"/"erpnext"/"payments"/"hrms"/"lms" exist to skip VENDORED upstream
 # checkouts of the Frappe framework and its standard apps (third-party deps,
-# not owned code — see commit 610abff). They intentionally do NOT stop an
-# SDK's own `<module>/frappe/` flavor half from being scanned: os.walk
-# pruning only removes CHILD directories of the walk root, and
-# sdk_validator.py runs the scanner with the discovered SDK half as its
-# working directory / walk root, so the half's own tree is scanned while
-# vendored framework dirs anywhere below it stay excluded.
+# not owned code — see commit 610abff). They do NOT stop an SDK's own
+# module dirs from being scanned:
+#   * sdk_validator.py runs the scanner with the discovered SDK half as its
+#     working directory / walk root, so the half's own tree is the walk root
+#     and cannot be pruned;
+#   * a repo-ROOT scan keeps any colliding-name directory that carries an
+#     SDK manifest half (see SDK_MANIFEST_MARKERS / is_first_party_module_dir
+#     below) — first-party modules like agent/lms, pay/payments and pay/hrms
+#     stay scanned while vendored framework checkouts stay excluded.
 DEFAULT_EXCLUDE_DIRS = [
     ".git", "node_modules", ".next", "dist", ".dart_tool", "build",
     "ios", "android", "env", "__pycache__", "Compliance", ".shared-workflows",
@@ -119,6 +122,33 @@ def load_config(start_dirs):
     if raw.get("fail_on") in ("error", "warning"):
         config["fail_on"] = raw["fail_on"]
     return config, path
+
+
+# Marker files that identify a directory as a FIRST-PARTY SDK module (or one
+# of its flavor halves) rather than a vendored upstream checkout. The
+# "frappe"/"erpnext"/"payments"/"hrms"/"lms" entries in DEFAULT_EXCLUDE_DIRS
+# exist to skip vendored Frappe-framework checkouts, but those names collide
+# with first-party fleet module dirs (agent/lms, pay/payments, pay/hrms) —
+# a repo-root scan would silently hide those modules. Vendored framework
+# checkouts carry none of these manifests; first-party modules always do.
+SDK_MANIFEST_MARKERS = (
+    "manifest.json",                             # a flavor half itself (lms/frappe/)
+    os.path.join("frappe", "manifest.json"),     # a module dir holding halves (lms/)
+    os.path.join("nextjs", "manifest.json"),
+    os.path.join("dart", "manifest.json"),
+)
+
+
+def is_first_party_module_dir(path):
+    """True if `path` contains an SDK manifest half — never prune such a dir.
+
+    Applies only as an override for directories whose NAME is in the exclude
+    list; everything else keeps exact-name pruning semantics unchanged.
+    """
+    for marker in SDK_MANIFEST_MARKERS:
+        if os.path.isfile(os.path.join(path, marker)):
+            return True
+    return False
 
 
 def excluded_dirs(config):
