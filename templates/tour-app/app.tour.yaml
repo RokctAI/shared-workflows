@@ -1,0 +1,110 @@
+# Starter guided-tour manifest for an app shell. Copy to tour/app.tour.yaml
+# in the app repo and edit — this file is the ONLY place the tour carries the
+# app's branding. SDK tour fragments (each SDK's templates/tour/<sdk>.tour.yaml)
+# stay brand-neutral and receive {app_name}/{app_tagline} by substitution at
+# merge time.
+#
+# Full format documentation: scripts/tour/README.md in RokctAI/shared-workflows.
+# The pipeline runs via .github/workflows/universal-guided-tour.yml there;
+# outputs land in the app repo's marketing/tour/ (screenshots +
+# feature-guide.md required, per-chapter videos + Play-Store stills
+# best-effort).
+#
+# Every key below is shown with its real name; keys marked "optional" can be
+# deleted outright.
+
+app:
+  # Substituted into {app_name} placeholders in fragment captions.
+  name: YourApp
+  # Substituted into {app_tagline}.
+  tagline: One line on what the app does
+  # optional; repo-relative committed logo (transparent background), shown on
+  # the video end card.
+  logo: assets/images/logo.png
+  # optional; repo-relative splash art for the ~3s video opening card. When
+  # absent the merge auto-detects it (flutter_native_splash.yaml's
+  # background_image then image, then assets/images/splash.png).
+  # splash: assets/images/splash.png
+
+# The whole video block is optional (as is each key in it) — the video stage
+# is best-effort and screenshots/guide never depend on it.
+video:
+  # optional; opening hook card text, used only when no splash art resolves.
+  hook: "One-line hook for the promo video."
+  # optional; ~3s end card call-to-action line.
+  offer: "Start today."
+  # optional; seconds each still holds in the video (default 4).
+  # beat_seconds: 4
+  # optional; canvas colour override. When absent (recommended) the merge
+  # derives brand/accent from the composed AppStyle so the video always
+  # matches the app's real theme.
+  # brand_color: "#0B2A4A"
+  # optional; keyword highlight-chip colour override, same derivation rules.
+  # accent_color: "#41D68C"
+  # optional; per-chapter phone-frame anchoring. Chapter names are fragment
+  # names (plus `app` for steps before the first fragment). Values:
+  # bottom (default, phone cropped at the bottom edge, caption above),
+  # top (phone hangs top-cropped, caption below — right for chapters whose
+  # key content is bottom sheets, e.g. auth), full (fully visible phone).
+  chapter_frame_anchor:
+    auth: top
+
+# optional; Dart run once before app.main() — e.g. pre-seed language or
+# first-run flags so no modal can block the tour. `imports` are added to the
+# generated runner; `dart` runs with `tester` and `router` NOT yet in scope.
+# setup:
+#   imports:
+#     - "import 'package:base_sdk/src/services/local_storage.dart';"
+#   dart: |
+#     await LocalStorage.init();
+
+# The tour itself: an ordered list of inline `step:` entries and `fragment:`
+# includes. Each `fragment:` opens a video chapter named after the fragment;
+# inline steps belong to the chapter they precede. Fragments come from the
+# composed SDKs (templates/tour/<name>.tour.yaml in the SDK's dart module) —
+# a fragment none of the composed SDKs ship is skipped with a warning, never
+# a failure, so list them in the order that tells the app's story and let
+# coverage grow with the SDKs.
+tour:
+  # Splash settles onto the first screen; demo builds accept any sign-in.
+  - step:
+      # ^[a-z][a-z0-9_]*$ — unique across the whole merged tour.
+      key: welcome
+      # Feature-guide heading.
+      title: "Welcome to YourApp"
+      # Guide text + burned-in video caption. {app_name}/{app_tagline} are
+      # substituted; ONE *phrase* may be starred for the highlight chip.
+      caption: "{app_name} does the thing - and in this demo build, any sign-in details work."
+      # wait | route | dart
+      action: wait
+      # Seconds to let the screen settle before the still (0-60, default 5).
+      settle: 12
+      # screenshot: false would perform the action and capture nothing.
+  # auth_sdk captures the auth screens then performs the demo sign-in.
+  - fragment: auth
+  # Chapter fragments for this app's composed SDKs, in story order, e.g.:
+  # - fragment: merchants
+  # - fragment: products
+  # - fragment: orders
+
+  # --- role chaining (optional) ---------------------------------------
+  # A tour can walk several roles through the same session by chaining
+  # sign-out/sign-in steps between role-specific fragments. In demo builds
+  # auth_sdk's MockAuthRepository maps the role by EMAIL (any password):
+  # partner@demo.rokct.ai -> partner, admin@demo.rokct.ai -> admin, any
+  # other email -> the default (customer/student) role. An app needing
+  # other roles (driver, manager, ...) must first add those demo emails to
+  # MockAuthRepository in Users/auth. Working sign-out and sign-in `dart`
+  # steps to copy verbatim (they use base_sdk's LocalStorage teardown and
+  # auth_sdk's loginProvider) are in supacharge's tour/app.tour.yaml —
+  # steps sign_out_student / partner_sign_in.
+  # - step:
+  #     key: sign_out_customer
+  #     title: "Sign out"
+  #     action: dart
+  #     screenshot: false
+  #     settle: 4
+  #     dart: |
+  #       LocalStorage.logout();
+  #       router.replaceNamed('/login');
+  # - fragment: your_partner_fragment
