@@ -36,6 +36,17 @@ repository folder must be spelled `infrastructure/repositories` (plural),
 `infrastructure/models` must be sliced into data/ + response/ wherever it
 exists, and `infrastructure/database` is required exactly when the
 manifest declares the `database` key (2/2 correlation in the fleet).
+
+Beyond the dart halves, SDK modules also ship sibling flavor halves —
+`<module>/frappe/` and `<module>/nextjs/` (e.g. corporate's tender/frappe +
+tender/nextjs), each with its own manifest.json. Those are discovered and
+audited ADDITIVELY, after the dart pass: the dart discovery, registry,
+structure rules, import validation and audit ordering are untouched (shared
+CI tooling — existing consumers must see byte-identical dart results).
+Flavor halves get proportional checks only: manifest parses, declared
+install `from` paths exist, plus the compliance scan (with --compliance)
+over their src/ and tests/. The dart-census structure rules above are
+dart-only and are never applied to frappe/nextjs halves.
 """
 import argparse
 import os
@@ -93,7 +104,7 @@ class SDKLogger:
                 f.write("\n")
 
 
-def run_compliance_scanner(sdk_name, dart_dir, root_dir, logger):
+def run_compliance_scanner(sdk_name, dart_dir, root_dir, logger, scan_dirs=None):
     # Relative to this script's own location, not a hardcoded personal path -
     # this script and compliance_scanner.py live side by side in
     # shared-workflows/scripts/, so this resolves correctly whether run
@@ -108,9 +119,21 @@ def run_compliance_scanner(sdk_name, dart_dir, root_dir, logger):
     env = os.environ.copy()
     env["EVIDENCE_REPO_DIR"] = str(root_dir)
     
+    # scan_dirs (used for frappe/nextjs flavor halves) narrows the scan to
+    # specific subdirectories (e.g. src/ + tests/) instead of the whole tree.
+    # Running with cwd inside the SDK half is also what lifts the scanner's
+    # vendored-framework directory exclusion ("frappe" et al. in
+    # compliance/config.py DEFAULT_EXCLUDE_DIRS) for exactly this SDK's own
+    # tree: os.walk pruning only ever removes CHILD directories of the walk
+    # root, so a vendored frappe/ checkout elsewhere stays excluded while the
+    # SDK's own frappe half — the walk root itself — gets scanned.
+    cmd = [sys.executable, str(scanner_path)]
+    if scan_dirs:
+        cmd += [str(d) for d in scan_dirs]
+
     try:
         proc = subprocess.run(
-            [sys.executable, str(scanner_path)],
+            cmd,
             cwd=str(dart_dir),
             capture_output=True,
             text=True,
@@ -147,6 +170,103 @@ def find_manifests(root_dir):
         if 'manifest.json' in files and 'dart' in root:
             manifests.append(os.path.join(root, 'manifest.json'))
     return manifests
+
+# The non-dart SDK flavor halves the fleet layout doctrine defines: an SDK
+# module is <module>/<flavor>/ with a manifest.json per flavor
+# (e.g. tender/dart, tender/frappe, tender/nextjs — see the app_type flavor
+# blocks handled in parse_manifests). dart is handled by find_manifests /
+# parse_manifests exactly as before; these are discovered additively.
+FLAVOR_DIRS = ('frappe', 'nextjs')
+
+def find_flavor_manifests(root_dir):
+    """Discovers `*/frappe/manifest.json` and `*/nextjs/manifest.json`.
+
+    Returns [(manifest_path, flavor)]. Additive alongside find_manifests():
+    any path find_manifests() already claims ('dart' in the path) is skipped
+    here so nothing is ever audited twice, and dart discovery itself is
+    untouched. The discriminator is a manifest.json sitting directly inside a
+    frappe/ or nextjs/ directory — a vendored copy of the Frappe FRAMEWORK
+    (or a nextjs app checkout) has no manifest.json at its root, so vendored
+    trees are naturally not picked up as SDK halves.
+    """
+    manifests = []
+    for root, dirs, files in os.walk(root_dir):
+        if 'node_modules' in dirs:
+            dirs.remove('node_modules')
+        if '.next' in dirs:
+            dirs.remove('.next')
+        if '.kilo' in dirs:
+            dirs.remove('.kilo')
+        if '.rokct' in dirs:
+            dirs.remove('.rokct')
+        if 'manifest.json' in files and 'dart' not in root:
+            flavor = os.path.basename(os.path.normpath(root))
+            if flavor in FLAVOR_DIRS:
+                manifests.append((os.path.join(root, 'manifest.json'), flavor))
+    return manifests
+
+def parse_flavor_manifests(flavor_manifest_paths):
+    """Parses frappe/nextjs SDK-half manifests into their own table.
+
+    Deliberately kept separate from parse_manifests()'s registry/sdk_data:
+    flavor halves must not perturb the dart install registry or the dart
+    audit (a module's dart and nextjs manifests can even share the same
+    "name", e.g. polaris_sdk). Keys are "<name> (<flavor>)" so labels stay
+    unique across flavors and never collide with a dart SDK name.
+    """
+    flavor_data = {}
+    for path, flavor in flavor_manifest_paths:
+        try:
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            sdk_name = data.get('name')
+            if not sdk_name:
+                continue
+            label = f"{sdk_name} ({flavor})"
+            flavor_data[label] = {
+                'manifest_path': path,
+                'root_dir': Path(path).parent.parent,
+                'flavor_dir': Path(path).parent,
+                'flavor': flavor,
+            }
+        except Exception as e:
+            print(f"[!] Error parsing {path}: {e}")
+    return flavor_data
+
+def validate_flavor_manifest(label, flavor_dir, manifest_path, logger):
+    """Minimal structure rules for a frappe/nextjs SDK half.
+
+    Deliberately proportional — the dart census rules (validate_structure)
+    are dart-only. Here: the manifest must parse, and every install entry's
+    declared `from` path (top-level installs plus app_type flavor blocks)
+    must exist inside the SDK half.
+    """
+    try:
+        with open(manifest_path, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.log(f"[{str(flavor_dir).replace(chr(92), '/')}] "
+                   f"Manifest does not parse: {e}", "ERROR", label)
+        return False
+
+    install_blocks = [data.get('installs', [])]
+    for flavor_block in (data.get('app_type') or {}).values():
+        if isinstance(flavor_block, dict):
+            install_blocks.append(flavor_block.get('installs', []))
+
+    valid = True
+    for installs in install_blocks:
+        for install in installs:
+            if not isinstance(install, dict):
+                continue
+            from_path = install.get('from')
+            if from_path and not (flavor_dir / from_path).exists():
+                logger.log(
+                    f"[{str(flavor_dir).replace(chr(92), '/')}] Manifest "
+                    f"declares install from '{from_path}' but that path does "
+                    f"not exist in the SDK half.", "ERROR", label)
+                valid = False
+    return valid
 
 def parse_manifests(manifest_paths):
     registry = {} 
@@ -561,12 +681,18 @@ def main():
         logger.log("Compliance scan disabled (pass --compliance to enable).")
     
     manifest_paths = find_manifests(root_dir)
-    if not manifest_paths:
+    flavor_manifest_paths = find_flavor_manifests(root_dir)
+    if not manifest_paths and not flavor_manifest_paths:
         logger.log("No manifests found. Audit aborted.", "ERROR")
         return
 
     registry, sdk_data = parse_manifests(manifest_paths)
     logger.log(f"Loaded {len(sdk_data)} SDKs and {len(registry)} installation paths.")
+
+    flavor_data = parse_flavor_manifests(flavor_manifest_paths)
+    if flavor_data:
+        logger.log(f"Discovered {len(flavor_data)} non-dart SDK flavor "
+                   f"halves (frappe/nextjs).")
 
     consumers_map = load_consumers_map(root_dir, args.consumers_map, logger)
 
@@ -619,7 +745,29 @@ def main():
                 overall_errors += 1
 
 
-    logger.write_summaries(list(sdk_data.keys()))
+    # Non-dart SDK flavor halves (frappe/nextjs), audited AFTER the whole
+    # dart pass so dart findings and their ordering stay byte-identical.
+    for label, info in flavor_data.items():
+        logger.log(f"--- Auditing SDK flavor half: {label} ---")
+
+        # 1. Minimal structure check (manifest parses, declared paths exist)
+        if not validate_flavor_manifest(label, info['flavor_dir'],
+                                        info['manifest_path'], logger):
+            overall_errors += 1
+
+        # 2. Architectural Compliance Scan (opt-in via --compliance).
+        # Scans the half's src/ and tests/ where they exist; a half without
+        # them (e.g. a templates-only nextjs half) is scanned whole, matching
+        # how dart halves are scanned.
+        if args.compliance:
+            scan_dirs = [d for d in ('src', 'tests')
+                         if (info['flavor_dir'] / d).is_dir()] or None
+            if not run_compliance_scanner(label, info['flavor_dir'],
+                                          info['root_dir'], logger,
+                                          scan_dirs=scan_dirs):
+                overall_errors += 1
+
+    logger.write_summaries(list(sdk_data.keys()) + list(flavor_data.keys()))
 
     if overall_errors == 0:
         logger.log("Global audit completed. No issues found!")

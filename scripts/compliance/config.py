@@ -52,6 +52,15 @@ CONFIG_FILENAME = "compliance.config.json"
 # check exists precisely to find .py files under those directories — pruning
 # them from the walk makes the check silently unable to fire. (It was briefly
 # added here by mistake; see test_github_dir_is_not_pruned.)
+#
+# "frappe"/"erpnext"/"payments"/"hrms"/"lms" exist to skip VENDORED upstream
+# checkouts of the Frappe framework and its standard apps (third-party deps,
+# not owned code — see commit 610abff). They intentionally do NOT stop an
+# SDK's own `<module>/frappe/` flavor half from being scanned: os.walk
+# pruning only removes CHILD directories of the walk root, and
+# sdk_validator.py runs the scanner with the discovered SDK half as its
+# working directory / walk root, so the half's own tree is scanned while
+# vendored framework dirs anywhere below it stay excluded.
 DEFAULT_EXCLUDE_DIRS = [
     ".git", "node_modules", ".next", "dist", ".dart_tool", "build",
     "ios", "android", "env", "__pycache__", "Compliance", ".shared-workflows",
