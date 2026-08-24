@@ -1,0 +1,64 @@
+# Copyright 2026 RokctAI
+
+# Store deadline radar: weekly check that the Flutter fleet is not behind
+# (or sliding toward) a hard app-store deadline - most urgently Google
+# Play's annual target-API bump. scripts/deadline-radar/check_deadlines.py
+# reads the maintained table in scripts/deadline-radar/deadlines.json,
+# fetches each fleet app repo's android/app/build.gradle targetSdk and CI
+# Flutter pin via the GitHub contents API (MONOREPO_PAT), and files ONE
+# deduplicated, auto-closing issue per deadline in RokctAI/platformstack -
+# the same central-report conventions as the build/lint/security reporters.
+# It also flags its own table once any entry's review_by date passes.
+# Lives in shared-workflows because this repo is PUBLIC: its cron keeps
+# running on free minutes when private-repo Actions minutes are exhausted
+# (same reasoning as sdk-bump-poller.yml).
+
+name: Store Deadline Radar
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print every planned issue operation instead of performing it'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: deadline-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The script degrades gracefully (missing PAT -> log line, unreadable
+    # repo -> warning + UNKNOWN row); a red run means a real script or
+    # central-repo API problem and must stay visible.
+    env:
+      GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Run deadline radar
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          set -o pipefail
+          EXTRA_ARGS=""
+          [ "$DRY_RUN" = "true" ] && EXTRA_ARGS="--dry-run"
+          python3 scripts/deadline-radar/check_deadlines.py $EXTRA_ARGS | tee radar.log
+
+          {
+            echo "## Store Deadline Radar"
+            echo ""
+            echo '```'
+            cat radar.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
