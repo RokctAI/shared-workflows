@@ -489,24 +489,19 @@ jobs:
           }
           # Curated screenshot pick-list: one marketing/tour/store/ still key
           # per line (with or without .png); the order here is the Play
-          # order, max 8. Seeded with the recommended order, leading with
-          # the welcome screen; the 02-04 auth screens are left out because
-          # plain login/register forms make weak store screenshots. Keys that
-          # do not exist in an app's tour are skipped with a log at deploy time.
+          # order, max 8. Seeded comment-only because step keys are per-app:
+          # upload_listing_assets.py treats a comment-only file exactly like
+          # an absent one (first 8 stills in filename order), so the seed is
+          # a discoverable template, never a wrong curation. Keys that do
+          # not exist in an app's tour are skipped with a log at deploy time.
           [ -f marketing/store/screenshots.txt ] || {
             mkdir -p marketing/store
             {
               echo "# Play phone screenshots: one marketing/tour/store/ filename per line (with or without .png)."
               echo "# This order IS the Play Store order; at most 8 are pushed; missing keys are skipped with a log."
-              echo "# Delete this file to fall back to the first 8 stills in filename order."
-              echo "01-welcome"
-              echo "06-schedule"
-              echo "08-tutors"
-              echo "10-practice"
-              echo "14-partner_dashboard"
-              echo "07-courses"
-              echo "11-league"
-              echo "09-library"
+              echo "# While this file holds only comments, the first 8 stills in filename order are pushed."
+              echo "# Curate by listing your app's step keys here, e.g.:"
+              echo "#   01-welcome"
             } > marketing/store/screenshots.txt
             git add -f marketing/store/screenshots.txt
           }
