@@ -40,6 +40,11 @@ on:
         type: boolean
         default: false
         description: "Force auto-fix and commit even on PR/Push (used for daily cleanup and stable releases)"
+      skip-jobs:
+        required: false
+        type: string
+        default: ''
+        description: "Comma-separated list of job keys to skip (e.g. 'lint-shell,lint-node'). Empty runs all jobs."
     secrets:
       MONOREPO_PAT:
         required: false
@@ -67,6 +72,7 @@ on:
 
 jobs:
   standardize:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',standardize,') }}
     name: 🔄 Fleet Standardizer (Auto-Fix)
     permissions: write-all
     runs-on: ubuntu-latest
@@ -252,6 +258,7 @@ jobs:
 
 
   telemetry:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',telemetry,') }}
     needs: standardize
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -273,6 +280,7 @@ jobs:
           -H "Authorization: Bearer $API_KEY"
 
   lint-yaml:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-yaml,') }}
     needs: telemetry
     name: 📝 YAML Lint
     runs-on: ubuntu-latest
@@ -313,6 +321,7 @@ jobs:
           fi
 
   lint-python:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-python,') }}
     needs: telemetry
     name: 🐍 Python Lint (Ruff & ty)
     permissions: write-all
@@ -632,6 +641,7 @@ jobs:
           fi
 
   lint-shell:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-shell,') }}
     needs: telemetry
     name: 🐚 Shell Script Lint (ShellCheck)
     permissions: write-all
@@ -830,6 +840,7 @@ jobs:
           fi
 
   lint-powershell:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-powershell,') }}
     needs: telemetry
     name: 🐚 PowerShell Script Format (PSScriptAnalyzer)
     permissions: write-all
@@ -1038,6 +1049,7 @@ jobs:
           }
 
   lint-flutter:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-flutter,') }}
     needs: telemetry
     name: 🐦 Flutter Analyze
     permissions: write-all
@@ -1303,6 +1315,7 @@ jobs:
           fi
 
   audit-data-leaks:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',audit-data-leaks,') }}
     name: 🔍 Data Leak Audit (Excel/CSV)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -1338,6 +1351,7 @@ jobs:
           fi
 
   lint-node:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-node,') }}
     needs: telemetry
     name: 📦 JS/TS Lint (ESLint & Security)
     permissions: write-all
@@ -1567,6 +1581,7 @@ jobs:
           fi
 
   lint-markdown:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-markdown,') }}
     needs: telemetry
     name: 📝 Markdown Lint
     runs-on: ubuntu-latest
@@ -1580,6 +1595,7 @@ jobs:
         run: npx markdownlint-cli2 '**/*.md' '!node_modules' '!.git' '!build' '!dist' '!out-bash' '!out-ps'
 
   lint-dockerfile:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-dockerfile,') }}
     needs: telemetry
     name: 🐳 Dockerfile Lint
     runs-on: ubuntu-latest
@@ -1604,6 +1620,7 @@ jobs:
           find . -name "Dockerfile*" -not -path "*/node_modules/*" -not -path "*/.git/*" -print0 | xargs -0 hadolint
 
   lint-todos:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-todos,') }}
     needs: telemetry
     name: 📋 TODO/FIXME Checker
     runs-on: ubuntu-latest
@@ -1623,6 +1640,7 @@ jobs:
           fi
 
   lint-issue-templates:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-issue-templates,') }}
     needs: telemetry
     name: 📋 Issue Template Validator
     runs-on: ubuntu-latest
@@ -1652,6 +1670,7 @@ jobs:
           fi
 
   validate-readme-version:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',validate-readme-version,') }}
     needs: telemetry
     name: 📖 README Version Consistency
     runs-on: ubuntu-latest
