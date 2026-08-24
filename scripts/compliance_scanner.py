@@ -95,7 +95,15 @@ def main():
 
     def collect(walk_root, also_changed):
         for root, dirs, files in os.walk(walk_root):
-            dirs[:] = [d for d in dirs if d not in prune_dirs]
+            # Exact-name pruning, EXCEPT for a first-party SDK module whose name
+            # collides with a vendored-framework exclude (agent/lms, pay/payments,
+            # pay/hrms). A dir carrying an SDK manifest half is owned code, not a
+            # vendored checkout — see compliance/config.py SDK_MANIFEST_MARKERS.
+            dirs[:] = [
+                d for d in dirs
+                if d not in prune_dirs
+                or compliance_config.is_first_party_module_dir(os.path.join(root, d))
+            ]
             for file in files:
                 fp = os.path.join(root, file)
                 if compliance_config.is_path_excluded(fp, cfg, walk_root):
