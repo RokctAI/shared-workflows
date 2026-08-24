@@ -41,6 +41,11 @@ on:
         required: false
         type: string
         description: "App role: customer, driver, manager, pos"
+      build_hms:
+        required: false
+        type: boolean
+        default: false
+        description: "Enable Huawei Mobile Services (HMS) wiring: obtains agconnect-services.json (local > Occultation > secret) and exports BUILD_HMS=true to the Android build steps. Degrades to a GMS-only build with a warning when no config source is available."
     secrets:
       KEY_JKS:
         required: false
@@ -49,6 +54,8 @@ on:
       ALIAS_PASSWORD:
         required: false
       GOOGLE_SERVICES_JSON:
+        required: false
+      AGCONNECT_SERVICES_JSON:
         required: false
       # iOS Secrets
       IOS_P12_BASE64:
@@ -532,6 +539,54 @@ jobs:
                    echo "ℹ️ No Google Services configuration found."
                 fi
              fi
+          fi
+        continue-on-error: false
+
+      # --- Fetch AGConnect Services JSON for HMS builds (Graceful Opt-In) ---
+      # Mirrors the Google Services precedence: Local > Occultation > Secret.
+      # HMS is opt-in sugar, never a build breaker: when no source yields a
+      # valid file, warn and continue GMS-only (BUILD_HMS stays unset, so the
+      # core Android template keeps its AGConnect wiring dormant).
+      - name: "Fetch/Decode AGConnect Services JSON (Priority: Local > Occultation > Secret)"
+        if: inputs.build_hms == true
+        env:
+          GH_TOKEN: ${{ env.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.client.outputs.client_upper }}
+          CLIENT_JSON: "${{ steps.client.outputs.client_upper != '' && secrets[format('AGCONNECT_SERVICES_JSON_{0}', steps.client.outputs.client_upper)] || '' }}"
+          DEFAULT_JSON: "${{ secrets.AGCONNECT_SERVICES_JSON }}"
+        run: |
+          if [ -f android/app/agconnect-services.json ]; then
+             echo "✅ android/app/agconnect-services.json already exists. Skipping fetch."
+          else
+             FILE_NAME="agconnect-services.json"
+             [ -n "$CLIENT_PREFIX" ] && FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_agconnect-services.json"
+
+             # 1. Try Occultation
+             if [ -n "$GH_TOKEN" ] && gh api repos/RokctAI/Occultation/contents/.env/"$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > android/app/agconnect-services.json 2>/dev/null; then
+                echo "✅ Successfully synced $FILE_NAME from Occultation."
+             else
+                # 2. Try Secrets
+                echo "⚠️ Not in Occultation. Falling back to secrets..."
+                JSON_CONTENT="$DEFAULT_JSON"
+                if [ -n "$CLIENT_JSON" ]; then
+                   echo "✅ Using client-specific secret: AGCONNECT_SERVICES_JSON_$CLIENT_PREFIX"
+                   JSON_CONTENT="$CLIENT_JSON"
+                fi
+
+                if [ -n "$JSON_CONTENT" ]; then
+                   echo "$JSON_CONTENT" | base64 --decode > android/app/agconnect-services.json 2>/dev/null || true
+                   echo "✅ Decoded agconnect-services.json from secrets."
+                fi
+             fi
+          fi
+
+          # Presence/shape check only — file contents are never printed.
+          if [ -s android/app/agconnect-services.json ] && python3 -c "import json; json.load(open('android/app/agconnect-services.json'))" 2>/dev/null; then
+             echo "✅ agconnect-services.json is present and valid JSON. Enabling HMS wiring."
+             echo "BUILD_HMS=true" >> "$GITHUB_ENV"
+          else
+             rm -f android/app/agconnect-services.json
+             echo "::warning::build_hms was requested but no valid agconnect-services.json could be obtained (checked: local file, Occultation, AGCONNECT_SERVICES_JSON secret). Continuing as a GMS-only build (BUILD_HMS unset)."
           fi
         continue-on-error: false
 

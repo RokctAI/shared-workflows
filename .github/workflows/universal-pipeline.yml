@@ -107,6 +107,9 @@ on:
       build_windows:
         type: boolean
         default: false
+      build_hms:
+        type: boolean
+        default: false
       cleanup_rc_releases:
         type: boolean
         default: true
@@ -360,6 +363,7 @@ jobs:
       flutter-version: ${{ inputs.flutter-version || '3.44.9' }}
       java-version: ${{ inputs.java-version || '17' }}
       app-type: ${{ inputs.app-type }}
+      build_hms: ${{ inputs.build_hms }}
     secrets: inherit
 
   ci-flutter-windows:
