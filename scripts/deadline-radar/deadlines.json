@@ -1,0 +1,63 @@
+{
+  "_comment": "Store deadline radar table. check_deadlines.py reads this weekly (deadline-radar.yml) and files one issue per deadline in RokctAI/platformstack when fleet repos are behind or at risk. Keep dates verified against the official store announcements and bump each entry's review_by when re-verified. check kinds: target_sdk (compares android/app/build.gradle targetSdkVersion against threshold), flutter_min_version (compares the repo's pinned CI Flutter version against threshold), manual (not mechanically checkable; listed for awareness, never files an issue).",
+  "repos": [
+    {
+      "repo": "supacharge",
+      "gradle_path": "android/app/build.gradle"
+    },
+    {
+      "repo": "paas_manager",
+      "gradle_path": "android/app/build.gradle"
+    },
+    {
+      "repo": "paas_driver",
+      "gradle_path": "android/app/build.gradle"
+    },
+    {
+      "repo": "paas_customer",
+      "gradle_path": "android/app/build.gradle"
+    },
+    {
+      "repo": "minilauncher",
+      "gradle_path": "android/app/build.gradle"
+    },
+    {
+      "repo": "core",
+      "display": "core (android template)",
+      "gradle_path": "base/dart/templates/android/app/build.gradle",
+      "template": true
+    }
+  ],
+  "deadlines": [
+    {
+      "id": "play-target-api-36",
+      "title": "Google Play target API 36",
+      "description": "Google Play requires new apps and app updates to target Android 16 (API level 36) from the deadline. Existing apps that do not comply can no longer push updates. An extension to the extension date can be requested per-app in the Play Console. Fix: set targetSdkVersion 36 in each app repo's android/app/build.gradle AND in core's base/dart/templates/android template (template drift doctrine).",
+      "deadline": "2026-08-31",
+      "extension": "2026-11-01",
+      "check": "target_sdk",
+      "threshold": 36,
+      "review_by": "2027-06-01"
+    },
+    {
+      "id": "android-16kb-page-alignment",
+      "title": "Android 16 KB page alignment",
+      "description": "Google Play requires apps targeting Android 15+ to support 16 KB memory page sizes; the extension window expired 2026-05-31 and the requirement is fully in force. Satisfied by building with a current Flutter/AGP toolchain (Flutter 3.24+ ships 16 KB-aligned engine and NDK r28+ aligns native libs), so this is represented as a minimum CI Flutter version check.",
+      "deadline": "2025-11-01",
+      "extension": "2026-05-31",
+      "check": "flutter_min_version",
+      "threshold": "3.24.0",
+      "review_by": "2027-06-01"
+    },
+    {
+      "id": "apple-xcode-26-sdk",
+      "title": "Apple Xcode 26 / iOS 26 SDK",
+      "description": "App Store Connect only accepts uploads built with Xcode 26 / the iOS 26 SDK since the deadline. CI does not pin an Xcode version (macos-latest ships a current Xcode), so this is not mechanically checkable from repo contents; it is satisfied as long as uploads come from up-to-date GitHub macOS runners. Listed for awareness only - never files an issue.",
+      "deadline": "2026-04-28",
+      "extension": null,
+      "check": "manual",
+      "threshold": null,
+      "review_by": "2027-06-01"
+    }
+  ]
+}
