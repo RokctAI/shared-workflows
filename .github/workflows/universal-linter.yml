@@ -1254,8 +1254,20 @@ jobs:
 
           if [[ -n $(git status -s) ]]; then
             git restore pubspec.lock || true
-            if [[ -n $(git status -s) ]]; then
-              git add .
+            # Stage only the trees the Auto-fix step actually formats
+            # (dart format lib/test/source), and only modifications to
+            # already-tracked files (-u) - never `git add .`: the compose
+            # bootstrap above runs .rokct/initiate.py, which re-materializes
+            # the .rokct working docs on the runner (decision_log.md,
+            # profiles.md, project_map.md, .markdownlint.json, workflows/*),
+            # and an unscoped add swept all 11 of them into an auto-std PR
+            # sold as "Flutter Dart Formatting" (minilauncher#37, run
+            # 32967412775) - the linter twin of the compose commit-back
+            # sweep fixed in shared-workflows#464.
+            for p in lib test source; do
+              if [ -d "$p" ]; then git add -u -- "$p" || true; fi
+            done
+            if ! git diff --cached --quiet; then
               git commit -m "style: automated flutter formatting [skip ci]"
               
               # Enforce PR-First Strategy: No direct pushes
@@ -1306,7 +1318,7 @@ jobs:
                   exit 1
               fi
             else
-              echo "Only pubspec.lock changed. Skipping commit."
+              echo "No formatting changes to commit (runner-only initiate/compose artifacts are never staged)."
               reset_stale_rolling_branch
             fi
           else

@@ -171,7 +171,24 @@ jobs:
             # (no .gitmodules), which breaks every later checkout (rCore #121).
             # Strip nested .git dirs before staging.
             find .rokct/cache -mindepth 2 -type d -name .git -prune -exec rm -rf {} + 2>/dev/null || true
-            git add .
+            # Never `git add .`: the Initiate Protocol step above
+            # re-materializes the .rokct working docs on the runner
+            # (decision_log.md, profiles.md, project_map.md, memory.md,
+            # .markdownlint.json, workflows/*) plus root .cursorrules /
+            # .gitattributes, and an unscoped add sweeps them into this
+            # compose commit-back, resurrecting files consumer repos
+            # deliberately deleted (minilauncher#37; the flutter-build twin
+            # was fixed in shared-workflows#464). Unlike the flutter
+            # composer, compose_backend.py writes throughout the app tree
+            # (module dirs, hooks.py, modules.txt, patches, www,
+            # composer.json), so an allowlist would be brittle - instead
+            # stage everything EXCEPT the initiate scaffolding, then add
+            # back .rokct/cache, the one .rokct path compose produces.
+            git add -- . \
+              ':(exclude).rokct' \
+              ':(exclude).cursorrules' \
+              ':(exclude).gitattributes'
+            if [ -d ".rokct/cache" ]; then git add -- .rokct/cache || true; fi
             git commit -m "🤖 [CI] Compose backend SDK modules [skip ci]" || echo "No changes to commit"
             git push origin HEAD:${{ github.ref }}
           else
