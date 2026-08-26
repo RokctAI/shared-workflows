@@ -197,7 +197,29 @@ jobs:
             # (no .gitmodules), which breaks every later checkout (rCore #121).
             # Strip nested .git dirs before staging.
             find .rokct/cache -mindepth 2 -type d -name .git -prune -exec rm -rf {} + 2>/dev/null || true
-            git add .
+            # Stage only what compose actually produces - never `git add .`:
+            # the Initiate Protocol step re-materializes .rokct working docs
+            # on the runner (decision_log.md, profiles.md, project_map.md,
+            # .markdownlint.json, workflows/*), and an unscoped add swept
+            # them into this commit-back, resurrecting files consumer repos
+            # had deliberately deleted (minilauncher ef7e2495 re-added the
+            # 11 files minilauncher#36 removed, 13 minutes after merge).
+            # Each path is staged only if present; `|| true` tolerates
+            # fully-gitignored paths (modern shells ignore all of lib/,
+            # legacy lib/* + !lib/main.dart repos still get main.dart).
+            for p in \
+              .rokct/cache \
+              .rokct/agent/logs \
+              composer.json \
+              pubspec.yaml \
+              pubspec.lock \
+              .gitignore \
+              lib \
+              android/app/src/main/AndroidManifest.xml \
+              ios/Runner/Info.plist \
+            ; do
+              if [ -e "$p" ]; then git add -- "$p" || true; fi
+            done
             if [ "$COMPOSE_EXIT" -ne 0 ]; then
               git commit -m "🤖 [CI] Compose Flutter SDK modules FAILED - persisting logs [skip ci]" || echo "No changes to commit"
             else
