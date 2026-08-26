@@ -1,0 +1,47 @@
+name: Branch Cleanup
+
+# Distributed to every RokctAI repo from The-Rokct-Protocol
+# (workflows/.rok/branch-cleanup.yml) by .rokct/initiate.py, which copies each
+# file in workflows/.rok/ into the consumer repo's .github/workflows/.
+# Edit the copy in The-Rokct-Protocol, not the deployed copy in a consumer
+# repo — local edits are overwritten on the next initiate run.
+#
+# Deletes a PR's head branch once the PR is closed — merged or not — so
+# finished branches never pile up. Guards:
+#   - fork PRs are skipped (their head branch lives in the fork, not here);
+#   - the repository's default branch is never deleted;
+#   - protected branches fail-soft: the API refuses the delete and the job
+#     logs it without failing the run.
+permissions:
+  contents: write
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-head-branch:
+    name: 🧹 Delete Closed PR Branch
+    runs-on: ubuntu-latest
+    # Only same-repo PRs: a fork PR's head ref is not deletable here, and
+    # trying would 404 against our own repo's ref namespace.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Delete head branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
+            echo "Skipping: $BRANCH is the default branch."
+            exit 0
+          fi
+          # Fail-soft: protected branches (403/422) and already-deleted refs
+          # (404/422, e.g. GitHub's own "automatically delete head branches"
+          # setting got there first) are logged, not treated as failures.
+          if gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$BRANCH"; then
+            echo "Deleted branch $BRANCH."
+          else
+            echo "Could not delete branch $BRANCH (protected or already gone) — skipping."
+          fi

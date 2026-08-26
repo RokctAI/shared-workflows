@@ -1,0 +1,64 @@
+name: Guided Tour
+
+# Distributed to every RokctAI repo from The-Rokct-Protocol
+# (workflows/.rok/guided-tour.yml) by .rokct/initiate.py, which copies each
+# file in workflows/.rok/ into the consumer repo's .github/workflows/.
+# Edit the copy in The-Rokct-Protocol, not the deployed copy in a consumer
+# repo — local edits are overwritten on the next initiate run.
+#
+# On every merge to main, build the app with its built-in demo dataset,
+# walk the scripted guided tour on a headless Android emulator, and commit
+# fresh screenshots + feature guide (and a best-effort vertical video) to
+# marketing/tour/. Tour steps live in tour/app.tour.yaml plus the composed
+# SDKs' tour fragments - see RokctAI/shared-workflows scripts/tour/README.md.
+#
+# Must grant at least what the called reusable workflow declares
+# (universal-guided-tour.yml sets `permissions: write-all`). A narrower
+# job-level block here makes GitHub refuse the whole run at startup
+# (startup_failure, zero jobs). Matches the proven play-deploy.yml pattern.
+permissions: write-all
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      # The tour commits its outputs here with [skip ci]; the paths-ignore is
+      # the second lock against self-retriggering.
+      - 'marketing/tour/**'
+  workflow_dispatch:
+
+jobs:
+  # This workflow is distributed to every RokctAI repo; repos without a tour
+  # manifest skip cleanly instead of failing the compose/build steps (same
+  # skip convention as play-deploy.yml's Android-app check). The checked
+  # path is the default of universal-guided-tour.yml's tour-manifest input,
+  # so an app shell adopts the tour simply by committing tour/app.tour.yaml
+  # plus its integration_test runner — no workflow edit needed. Nothing else
+  # is app-specific: app identity is derived inside the reusable workflow
+  # from the repo's own .rokct/config/app_type file.
+  check-manifest:
+    name: 🔍 Check Tour Manifest
+    runs-on: ubuntu-latest
+    outputs:
+      has_tour: ${{ steps.check.outputs.has_tour }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Check For Tour Manifest
+        id: check
+        run: |
+          if [ -f "tour/app.tour.yaml" ]; then
+            echo "has_tour=true" >> "$GITHUB_OUTPUT"
+            echo "✅ tour/app.tour.yaml found - running the guided tour."
+          else
+            echo "has_tour=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️ No tour/app.tour.yaml in this repo. Skipping guided tour."
+          fi
+
+  guided-tour:
+    needs: check-manifest
+    if: needs.check-manifest.outputs.has_tour == 'true'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-guided-tour.yml@main
+    secrets: inherit
