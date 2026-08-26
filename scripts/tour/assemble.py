@@ -236,9 +236,8 @@ def write_guide(resolved, shots, out_dir):
         lines += textwrap.wrap(str(app["tagline"]), width=80) + [""]
     lines += [
         "> This guide is generated automatically on every merge: CI builds the",
-        "> app with its built-in demo dataset, walks the guided tour on an",
-        "> Android emulator, and captures each screen below. Content shown is",
-        "> demo data.",
+        "> app, walks the guided tour on an Android emulator, and captures",
+        "> each screen below.",
         "",
     ]
 

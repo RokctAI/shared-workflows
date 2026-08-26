@@ -74,7 +74,7 @@ tour:
       title: "Welcome to YourApp"
       # Guide text + burned-in video caption. {app_name}/{app_tagline} are
       # substituted; ONE *phrase* may be starred for the highlight chip.
-      caption: "{app_name} does the thing - and in this demo build, any sign-in details work."
+      caption: "{app_name} does the thing - sign in to get started."
       # wait | route | dart
       action: wait
       # Seconds to let the screen settle before the still (0-60, default 5).
