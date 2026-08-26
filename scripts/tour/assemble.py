@@ -72,6 +72,17 @@ Two independent products (so a video hiccup can never block the stills):
            kept short by selecting up to two highlighted beats per
            chapter.
 
+--device picks the canvas/frame geometry preset: ``phone`` (the default —
+everything above, byte-identical to runs that predate the flag) or
+``tablet``, which renders the SAME products on the 10-inch portrait
+1600x2560 canvas for the workflow's tablet emulator leg. A tablet run
+writes to its own --out directory (the workflow passes
+<phone-out>/tablet) and deliberately SKIPS the phone-only Play listing
+assets — store/feature-graphic.png, store/icon-512.png and the
+tour-wide reel exist once per listing and stay with the phone run — so
+its store/ dir holds ONLY portrait tablet stills, which the Play deploy
+classifies as tenInchScreenshots by directory.
+
 Branding (app name, tagline, hook, colours, offer, logo) comes exclusively
 from the app shell's resolved tour plan — SDK fragments stay brand-neutral.
 Colours default to the composed app's AppStyle palette (resolved at merge
@@ -166,6 +177,37 @@ FONT_CANDIDATES = (
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
 )
+# --- device geometry presets -------------------------------------------------
+# The module-level constants above ARE the phone preset (so a run without
+# --device is byte-identical to runs that predate the flag). The tablet
+# preset re-targets the portrait canvas to the workflow's 10-inch tablet
+# leg (1600x2560, the emulator's forced `wm size` — inside Play's
+# 320-3840px screenshot bounds) and scales the phone-frame fit boxes to
+# keep the same canvas margins. Landscape (wide reel / feature graphic)
+# constants stay untouched: the tablet run skips those phone-only assets.
+DEVICE_PRESETS = {
+    "phone": {},
+    "tablet": {
+        "WIDTH": 1600,
+        "HEIGHT": 2560,
+        "FRAME_MAX_W": 1150,
+        "FRAME_MAX_H": 2000,
+        "FULL_MAX_W": 1040,
+        "FULL_MAX_H": 1600,
+        "SPLASH_FIT_W": 1200,
+        "SPLASH_FIT_H": 1200,
+        "FRAME_ZONE_TOP": 660,
+    },
+}
+
+
+def apply_device_preset(device):
+    """Overwrite the geometry constants with the ``device`` preset's values.
+
+    Must run before any rendering. The phone preset is empty on purpose:
+    applying it changes nothing, keeping the default path byte-identical.
+    """
+    globals().update(DEVICE_PRESETS[device])
 
 
 def log(msg):
@@ -363,17 +405,21 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-def phone_card(shot, max_w=FRAME_MAX_W, max_h=FRAME_MAX_H):
+def phone_card(shot, max_w=None, max_h=None):
     """Screenshot -> phone mockup (RGBA), WhatsApp-store-ad style.
 
     Drawn programmatically with Pillow: a soft blurred drop shadow, a
     thin BLACK rounded-rect bezel with a large corner radius, and the
     screenshot clipped to rounded corners inset inside it. The returned
     image carries a transparent FRAME_MARGIN on every side so the shadow
-    blur never clips.
+    blur never clips. ``max_w``/``max_h`` default to the ACTIVE device
+    preset's FRAME_MAX box (resolved at call time, not def time, so
+    ``apply_device_preset`` takes effect).
     """
     from PIL import Image, ImageDraw, ImageFilter
 
+    max_w = FRAME_MAX_W if max_w is None else max_w
+    max_h = FRAME_MAX_H if max_h is None else max_h
     scale = min(max_w / shot.width, max_h / shot.height)
     inner_w = max(1, round(shot.width * scale))
     inner_h = max(1, round(shot.height * scale))
@@ -718,18 +764,18 @@ def splash_card_wide(splash_path, bg=CARD_BG):
     return card.convert("RGB")
 
 
-def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=(WIDTH, HEIGHT)):
+def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
     """Legacy opening card: brand background, hook line, app name.
 
     Used only when no app splash image resolves (see ``splash_card``).
     All text picks black-or-white ink against the actual background; the
     app name uses the accent colour only when it reads on the canvas.
-    ``size`` defaults to the portrait canvas; the wide reel passes its
-    landscape one.
+    ``size`` defaults to the active preset's portrait canvas (resolved
+    at call time); the wide reel passes its landscape one.
     """
     from PIL import Image, ImageDraw
 
-    card_w, card_h = size
+    card_w, card_h = size if size is not None else (WIDTH, HEIGHT)
     card = Image.new("RGB", (card_w, card_h), bg)
     draw = ImageDraw.Draw(card)
     hook_font = load_font(96, font_path)
@@ -757,15 +803,16 @@ def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=(WIDTH, H
     return card
 
 
-def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT, size=(WIDTH, HEIGHT)):
+def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
     """Closing full-frame card: logo (when present), app name, offer line.
 
-    ``size`` defaults to the portrait canvas; the wide reel renders the
-    same centred stack on its landscape one.
+    ``size`` defaults to the active preset's portrait canvas (resolved
+    at call time); the wide reel renders the same centred stack on its
+    landscape one.
     """
     from PIL import Image, ImageDraw
 
-    card_w, card_h = size
+    card_w, card_h = size if size is not None else (WIDTH, HEIGHT)
     card = Image.new("RGB", (card_w, card_h), bg)
     draw = ImageDraw.Draw(card)
     name_font = load_font(96, font_path)
@@ -1124,7 +1171,7 @@ def write_app_icon(out_dir, logo_path, brand_bg):
     log(f"wrote {out_path} ({side}x{side}, {os.path.getsize(out_path) / 1024:.0f} KB)")
 
 
-def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_path):
+def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_path, device="phone"):
     """Render one video per chapter: <out>/tour-<chapter>.<container>.
 
     A chapter is the run of steps one fragment contributed (app-shell steps
@@ -1143,6 +1190,12 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     <out>/store/icon-512.png (see ``write_app_icon``) and the single
     16:9 highlight reel <out>/tour-wide.<container> across all chapters
     (see ``select_wide_beats`` / ``render_wide_video``).
+
+    ``device`` "tablet" (the workflow's tablet leg, rendering into its
+    own out dir) keeps the chapter videos and store stills but SKIPS the
+    phone-only Play listing assets — feature graphic, icon and the wide
+    reel exist once per listing and belong to the phone run — so the
+    tablet store/ dir holds only portrait stills for tenInchScreenshots.
     """
     from PIL import Image
 
@@ -1257,9 +1310,13 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     def write_store_stills(chapters):
         """<out>/store/NN-key.png — the beat composition at rest, per step.
 
-        Play-Store listing stills on the same 1080x1920 portrait canvas as
-        the video; numbering matches the guide's screenshots. Wholesale-
-        refreshed so removed or renamed steps never linger.
+        Play-Store listing stills on the same portrait canvas as the
+        video (the active device preset's WIDTHxHEIGHT — 1080x1920 for
+        phone, 1600x2560 for tablet); numbering matches the guide's
+        screenshots. Wholesale-refreshed so removed or renamed steps
+        never linger. The wipe only ever touches THIS run's out dir, so
+        the tablet refresh never clears the phone store dir or vice
+        versa.
         """
         store_dir = os.path.join(out_dir, "store")
         os.makedirs(store_dir, exist_ok=True)
@@ -1315,21 +1372,29 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     for step in resolved["steps"]:
         chapters.setdefault(str(step.get("chapter") or "app"), []).append(step)
     write_store_stills(chapters)
-    store_cfg = resolved.get("store") or {}
-    if not isinstance(store_cfg, dict):
-        warn("store: is not a mapping in the resolved plan — ignored")
-        store_cfg = {}
-    hero = pick_hero_step(chapters, shots, str(store_cfg.get("feature_step") or "").strip())
-    if hero is not None:
-        # store.logo overrides the feature graphic's logo mark: absent
-        # (None) keeps app.logo, a path uses that path, "" draws none.
-        feature_logo = logo_path
-        if store_cfg.get("logo") is not None:
-            feature_logo = str(store_cfg["logo"]).strip()
-            if not feature_logo:
-                log("feature graphic: store.logo is empty — no logo mark")
-        write_feature_graphic(out_dir, app, shots[hero["key"]], feature_logo, brand_bg, font_path)
-    write_app_icon(out_dir, logo_path, brand_bg)
+    if device == "phone":
+        store_cfg = resolved.get("store") or {}
+        if not isinstance(store_cfg, dict):
+            warn("store: is not a mapping in the resolved plan — ignored")
+            store_cfg = {}
+        hero = pick_hero_step(chapters, shots, str(store_cfg.get("feature_step") or "").strip())
+        if hero is not None:
+            # store.logo overrides the feature graphic's logo mark: absent
+            # (None) keeps app.logo, a path uses that path, "" draws none.
+            feature_logo = logo_path
+            if store_cfg.get("logo") is not None:
+                feature_logo = str(store_cfg["logo"]).strip()
+                if not feature_logo:
+                    log("feature graphic: store.logo is empty — no logo mark")
+            write_feature_graphic(
+                out_dir, app, shots[hero["key"]], feature_logo, brand_bg, font_path
+            )
+        write_app_icon(out_dir, logo_path, brand_bg)
+    else:
+        log(
+            f"device '{device}': skipping feature graphic, icon and wide reel "
+            "— those Play listing assets exist once and stay with the phone run"
+        )
     for chapter, chapter_steps in chapters.items():
         captured = [s for s in chapter_steps if s["key"] in shots]
         if not captured:
@@ -1343,8 +1408,8 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         render_chapter(chapter, captured, chapter_anchor(chapter))
 
     # The single landscape highlight reel across ALL chapters (the Play
-    # listing's widescreen promo-video slot).
-    beats = select_wide_beats(chapters, shots, chapter_anchor)
+    # listing's widescreen promo-video slot) — phone run only.
+    beats = select_wide_beats(chapters, shots, chapter_anchor) if device == "phone" else []
     if beats:
         wide_opening = splash_card_wide(splash_path, bg=brand_bg) if splash_path else None
         if wide_opening is None and hook:
@@ -1378,11 +1443,21 @@ def main():
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--font", default="")
     parser.add_argument(
+        "--device",
+        choices=sorted(DEVICE_PRESETS),
+        default="phone",
+        help="canvas/frame geometry preset (default: phone, byte-identical to "
+        "runs without the flag); 'tablet' renders the 10-inch 1600x2560 "
+        "portrait geometry and skips the phone-only Play assets (feature "
+        "graphic, icon, wide reel) — point --out at a tablet-specific dir",
+    )
+    parser.add_argument(
         "--require-varied",
         action="store_true",
         help="fail (instead of just warning) when every captured screenshot is byte-identical",
     )
     args = parser.parse_args()
+    apply_device_preset(args.device)
 
     if not (args.guide or args.video):
         fail("nothing to do: pass --guide and/or --video")
@@ -1409,6 +1484,7 @@ def main():
         write_video(
             resolved, shots, args.out,
             args.ffmpeg, args.codec, args.container, args.fps, args.font,
+            device=args.device,
         )
 
 

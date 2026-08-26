@@ -81,6 +81,48 @@ shell repo under `marketing/tour/`:
   `tour-wide.mp4` is reserved: a fragment named `wide` would collide
   with it (the assembler warns and the reel wins).
 
+## The tablet leg
+
+After the phone leg, the workflow reruns the SAME tour serially on a
+second emulator (input `tablet`, ON by default — no caller change
+needed; pass `tablet: false` to opt out) using the SDK's `pixel_tablet`
+device profile on the same api-34 google_apis x86_64 system image, with
+the canvas forced to a 10-inch-class portrait geometry: `wm size
+1600x2560`, `wm density 320` (sw800dp, so the app renders its real
+tablet layouts; both sides sit inside Play's 320-3840px screenshot
+bounds). `run_tour.sh` is shared by both legs — the tablet leg only
+overrides its `TOUR_OUT` / `TOUR_WM_SIZE` / `TOUR_WM_DENSITY` /
+`TOUR_LOGCAT` / `TOUR_TEST_LOG` env defaults — and gets the same
+fresh-AVD retry and zero-screenshots check as the phone leg.
+
+Tablet outputs land in their own tree, `marketing/tour/tablet/`,
+assembled by `assemble.py --device tablet` (geometry preset: 1600x2560
+canvas, scaled phone-frame boxes):
+
+- `marketing/tour/tablet/screenshots/NN-key.png` + `feature-guide.md` —
+  the raw tablet stills and guide (same format as the phone leg's)
+- `marketing/tour/tablet/tour-<chapter>.mp4` — per-chapter videos on the
+  tablet canvas (best-effort, like the phone videos)
+- `marketing/tour/tablet/store/NN-key.png` — styled tablet stills. The
+  directory is separate from `marketing/tour/store/` ON PURPOSE: the
+  Play deploy classifies it by LOCATION into `tenInchScreenshots`
+  (first 8 in filename order; overflow logged) — a 1600x2560 still is
+  dimensionally indistinguishable from a large phone screenshot, so
+  directory is the only reliable signal. The tablet run never writes a
+  feature graphic, icon, or `tour-wide` reel — those Play assets exist
+  once per listing and stay with the phone run. The stills map to the
+  10-inch slot only, not `sevenInchScreenshots`: the phone set at
+  1080x1920 already shows the handset-class content, and 10-inch
+  layouts in the 7-inch slot would misrepresent a 7-inch device.
+
+Each `--device` run wipes only its OWN `screenshots/` and `store/` dirs
+wholesale — the tablet refresh never touches the phone dirs, and vice
+versa. A tablet-leg failure fails the job (honest red), but only AFTER
+the phone outputs commit: every tablet step is outcome-gated so phone
+assets are never lost to a tablet flake. Turning `tablet` off later does
+not delete previously committed `marketing/tour/tablet/` outputs —
+remove the directory by hand to retire the tablet listing assets.
+
 ## Who owns what
 
 - **SDK template repos** own brand-neutral tour *fragments* next to their

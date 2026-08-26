@@ -59,3 +59,7 @@ steps (welcome, role sign-out/sign-in chaining) — see the comments in
 Outputs (screenshots, feature guide, chapter videos, Play-Store stills)
 are committed by CI to the app repo's `marketing/tour/`, and the first run
 seeds comment-only Play-listing placeholders under `marketing/store/`.
+The workflow's tablet leg (on by default) reruns the same tour on a
+10-inch tablet emulator and commits tablet-geometry outputs to
+`marketing/tour/tablet/` — its `store/` stills fill the Play listing's
+10-inch tablet screenshots slot.
