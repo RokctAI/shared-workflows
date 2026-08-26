@@ -1,21 +1,11 @@
 name: "Agent: Automated Git Delegation"
 
+# Trimmed variant of agent.yml, selected per-repo via
+# workflows/.rok/distribution.json: every push/schedule/PR-closed job in the
+# shared suite is hard-gated to factory/opportunities/the-rokct-protocol, so
+# on any other repo those triggers only produce no-op runs. The jobs body
+# stays byte-identical to agent.yml — only the `on:` triggers differ.
 on:
-  push:
-    paths:
-      - '.rokct/agent/queue/*.json'
-      - '.rokct/agent/prompts/in_progress/*.json'
-    branches:
-      - main
-  pull_request:
-    types: [closed]
-  schedule:
-    - cron: '*/30 * * * *'  # 30-min scheduler (factory)
-    - cron: '0 20 * * *'    # Daily queue (factory, opportunities)
-    - cron: '0 20 1 * *'    # Monthly idea session (protocol)
-    - cron: '0 21 * * 0'    # Weekly delegation queue (protocol)
-    - cron: '0 22 * * 0'    # Weekly review (protocol)
-    - cron: '0 23 * * 0'    # Weekly publisher (protocol)
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -47,7 +37,7 @@ concurrency:
 
 jobs:
   agent:
-    uses: RokctAI/shared-workflows/.github/workflows/universal-agent.yml@main
+    uses: RokctAI/shared-workflows/.github/workflows/universal-agent.yml@1d5ebbcdf3dc771fed587fe90e5f91f3a305392c # shared-workflows main @ 2026-08-24
     with:
       mode: 'auto'
       ledger_id: ${{ inputs.id }}
@@ -57,4 +47,7 @@ jobs:
       ledger_agent: ${{ inputs.agent }}
       ledger_session: ${{ inputs.session }}
       ledger_pr: ${{ inputs.pr }}
-    secrets: inherit
+    secrets:
+      JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}

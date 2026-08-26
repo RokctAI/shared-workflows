@@ -1,0 +1,101 @@
+name: Play Store Deploy
+
+# Distributed to every RokctAI repo from The-Rokct-Protocol
+# (workflows/.rok/play-deploy.yml) by .rokct/initiate.py, which copies each
+# file in workflows/.rok/ into the consumer repo's .github/workflows/.
+# Edit the copy in The-Rokct-Protocol, not the deployed copy in a consumer
+# repo — local edits are overwritten on the next initiate run.
+#
+# Must grant at least what the called reusable workflow declares
+# (universal-play-deploy.yml sets `permissions: write-all`). A narrower
+# job-level block here makes GitHub refuse the whole run at startup
+# (startup_failure, zero jobs). Matches the proven build.yml pattern.
+permissions: write-all
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Weekly, Monday 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  # The Android applicationId is NOT hard-coded anywhere in this workflow.
+  # Each app repo's android/app/build.gradle resolves its applicationId from
+  # a dart-define named <ROLE>_ANDROID_PACKAGE_NAME (for example
+  # CUSTOMER_ANDROID_PACKAGE_NAME), whose value lives in the Occultation
+  # secrets repo at .env/production.env — the single place package names are
+  # changed. This job reads the variable NAME from build.gradle and its VALUE
+  # from production.env at run time, so the same distributed file works in
+  # every app repo and package changes never require a workflow edit.
+  resolve-package:
+    name: 📦 Resolve Package From production.env
+    runs-on: ubuntu-latest
+    outputs:
+      is_android_app: ${{ steps.resolve.outputs.is_android_app }}
+      app_type: ${{ steps.resolve.outputs.app_type }}
+      package_name: ${{ steps.resolve.outputs.package_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Resolve Package Name
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          # This workflow is distributed to every RokctAI repo; repos that
+          # are not Android apps skip cleanly.
+          if [ ! -f "android/app/build.gradle" ]; then
+            echo "is_android_app=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️ Not an Android app repo (no android/app/build.gradle). Skipping Play deploy."
+            exit 0
+          fi
+          echo "is_android_app=true" >> "$GITHUB_OUTPUT"
+
+          VAR=$(grep -oE '[A-Z][A-Z0-9_]*_ANDROID_PACKAGE_NAME' android/app/build.gradle | head -n 1)
+          if [ -z "$VAR" ]; then
+            echo "::error::android/app/build.gradle does not reference a <ROLE>_ANDROID_PACKAGE_NAME dart-define, so the Play package name cannot be resolved from production.env."
+            exit 1
+          fi
+          APP_TYPE=$(echo "${VAR%_ANDROID_PACKAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "app_type=$APP_TYPE" >> "$GITHUB_OUTPUT"
+          echo "🔍 Package variable: $VAR (app-type: $APP_TYPE)"
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::MONOREPO_PAT secret is not available, so .env/production.env cannot be fetched from RokctAI/Occultation to resolve $VAR."
+            exit 1
+          fi
+
+          ENV_FILE="$RUNNER_TEMP/production.env"
+          if ! gh api "repos/RokctAI/Occultation/contents/.env/production.env" -H "Accept: application/vnd.github.v3.raw" > "$ENV_FILE"; then
+            rm -f "$ENV_FILE"
+            echo "::error::Failed to fetch .env/production.env from RokctAI/Occultation (MONOREPO_PAT expired or missing repo access?)."
+            exit 1
+          fi
+
+          PKG=$(grep -E "^[[:space:]]*${VAR}=" "$ENV_FILE" | head -n 1 | cut -d= -f2- | tr -d '\r' | xargs)
+          rm -f "$ENV_FILE"
+
+          if [ -z "$PKG" ]; then
+            echo "::error::$VAR is not set in Occultation .env/production.env. Add it there — that file is the single source of truth for Play package names."
+            exit 1
+          fi
+          case "$PKG" in
+            *'$'*)
+              echo "::error::$VAR in production.env resolves to '$PKG', an unexpanded reference — set it to the literal applicationId."
+              exit 1
+              ;;
+          esac
+
+          echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
+          echo "✅ Resolved package: $PKG"
+
+  play-deploy:
+    name: 🚀 Play Deploy
+    needs: resolve-package
+    if: needs.resolve-package.outputs.is_android_app == 'true'
+    uses: RokctAI/shared-workflows/.github/workflows/universal-play-deploy.yml@main
+    with:
+      app-type: ${{ needs.resolve-package.outputs.app_type }}
+      track: internal
+      package_name: ${{ needs.resolve-package.outputs.package_name }}
+    secrets: inherit

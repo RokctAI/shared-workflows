@@ -14,3 +14,4 @@
 .github/PULL_REQUEST_TEMPLATE.md export-ignore
 .github/.rc-cleanup-done export-ignore
 .rokct/ export-ignore
+*.py text eol=lf

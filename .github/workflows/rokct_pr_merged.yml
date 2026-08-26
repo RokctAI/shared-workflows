@@ -1,0 +1,193 @@
+# Copyright (c) 2026 RokctAI
+# For license information, please see LICENSE.
+#
+# Distributed by the Protocol to EVERY RokctAI repository.
+# `select_rok_workflows` in profiles/{local,web}/initiate.py copies every file
+# in workflows/.rok/ into the consumer's .github/workflows/ on each `initiate`
+# run, so this file lands in repositories that have a roadmap and in ones that
+# have never heard of it. It is therefore written to be inert by default: with
+# no roadmap endpoint configured it logs one line and exits 0.
+#
+# Configuration is org-level, set once on the RokctAI organisation and
+# inherited by every repository, matching how MONOREPO_PAT / JULES_API_KEY /
+# RLMS_SITE_URL are already consumed by the shared suite:
+#
+#   ROKCT_ROADMAP_ENDPOINT  organisation Actions *variable* - the full callback
+#                           URL, i.e. <site>/api/method/<app>.agent.roadmap.api
+#                           .update_task_status_from_pr. Also honoured as an
+#                           Actions secret for operators who would rather not
+#                           publish the site hostname in run logs.
+#   ROKCT_ROADMAP_SECRET    OPTIONAL organisation Actions *secret* - a
+#                           dedicated HMAC key. When it is unset the signing
+#                           key falls back to MONOREPO_PAT, which the shared
+#                           suite already consumes org-wide, so no new secret
+#                           has to be created for this workflow to work. An
+#                           HMAC key is only a shared string, so either value
+#                           serves; whichever is in force, the site's
+#                           `Roadmap Settings > GitHub Action Secret` must
+#                           hold that same value. The request body is always
+#                           signed; nothing is ever sent unsigned.
+#
+# Note that MONOREPO_PAT is only ever a *key*, never a trigger: a repository
+# with no ROKCT_ROADMAP_ENDPOINT and no ROKCT_ROADMAP_SECRET is still treated
+# as having no roadmap and exits quietly, so inheriting the org PAT does not
+# by itself make a repository start reporting or warning.
+#
+# A repository that needs a different site than the org default overrides
+# either name at the repository level; GitHub resolves repository over
+# organisation automatically.
+#
+# Known limitation: Actions withholds organisation and repository secrets from
+# `pull_request` runs originating in a fork, so a merged fork pull request
+# reaches the "not configured" branch and reports nothing. Pull requests from
+# branches inside the repository - which is how every RokctAI repository works
+# - are unaffected.
+
+name: ROKCT roadmap - report merged pull request
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  report-merge:
+    # `closed` fires for abandoned pull requests too. Only a merge closes a
+    # roadmap feature, so everything below is gated on `merged`.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      # Runs before any API call so a repository with no roadmap spends one
+      # step and stops, rather than querying GitHub for an answer it will
+      # throw away.
+      - name: Check whether this repository has a roadmap callback configured
+        id: config
+        env:
+          ROKCT_ROADMAP_ENDPOINT: >-
+            ${{ vars.ROKCT_ROADMAP_ENDPOINT || secrets.ROKCT_ROADMAP_ENDPOINT }}
+          ROKCT_ROADMAP_SECRET: ${{ secrets.ROKCT_ROADMAP_SECRET }}
+          # The key actually used to sign. An HMAC key is only a shared
+          # string, so the org-wide MONOREPO_PAT serves as one and nothing new
+          # has to be created; a dedicated ROKCT_ROADMAP_SECRET still wins
+          # where one exists. Kept separate from ROKCT_ROADMAP_SECRET above so
+          # that the checks below can still tell "somebody configured a
+          # roadmap here" from "this repository merely inherits the org PAT".
+          ROKCT_ROADMAP_SIGNING_KEY: >-
+            ${{ secrets.ROKCT_ROADMAP_SECRET || secrets.MONOREPO_PAT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ROKCT_ROADMAP_ENDPOINT:-}" ] && [ -z "${ROKCT_ROADMAP_SECRET:-}" ]; then
+            echo "No ROKCT roadmap callback configured for this repository; nothing to report."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Half-configured is a mistake worth surfacing, but not worth
+          # failing a merged pull request over: the merge already happened and
+          # this job only reports it.
+          if [ -z "${ROKCT_ROADMAP_ENDPOINT:-}" ]; then
+            echo "::warning::ROKCT_ROADMAP_SECRET is set but ROKCT_ROADMAP_ENDPOINT is not; skipping the roadmap callback."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "${ROKCT_ROADMAP_SIGNING_KEY:-}" ]; then
+            echo "::warning::ROKCT_ROADMAP_ENDPOINT is set but no signing key is available - neither ROKCT_ROADMAP_SECRET nor MONOREPO_PAT is set; skipping the roadmap callback rather than sending an unsigned request."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the issue this pull request closes
+        id: issue
+        if: steps.config.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -uo pipefail
+
+          # Primary: GitHub's own linked-issue graph. `closingIssuesReferences`
+          # is populated both by closing keywords in the pull request body and
+          # by issues linked by hand from the Development sidebar, and it
+          # already understands every keyword spelling GitHub accepts.
+          # The single quotes around the GraphQL query are deliberate: $owner,
+          # $name and $pr are GraphQL variables, not shell expansions.
+          # shellcheck disable=SC2016
+          issue_number="$(
+            gh api graphql \
+              -f query='query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $pr) { closingIssuesReferences(first: 10) { nodes { number } } } } }' \
+              -f owner="$REPO_OWNER" \
+              -f name="$REPO_NAME" \
+              -F pr="$PR_NUMBER" \
+              --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[].number] | first // empty'
+          )" || issue_number=""
+
+          # Fallback: read the closing keyword straight out of the body, for
+          # repositories where the GITHUB_TOKEN cannot reach the GraphQL API.
+          if [ -z "$issue_number" ]; then
+            issue_number="$(
+              printf '%s' "$PR_BODY" \
+                | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+                | grep -oE '[0-9]+' \
+                | head -n 1
+            )" || issue_number=""
+          fi
+
+          case "$issue_number" in
+            "" | *[!0-9]*)
+              echo "No closing issue reference on pull request #${PR_NUMBER}; nothing to report."
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          echo "Pull request #${PR_NUMBER} closes issue #${issue_number}."
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=${issue_number}" >> "$GITHUB_OUTPUT"
+
+      - name: Report the merge to the ROKCT roadmap
+        if: steps.config.outputs.configured == 'true' && steps.issue.outputs.found == 'true'
+        env:
+          ROKCT_ROADMAP_ENDPOINT: >-
+            ${{ vars.ROKCT_ROADMAP_ENDPOINT || secrets.ROKCT_ROADMAP_ENDPOINT }}
+          ROKCT_ROADMAP_SIGNING_KEY: >-
+            ${{ secrets.ROKCT_ROADMAP_SECRET || secrets.MONOREPO_PAT }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          # Build the body once and sign exactly the bytes that get sent.
+          # `jq -c` emits no trailing newline once the command substitution has
+          # stripped it, `printf '%s'` adds none, and `--data-binary @-` sends
+          # stdin verbatim -- so the digest below is taken over the identical
+          # byte sequence the receiver hashes as `frappe.request.data`.
+          body="$(
+            jq -cn \
+              --argjson issue_number "$ISSUE_NUMBER" \
+              --arg pull_request_url "$PR_URL" \
+              '{issue_number: $issue_number, pull_request_url: $pull_request_url}'
+          )"
+
+          signature="$(
+            printf '%s' "$body" \
+              | openssl dgst -sha256 -hmac "$ROKCT_ROADMAP_SIGNING_KEY" \
+              | awk '{print $NF}'
+          )"
+
+          printf '%s' "$body" | curl \
+            --silent --show-error --fail-with-body \
+            --request POST "$ROKCT_ROADMAP_ENDPOINT" \
+            --header 'Content-Type: application/json' \
+            --header "X-Hub-Signature-256: sha256=${signature}" \
+            --data-binary @-
