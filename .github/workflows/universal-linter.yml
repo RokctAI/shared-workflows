@@ -1293,7 +1293,13 @@ jobs:
                   # the old hole of force-pushing a mid-rebase HEAD.
                   git fetch origin "$BRANCH_NAME" || true
                   if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
-                      git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                      # --autostash: the scoped add above leaves initiate's
+                      # runner-local residue unstaged, and a bare rebase-pull
+                      # refuses on a dirty tree - which made this fallback
+                      # always skip the rebase and force-push over the peer
+                      # commits it exists to preserve (the supacharge run
+                      # 32975159053 failure mode).
+                      git pull origin "$BRANCH_NAME" --rebase --autostash || { git rebase --abort 2>/dev/null || true; }
                   fi
                   git push -f origin HEAD:"$BRANCH_NAME"
                   exit 0

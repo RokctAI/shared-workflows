@@ -226,6 +226,21 @@ jobs:
               git commit -m "🤖 [CI] Compose Flutter SDK modules [skip ci]" || echo "No changes to commit"
             fi
 
+            # The scoped staging above deliberately leaves initiate's
+            # runner-local scaffolding out of the commit; that residue (a
+            # modified tracked .rokct/workflows/init_protocol.md plus the
+            # untracked working docs) made the rebase below refuse with
+            # "cannot rebase: You have unstaged changes" once origin
+            # advanced mid-job (supacharge run 32975159053, exit 128).
+            # Everything legitimate is already committed by construction,
+            # so drop the residue: restore tracked files, then delete
+            # untracked non-ignored leftovers. Discard, not autostash -
+            # autostash keeps only tracked mods and still trips when an
+            # incoming commit adds a path the runner holds untracked (repos
+            # on pre-#464 workflows still commit those very files).
+            git checkout -- .
+            git clean -fd
+
             # Two workflows (e.g. Build (Smart) and Auto Release) can trigger on
             # the same push, compose in parallel, and race to push the identical
             # commit-back; the loser used to die with
@@ -235,7 +250,11 @@ jobs:
             # remote commits just become the new base for ours.
             git fetch origin "$GITHUB_REF"
             if ! git rebase FETCH_HEAD; then
-              git rebase --abort
+              # `|| true`: when the rebase refused to even start, no rebase
+              # is in progress and a bare abort itself dies with exit 128
+              # (that abort, not the rebase, was run 32975159053's actual
+              # failing command).
+              git rebase --abort || true
               echo "::error::Compose commit-back conflicts with new commits on $GITHUB_REF - manual recompose needed."
               exit 1
             fi
