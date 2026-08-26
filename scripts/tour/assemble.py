@@ -983,13 +983,32 @@ def render_wide_video(
     )
 
 
-def pick_hero_step(chapters, shots):
+def pick_hero_step(chapters, shots, feature_step=""):
     """The feature graphic's hero still, or None when nothing was captured.
 
-    The first captured step of the SECOND chapter (the first chapter is
-    usually onboarding/sign-in, whose screens sell the app least),
-    falling back to the tour's first captured step.
+    An explicit store.feature_step names the hero step outright
+    (convention: the app's HOME step). Otherwise the first captured step
+    of the SECOND chapter (the first chapter is usually
+    onboarding/sign-in, whose screens sell the app least), falling back
+    to the tour's first captured step.
     """
+    if feature_step:
+        named = next(
+            (s for steps in chapters.values() for s in steps if s["key"] == feature_step),
+            None,
+        )
+        if named is not None and named["key"] in shots:
+            return named
+        if named is None:
+            warn(
+                f"store.feature_step: no step with key '{feature_step}' "
+                "— using the default hero"
+            )
+        else:
+            warn(
+                f"store.feature_step: step '{feature_step}' has no captured "
+                "screenshot — using the default hero"
+            )
     names = list(chapters)
     if len(names) > 1:
         for step in chapters[names[1]]:
@@ -1297,9 +1316,20 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     for step in resolved["steps"]:
         chapters.setdefault(str(step.get("chapter") or "app"), []).append(step)
     write_store_stills(chapters)
-    hero = pick_hero_step(chapters, shots)
+    store_cfg = resolved.get("store") or {}
+    if not isinstance(store_cfg, dict):
+        warn("store: is not a mapping in the resolved plan — ignored")
+        store_cfg = {}
+    hero = pick_hero_step(chapters, shots, str(store_cfg.get("feature_step") or "").strip())
     if hero is not None:
-        write_feature_graphic(out_dir, app, shots[hero["key"]], logo_path, brand_bg, font_path)
+        # store.logo overrides the feature graphic's logo mark: absent
+        # (None) keeps app.logo, a path uses that path, "" draws none.
+        feature_logo = logo_path
+        if store_cfg.get("logo") is not None:
+            feature_logo = str(store_cfg["logo"]).strip()
+            if not feature_logo:
+                log("feature graphic: store.logo is empty — no logo mark")
+        write_feature_graphic(out_dir, app, shots[hero["key"]], feature_logo, brand_bg, font_path)
     write_app_icon(out_dir, logo_path, brand_bg)
     for chapter, chapter_steps in chapters.items():
         captured = [s for s in chapter_steps if s["key"] in shots]

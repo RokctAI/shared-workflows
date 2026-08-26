@@ -50,9 +50,13 @@ shell repo under `marketing/tour/`:
   2x so the type stays crisp): brand-primary canvas; the app logo, app
   name and tagline stacked on the left; the hero screenshot in the house
   phone frame on the right, its bottom edge cropped by the canvas. The
-  hero still is the first captured step of the SECOND chapter (the first
-  chapter is usually onboarding/sign-in), falling back to the tour's
-  first captured step. Composed to Play feature-graphic conventions:
+  hero still is the step named by `store.feature_step` when the manifest
+  sets one (the convention is the app's HOME step); otherwise the first
+  captured step of the SECOND chapter (the first chapter is usually
+  onboarding/sign-in), falling back to the tour's first captured step.
+  `store.logo` overrides the graphic's logo mark independently of
+  `app.logo` — an explicitly empty value draws no logo at all (name and
+  tagline only). Composed to Play feature-graphic conventions:
   minimal text, nothing critical near the edges or the exact centre
   (Play crops the graphic in some placements and overlays a play button
   on it when it fronts the promo video).
@@ -108,6 +112,10 @@ video:
   offer: "Start free today."  # optional; ~3s end card CTA line
   chapter_frame_anchor:       # optional; per-chapter phone-frame anchoring
     auth: top                 # bottom (default) | top | full
+store:                        # optional; Play feature-graphic overrides
+  feature_step: schedule      # step key whose screenshot is the hero
+                              # (convention: the app's HOME step)
+  logo: ""                    # feature-graphic logo override; ""/~ = none
 setup:                        # optional Dart run once before app.main()
   imports:
     - "import 'package:base_sdk/src/services/local_storage.dart';"
@@ -139,6 +147,20 @@ picked per background (black or white, whichever reads better), so any
 primary colour works. `video.seconds_per_step` (the retired
 fixed-total-window pacing) is ignored; each still now holds a fixed
 `beat_seconds` beat.
+
+Every `store` key is optional too. `store.feature_step` names the step
+key whose captured screenshot fronts the feature graphic; the convention
+is to point it at the app's HOME step — the safest single screen to sell
+the app with — set explicitly per app because auto-detecting "home" is
+unreliable (e.g. supacharge's home step is `schedule`). An unknown or
+uncaptured key warns (at merge time and again at assembly) and falls back
+to the default second-chapter-first-step hero; with the key absent
+nothing changes. `store.logo` controls the feature graphic's logo mark
+independently of `app.logo` (which the video end card and app icon keep
+using): absent = use `app.logo`; a repo-relative path = use that path;
+explicitly empty (`""` or `~`) = draw no logo — right for apps whose only
+logo is a wordmark that would double the app name (the graphic re-centres
+the name + tagline block, as it already does when no logo resolves).
 
 Each chapter video OPENS on the app's real splash image (~3s) when one
 resolves. An explicit `app.splash` (repo-relative) wins; when absent the
