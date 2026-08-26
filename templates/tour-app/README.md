@@ -4,7 +4,8 @@ Copies-and-edits for an app shell repo adopting the guided tour
 (`.github/workflows/universal-guided-tour.yml` in this repo — full pipeline
 documentation lives in [`scripts/tour/README.md`](../../scripts/tour/README.md)).
 
-An adopting app commits FOUR files; two of them start from this directory:
+An adopting app commits FOUR files (plus the `pubspec.yaml` dev-dependency
+edit in step 1); two of them start from this directory:
 
 | File in the app repo | Source | Editing needed |
 |---|---|---|
@@ -15,18 +16,35 @@ An adopting app commits FOUR files; two of them start from this directory:
 
 Adoption steps:
 
-1. Make sure the repo has the distributed caller workflow
+1. Add the tour's dev-dependencies to the shell's `pubspec.yaml` — the
+   reusable workflow runs `dart run build_runner build` and then
+   `flutter test integration_test/guided_tour_test.dart`, so both must
+   resolve in the app (without `integration_test` the tour fails at once
+   with `cannot run without a dependency on "package:integration_test"`):
+
+   ```yaml
+   dev_dependencies:
+     integration_test:
+       sdk: flutter
+     build_runner: ^2.4.0
+   ```
+
+   Also keep the codegen packages the shell's composed SDKs need (e.g.
+   `freezed`, `auto_route_generator`) in `dev_dependencies`, matching the
+   other shells — `build_runner` fails the build step when a composed SDK
+   generates code it has no builder for.
+2. Make sure the repo has the distributed caller workflow
    `.github/workflows/guided-tour.yml`. It skips cleanly until
    `tour/app.tour.yaml` exists, so it can land first.
-2. Copy `app.tour.yaml` from here to `tour/app.tour.yaml` and edit it:
+3. Copy `app.tour.yaml` from here to `tour/app.tour.yaml` and edit it:
    app name/tagline/logo, the welcome step wording, and a `fragment:` entry
    per composed SDK that ships a tour fragment. Fragments the composed SDKs
    do not (yet) ship are skipped with a warning, never a failure — apps
    adopt fragments gradually as SDKs grow them.
-3. Copy `guided_tour_test.dart` to `integration_test/guided_tour_test.dart`
+4. Copy `guided_tour_test.dart` to `integration_test/guided_tour_test.dart`
    and replace the single `{app_package}` token with the app's pubspec
    package name. Nothing else in the runner is app-specific.
-4. Generate and commit `integration_test/tour_steps.g.dart` (run
+5. Generate and commit `integration_test/tour_steps.g.dart` (run
    `merge_fragments.py` against a local compose, or land a first-cut and
    let the first CI run overwrite and commit it).
 
