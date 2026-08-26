@@ -499,6 +499,10 @@ def main():
     placeholders = {"app_name": app_name, "app_tagline": app_tagline}
 
     video = manifest.get("video") or {}
+    store = manifest.get("store") or {}
+    if not isinstance(store, dict):
+        warn("store: must be a mapping — ignored")
+        store = {}
     setup = manifest.get("setup") or {}
 
     sdk_index = composer_sdk_index(args.composer)
@@ -561,6 +565,16 @@ def main():
     if not visible:
         fail("every resolved step is screenshot: false — the tour would produce no stills")
 
+    # Play-listing feature-graphic overrides: store.feature_step names the
+    # step whose screenshot fronts the feature graphic (convention: the
+    # app's HOME step), store.logo overrides — or omits — its logo mark.
+    feature_step = str(store.get("feature_step") or "").strip()
+    if feature_step and feature_step not in {s["key"] for s in visible}:
+        warn(
+            f"store.feature_step: no screenshot step with key '{feature_step}' "
+            "— assemble.py will fall back to the default hero"
+        )
+
     # Branding colours: explicit manifest keys win; otherwise they are
     # derived from the composed app's AppStyle (see derive_brand_colors),
     # and assemble.py's built-in defaults cover anything still missing.
@@ -617,6 +631,15 @@ def main():
             # Optional one-line offer/CTA; with a logo or an offer present
             # each chapter video closes on a ~3s end card.
             "offer": substitute(str(video.get("offer") or ""), placeholders).strip(),
+        },
+        "store": {
+            # Step key whose screenshot fronts the Play feature graphic
+            # (convention: the app's HOME step); empty means the default
+            # second-chapter-first-step hero.
+            "feature_step": feature_step,
+            # Feature-graphic logo override: None (key absent) = use
+            # app.logo; a path = use that path; "" = draw no logo mark.
+            "logo": str(store.get("logo") or "").strip() if "logo" in store else None,
         },
         "steps": [
             {
