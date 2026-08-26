@@ -1254,8 +1254,20 @@ jobs:
 
           if [[ -n $(git status -s) ]]; then
             git restore pubspec.lock || true
-            if [[ -n $(git status -s) ]]; then
-              git add .
+            # Stage only the trees the Auto-fix step actually formats
+            # (dart format lib/test/source), and only modifications to
+            # already-tracked files (-u) - never `git add .`: the compose
+            # bootstrap above runs .rokct/initiate.py, which re-materializes
+            # the .rokct working docs on the runner (decision_log.md,
+            # profiles.md, project_map.md, .markdownlint.json, workflows/*),
+            # and an unscoped add swept all 11 of them into an auto-std PR
+            # sold as "Flutter Dart Formatting" (minilauncher#37, run
+            # 32967412775) - the linter twin of the compose commit-back
+            # sweep fixed in shared-workflows#464.
+            for p in lib test source; do
+              if [ -d "$p" ]; then git add -u -- "$p" || true; fi
+            done
+            if ! git diff --cached --quiet; then
               git commit -m "style: automated flutter formatting [skip ci]"
               
               # Enforce PR-First Strategy: No direct pushes
@@ -1281,7 +1293,13 @@ jobs:
                   # the old hole of force-pushing a mid-rebase HEAD.
                   git fetch origin "$BRANCH_NAME" || true
                   if git merge-base --is-ancestor "${{ github.sha }}" "origin/$BRANCH_NAME" 2>/dev/null; then
-                      git pull origin "$BRANCH_NAME" --rebase || { git rebase --abort 2>/dev/null || true; }
+                      # --autostash: the scoped add above leaves initiate's
+                      # runner-local residue unstaged, and a bare rebase-pull
+                      # refuses on a dirty tree - which made this fallback
+                      # always skip the rebase and force-push over the peer
+                      # commits it exists to preserve (the supacharge run
+                      # 32975159053 failure mode).
+                      git pull origin "$BRANCH_NAME" --rebase --autostash || { git rebase --abort 2>/dev/null || true; }
                   fi
                   git push -f origin HEAD:"$BRANCH_NAME"
                   exit 0
@@ -1306,7 +1324,7 @@ jobs:
                   exit 1
               fi
             else
-              echo "Only pubspec.lock changed. Skipping commit."
+              echo "No formatting changes to commit (runner-only initiate/compose artifacts are never staged)."
               reset_stale_rolling_branch
             fi
           else
