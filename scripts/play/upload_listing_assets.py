@@ -45,6 +45,21 @@ app's checkout, exactly where the tour pipeline writes them:
       limit, unreadable) is logged and skipped — one bad file never
       fails the deploy.
 
+  marketing/tour/tablet/store/*.png|jpg|jpeg|webp
+      The tour pipeline's TABLET leg writes its styled stills here
+      (1600x2560, a 10-inch portrait canvas) — classified by DIRECTORY:
+      every portrait image within Play's 320-3840px bounds ->
+      tenInchScreenshots, uploaded in sorted filename order, capped at
+      Play's limit of 8 with every skipped file named. The tablet leg
+      never writes a feature graphic or icon here (those exist once per
+      listing and come from the phone dir above); anything non-portrait
+      or out of bounds is logged and skipped. Mapped to
+      tenInchScreenshots only, NOT sevenInchScreenshots: the tablet leg
+      runs a 10-inch-class geometry (1600x2560 at 320dpi, sw800dp), and
+      the phone set at 1080x1920 already shows the handset/7-inch-class
+      content — duplicating the 10-inch layouts into the sevenInch slot
+      would misrepresent what a 7-inch device renders.
+
   marketing/store/screenshots.txt
       Optional curated pick-list for the phoneScreenshots: one still
       key per line (a marketing/tour/store/ filename, with or without
@@ -97,6 +112,11 @@ import os
 import sys
 
 STORE_DIR = os.path.join("marketing", "tour", "store")
+# The tablet leg's store stills live in their own directory precisely so
+# they can be classified by location (tenInchScreenshots) instead of by
+# dimensions — a 1600x2560 still is otherwise indistinguishable from a
+# large phone screenshot.
+TABLET_STORE_DIR = os.path.join("marketing", "tour", "tablet", "store")
 VIDEO_FILE = os.path.join("marketing", "store", "video.txt")
 SCREENSHOTS_FILE = os.path.join("marketing", "store", "screenshots.txt")
 LISTING_DIR = os.path.join("marketing", "store", "listing")
@@ -294,6 +314,56 @@ def discover_images(store_dir, curated_keys=None):
                 f"{PHONE_MAX_COUNT} in the order above win)"
             )
     return assets
+
+
+def discover_tablet_screenshots(tablet_store_dir):
+    """The tablet store dir's stills, in upload order: tenInchScreenshots.
+
+    Classification is by DIRECTORY, not dimensions — the tour pipeline's
+    tablet leg writes only its styled portrait stills here (never a
+    feature graphic or icon; those stay with the phone run). Every
+    portrait image within Play's 320-3840px per-side bounds qualifies;
+    anything else (wrong shape, out of bounds, over the 15MB limit,
+    unreadable) is logged and skipped, never fatal. Sorted filename
+    order, capped at Play's per-type limit of 8 with every skipped file
+    named — the same overflow logging as phoneScreenshots. The
+    screenshots.txt pick-list stays phone-only: its keys name
+    marketing/tour/store/ files, and the tablet stills mirror the same
+    step keys/order anyway.
+    """
+    screenshots = []
+    for name in sorted(os.listdir(tablet_store_dir)):
+        path = os.path.join(tablet_store_dir, name)
+        if not os.path.isfile(path) or not name.lower().endswith(IMAGE_EXTENSIONS):
+            continue
+        size_bytes = os.path.getsize(path)
+        if size_bytes > MAX_IMAGE_BYTES:
+            log(
+                f"skipping {path}: {size_bytes / 1_000_000:.1f} MB exceeds "
+                f"Play's {MAX_IMAGE_BYTES // (1024 * 1024)}MB listing-image limit"
+            )
+            continue
+        dimensions = image_size(path)
+        if dimensions is None:
+            continue
+        width, height = dimensions
+        if height > width and all(
+            PHONE_MIN_PX <= side <= PHONE_MAX_PX for side in (width, height)
+        ):
+            screenshots.append(path)
+        else:
+            log(
+                f"skipping {path}: {width}x{height} is not a portrait tablet "
+                f"screenshot ({PHONE_MIN_PX}-{PHONE_MAX_PX}px per side)"
+            )
+    capped = screenshots[:PHONE_MAX_COUNT]
+    for over_cap in screenshots[PHONE_MAX_COUNT:]:
+        log(
+            f"skipping {over_cap}: over Play's {PHONE_MAX_COUNT}-image "
+            "tenInchScreenshots cap (first "
+            f"{PHONE_MAX_COUNT} in filename order win)"
+        )
+    return capped
 
 
 def discover_listing_texts(app_dir):
@@ -565,6 +635,16 @@ def main():
     else:
         log(f"no store assets directory at {store_dir} — no listing images to push")
         assets = {}
+    tablet_store_dir = os.path.join(args.app_dir, TABLET_STORE_DIR)
+    if os.path.isdir(tablet_store_dir):
+        tablet_screenshots = discover_tablet_screenshots(tablet_store_dir)
+        if tablet_screenshots:
+            assets["tenInchScreenshots"] = tablet_screenshots
+    else:
+        log(
+            f"no tablet store directory at {tablet_store_dir} — "
+            "no tenInchScreenshots to push"
+        )
     video_url = discover_video(args.app_dir)
     listing_texts = discover_listing_texts(args.app_dir)
 

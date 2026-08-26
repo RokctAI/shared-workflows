@@ -10,6 +10,12 @@ name: Universal Guided Tour
 # caller repo. Tour steps are merged from the app's tour/app.tour.yaml plus
 # the brand-neutral fragments each composed SDK ships in templates/tour/.
 # See scripts/tour/README.md in this repo for the format.
+#
+# After the phone leg, a second SERIAL emulator leg (input `tablet`, on by
+# default) reruns the same tour on a 10-inch tablet AVD and commits tablet
+# geometry outputs to marketing/tour/tablet/ — its store/ stills feed the
+# Play listing's tenInchScreenshots slot. A tablet failure fails the job
+# (honest signal) but never blocks the phone outputs from committing.
 
 permissions: write-all
 env:
@@ -61,6 +67,11 @@ on:
         type: boolean
         default: true
         description: "Commit the assembled outputs back to the caller repo"
+      tablet:
+        required: false
+        type: boolean
+        default: true
+        description: "Also rerun the tour on a 10-inch tablet emulator leg and publish tablet assets to <output-dir>/tablet"
     secrets:
       MONOREPO_PAT:
         required: false
@@ -71,9 +82,10 @@ jobs:
   tour:
     name: 🎬 Guided Tour
     runs-on: ubuntu-latest
-    # Compose + build_runner + debug build + emulator tour is a long ride;
-    # cap it so a wedged emulator cannot squat a runner for hours.
-    timeout-minutes: 150
+    # Compose + build_runner + debug build + emulator tour is a long ride —
+    # and the tablet leg reruns the tour on a second emulator; cap it so a
+    # wedged emulator cannot squat a runner for hours.
+    timeout-minutes: 210
     env:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
@@ -251,23 +263,36 @@ jobs:
           #!/usr/bin/env bash
           set -uo pipefail
 
-          OUT=tour_screenshots
+          # One script for BOTH device legs: the phone defaults below match
+          # the historical behaviour byte-for-byte; the tablet leg overrides
+          # them via the step-level TOUR_* env vars instead of duplicating
+          # the script.
+          OUT="${TOUR_OUT:-tour_screenshots}"
+          WM_SIZE="${TOUR_WM_SIZE:-1080x1920}"
+          WM_DENSITY="${TOUR_WM_DENSITY:-400}"
+          LOGCAT_DUMP="${TOUR_LOGCAT:-tour_logcat.txt}"
+          TEST_LOG="${TOUR_TEST_LOG:-tour_test_output.log}"
           rm -rf "$OUT"
           mkdir -p "$OUT"
 
           adb wait-for-device
-          # Portrait 1080x1920 canvas for the stills/video (9:16).
-          adb shell wm size 1080x1920 || true
-          adb shell wm density 400 || true
+          # Portrait canvas for the stills/video: 1080x1920 9:16 on the
+          # phone leg, 1600x2560 10:16 on the tablet leg. Tablet AVDs are
+          # landscape-natural, so pin rotation to portrait too — a no-op
+          # on the phone AVD, which already boots portrait.
+          adb shell settings put system accelerometer_rotation 0 || true
+          adb shell settings put system user_rotation 0 || true
+          adb shell wm size "$WM_SIZE" || true
+          adb shell wm density "$WM_DENSITY" || true
 
-          rm -f tour_test_output.log
+          rm -f "$TEST_LOG"
           python3 .tour-tools/scripts/tour/capture_screenshots.py \
             --out "$OUT" \
             --expected "${EXPECTED_SHOTS:-0}" \
             --timeout 2400 \
             --serial emulator-5554 \
-            --logcat-dump tour_logcat.txt \
-            --stdout-log tour_test_output.log &
+            --logcat-dump "$LOGCAT_DUMP" \
+            --stdout-log "$TEST_LOG" &
           CAP_PID=$!
 
           TEST_EXIT=0
@@ -287,7 +312,7 @@ jobs:
           timeout --kill-after=60 2100 \
             flutter test integration_test/guided_tour_test.dart \
             -d emulator-5554 --timeout none "${TEST_ARGS[@]}" 2>&1 \
-            | tee tour_test_output.log
+            | tee "$TEST_LOG"
           TEST_EXIT=${PIPESTATUS[0]}
           if [ "$TEST_EXIT" -eq 124 ] || [ "$TEST_EXIT" -eq 137 ]; then
             echo "::warning::flutter test hit the 35-minute wall-clock bound and was terminated (exit $TEST_EXIT)."
@@ -439,6 +464,127 @@ jobs:
             echo "::warning::Tour video assembly failed or was skipped - screenshots and guide are unaffected."
           fi
 
+      # ----------------------------------------------------------------------
+      # TABLET LEG (input `tablet`, on by default): rerun the SAME tour test
+      # on a 10-inch tablet AVD, serially after the phone leg so it reuses
+      # all the compose/build_runner/APK work above. The AVD uses the SDK's
+      # `pixel_tablet` device profile (shipped by current cmdline-tools;
+      # same api-34 google_apis x86_64 system image as the phone leg) and
+      # the canvas is forced anyway via `wm size 1600x2560` +
+      # `wm density 320` — a 10-inch-class sw800dp portrait geometry whose
+      # sides sit inside Play's 320-3840px screenshot bounds, so the app
+      # renders its real tablet layouts. Every tablet step below is
+      # continue-on-error or outcome-gated so a tablet failure can NEVER
+      # block the phone outputs from committing; the "Tablet Leg Status"
+      # gate AFTER the commit step then fails the job for real (honest
+      # red), with the phone assets already safely pushed.
+      - name: Reset Emulator State Before Tablet Leg
+        if: inputs.tablet == true
+        run: |
+          echo "Phone leg done — killing any leftover emulator/adb before the tablet leg."
+          adb emu kill || true
+          pkill -f "qemu-system" || true
+          adb kill-server || true
+          sleep 10
+
+      - name: Run Emulator and Tour (Tablet)
+        id: tour-tablet
+        if: inputs.tablet == true
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+          TOUR_OUT: tour_screenshots_tablet
+          TOUR_WM_SIZE: 1600x2560
+          TOUR_WM_DENSITY: "320"
+          TOUR_LOGCAT: tour_logcat_tablet.txt
+          TOUR_TEST_LOG: tour_test_output_tablet.log
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_tablet
+          # Its own AVD name: the phone leg's default AVD was created with
+          # the `pixel` profile and AVD profiles are fixed at creation.
+          avd-name: tour_tablet_api34
+          # Same resource split as the phone leg (see the comment there).
+          cores: 3
+          ram-size: 4096M
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash ./run_tour.sh
+
+      - name: Reset Emulator State Before Tablet Retry
+        if: inputs.tablet == true && steps.tour-tablet.outcome == 'failure'
+        run: |
+          echo "First tablet attempt failed — killing stale emulator/adb before retry."
+          adb emu kill || true
+          pkill -f "qemu-system" || true
+          adb kill-server || true
+          sleep 10
+
+      - name: Run Emulator and Tour (Tablet Retry)
+        id: tour-tablet-retry
+        if: inputs.tablet == true && steps.tour-tablet.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+          TOUR_OUT: tour_screenshots_tablet
+          TOUR_WM_SIZE: 1600x2560
+          TOUR_WM_DENSITY: "320"
+          TOUR_LOGCAT: tour_logcat_tablet.txt
+          TOUR_TEST_LOG: tour_test_output_tablet.log
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_tablet
+          avd-name: tour_tablet_api34
+          cores: 3
+          ram-size: 4096M
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash ./run_tour.sh
+
+      # continue-on-error so an assembly bug cannot stop the phone assets
+      # from committing below — the Tablet Leg Status gate turns a failure
+      # here into the job's red signal afterwards.
+      - name: Assemble Tablet Feature Guide
+        id: tablet-assemble
+        if: inputs.tablet == true && (steps.tour-tablet.outcome == 'success' || steps.tour-tablet-retry.outcome == 'success')
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 .tour-tools/scripts/tour/assemble.py \
+            --resolved tour.resolved.json \
+            --shots tour_screenshots_tablet \
+            --out "${{ inputs.output-dir }}/tablet" \
+            --device tablet \
+            --guide
+
+      # Best-effort like the phone video; --device tablet renders the
+      # per-chapter videos and store stills (tenInchScreenshots) on the
+      # tablet canvas and skips the phone-only feature graphic/icon/wide
+      # reel. apt install is a fast no-op when the phone video step
+      # already ran it.
+      - name: Assemble Tablet Tour Video (best-effort)
+        id: tablet-video
+        if: inputs.tablet == true && (steps.tour-tablet.outcome == 'success' || steps.tour-tablet-retry.outcome == 'success')
+        continue-on-error: true
+        shell: bash
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg fonts-dejavu-core
+          python3 .tour-tools/scripts/tour/assemble.py \
+            --resolved tour.resolved.json \
+            --shots tour_screenshots_tablet \
+            --out "${{ inputs.output-dir }}/tablet" \
+            --device tablet \
+            --video --codec libx264 --container mp4
+
       - name: Commit Tour Outputs
         if: inputs.commit-outputs == true && github.event_name != 'pull_request'
         shell: bash
@@ -512,6 +658,8 @@ jobs:
             echo "Latest lessons, performance improvements and fixes." > marketing/store/whatsnew/whatsnew-en-US
             git add -f marketing/store/whatsnew/whatsnew-en-US
           }
+          # This pathspec also stages the tablet leg's outputs: they live
+          # at <output-dir>/tablet, INSIDE the same directory, on purpose.
           git add -f "${{ inputs.output-dir }}"
           if ! git commit -m "docs: refresh guided tour screenshots and feature guide [skip ci]"; then
             echo "ℹ️ No changes in ${{ inputs.output-dir }} - nothing to commit."
@@ -532,6 +680,27 @@ jobs:
           git push origin HEAD:${{ github.ref }}
           echo "✅ Tour outputs committed to ${{ github.ref }}."
 
+      # The tablet leg's honest failure signal, deliberately AFTER the
+      # commit step: every tablet step above is continue-on-error, so a
+      # tablet failure reaches this gate only once the phone outputs are
+      # already committed — then it turns the job red for real. Tablet
+      # video failures stay a warning, same as the phone video.
+      - name: Tablet Leg Status
+        if: inputs.tablet == true
+        run: |
+          if [ "${{ steps.tour-tablet.outcome }}" != "success" ] && [ "${{ steps.tour-tablet-retry.outcome }}" != "success" ]; then
+            echo "::error::Tablet tour failed on both attempts (first: ${{ steps.tour-tablet.outcome }}, retry: ${{ steps.tour-tablet-retry.outcome }})."
+            exit 1
+          fi
+          if [ "${{ steps.tablet-assemble.outcome }}" != "success" ]; then
+            echo "::error::Tablet feature-guide assembly failed (outcome: ${{ steps.tablet-assemble.outcome }})."
+            exit 1
+          fi
+          if [ "${{ steps.tablet-video.outcome }}" != "success" ]; then
+            echo "::warning::Tablet video assembly failed - tablet screenshots and stills are unaffected."
+          fi
+          echo "✅ Tablet leg succeeded (tour: ${{ steps.tour-tablet.outcome }}, retry: ${{ steps.tour-tablet-retry.outcome }})."
+
       - name: Upload Tour Artifacts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -539,8 +708,11 @@ jobs:
           name: guided-tour-results
           path: |
             tour_screenshots/
+            tour_screenshots_tablet/
             ${{ inputs.output-dir }}/
             tour.resolved.json
             tour_logcat.txt
             tour_test_output.log
+            tour_logcat_tablet.txt
+            tour_test_output_tablet.log
           if-no-files-found: warn
