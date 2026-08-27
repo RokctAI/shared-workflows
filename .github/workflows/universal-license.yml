@@ -52,15 +52,15 @@ jobs:
             # NOTE: `content` must include substantive license text (the MIT
             # permission notice). license-eye's normalizers strip bare
             # copyright lines before matching, so a content of only
-            # "Copyright ... RokctAI" normalizes to an empty pattern and every
+            # "Copyright ... ROKCT INTELLIGENCE (PTY) LTD" normalizes to an empty pattern and every
             # file fails the check regardless of its header.
             cat > .licenserc.generated.yaml <<'EOF'
           header:
             license:
               spdx-id: MIT
-              copyright-owner: RokctAI
+              copyright-owner: ROKCT INTELLIGENCE (PTY) LTD
               content: |
-                Copyright (c) 2026 RokctAI
+                Copyright (c) 2026 ROKCT INTELLIGENCE (PTY) LTD
 
                 Permission is hereby granted, free of charge, to any person obtaining a copy
                 of this software and associated documentation files (the "Software"), to deal
