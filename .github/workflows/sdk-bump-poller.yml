@@ -1,4 +1,4 @@
-# Copyright 2026 RokctAI
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
 
 # Weekly poller that rebuilds app shells only when the SDK sources they
 # compose actually changed since the shell's last successful build. For
