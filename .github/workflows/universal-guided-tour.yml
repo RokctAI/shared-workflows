@@ -585,6 +585,20 @@ jobs:
             --device tablet \
             --video --codec libx264 --container mp4
 
+      # Refresh the README's generated marker sections (store-description
+      # + tour-gallery blocks, see scripts/tour/readme_sections.py) so the
+      # README always references the stills the commit below ships. Chosen
+      # trade-off: a store-listing edit is reflected in the README on the
+      # NEXT tour run (or a manual workflow_dispatch), not immediately.
+      - name: Refresh README Generated Sections
+        if: inputs.commit-outputs == true && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          # Drop any compose-time edits to README.md first, so the commit
+          # below carries ONLY the regenerated marker blocks.
+          git checkout -- README.md 2>/dev/null || true
+          python3 .tour-tools/scripts/tour/readme_sections.py --repo-root .
+
       - name: Commit Tour Outputs
         if: inputs.commit-outputs == true && github.event_name != 'pull_request'
         shell: bash
@@ -661,6 +675,10 @@ jobs:
           # This pathspec also stages the tablet leg's outputs: they live
           # at <output-dir>/tablet, INSIDE the same directory, on purpose.
           git add -f "${{ inputs.output-dir }}"
+          # The README's generated sections were refreshed by the step
+          # above (only the marker blocks can differ from HEAD - it reset
+          # compose-time edits first); ride them in the same commit.
+          if [ -f README.md ]; then git add -f README.md; fi
           if ! git commit -m "docs: refresh guided tour screenshots and feature guide [skip ci]"; then
             echo "ℹ️ No changes in ${{ inputs.output-dir }} - nothing to commit."
             exit 0

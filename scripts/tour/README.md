@@ -81,6 +81,21 @@ shell repo under `marketing/tour/`:
   `tour-wide.mp4` is reserved: a fragment named `wide` would collide
   with it (the assembler warns and the reel wins).
 
+Just before committing those outputs, the workflow also runs
+`readme_sections.py`, which refreshes two marker-delimited blocks in the
+app shell's `README.md` so the README rides the same output commit (see
+that script's docstring for the full contract): a `## About` block
+mirroring the Play listing's `full_description.txt` (empty while the
+listing file holds only comments), and a `## App tour` gallery of the
+styled `marketing/tour/store/` stills — everything not excluded by the
+optional curation manifest `marketing/tour/readme_gallery.yml`
+(`exclude:` list, `captions:` overrides) is shown, so new tour steps
+appear in the README automatically. Nothing outside the marker blocks is
+ever touched, and the generated Markdown stays inside default
+markdownlint rules (80-column lines, no inline HTML). Note the chosen
+trade-off: editing the store listing alone refreshes the README on the
+next tour run (or a manual `workflow_dispatch`), not immediately.
+
 ## The tablet leg
 
 After the phone leg, the workflow reruns the SAME tour serially on a
