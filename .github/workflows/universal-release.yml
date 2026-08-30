@@ -917,9 +917,30 @@ jobs:
           # build_runner >=2.15 AOT-compiles builders via 'dart compile',
           # which refuses to run when any resolved package ships a
           # native-asset build hook ("'dart compile' does not support
-          # build hooks"). --force-jit avoids that; the SDK composer that
-          # runs earlier in this job already generates with the same flag.
-          dart run build_runner build --force-jit --delete-conflicting-outputs
+          # build hooks"). --force-jit avoids that. Older build_runner
+          # versions do not know the flag at all, so if the flag itself
+          # is unrecognized, fall back to the plain invocation. The SDK
+          # composer that runs earlier in this job does not prove the flag
+          # is supported: it runs the same fallback internally and does not
+          # abort the compose run when code generation fails.
+          # PowerShell spelling of the bash guard used by
+          # universal-flutter-build.yml / universal-guided-tour.yml: the
+          # ErrorActionPreference window keeps a non-zero native exit from
+          # terminating the step before the log can be inspected.
+          $ErrorActionPreference = "Continue"
+          dart run build_runner build --force-jit --delete-conflicting-outputs > build_runner_log.txt 2>&1
+          $jitRc = $LASTEXITCODE
+          $ErrorActionPreference = "Stop"
+          if ($jitRc -ne 0) {
+            if (Select-String -Path build_runner_log.txt -Pattern 'Could not find an option named' -SimpleMatch -Quiet) {
+              Write-Output "build_runner does not recognize --force-jit (older version); retrying with plain build"
+              dart run build_runner build --delete-conflicting-outputs
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } else {
+              Get-Content build_runner_log.txt -Tail 100
+              exit $jitRc
+            }
+          }
           flutter build windows --release
 
           # Bundle the complete MSVC runtime family from the redist's *.CRT
@@ -1810,9 +1831,21 @@ jobs:
             # build_runner >=2.15 AOT-compiles builders via 'dart compile',
             # which refuses to run when any resolved package ships a
             # native-asset build hook ("'dart compile' does not support
-            # build hooks"). --force-jit avoids that; the SDK composer that
-            # runs earlier in this job already generates with the same flag.
-            dart run build_runner build --force-jit --delete-conflicting-outputs
+            # build hooks"). --force-jit avoids that. Older build_runner
+            # versions do not know the flag at all, so if the flag itself
+            # is unrecognized, fall back to the plain invocation. The SDK
+            # composer that runs earlier in this job does not prove the flag
+            # is supported: it runs the same fallback internally and does not
+            # abort the compose run when code generation fails.
+            if ! dart run build_runner build --force-jit --delete-conflicting-outputs > build_runner_log.txt 2>&1; then
+              if grep -q 'Could not find an option named' build_runner_log.txt; then
+                echo 'build_runner does not recognize --force-jit (older version); retrying with plain build'
+                dart run build_runner build --delete-conflicting-outputs >> build_runner_log.txt 2>&1
+              else
+                tail -n 100 build_runner_log.txt
+                exit 1
+              fi
+            fi
             if [ -f .env/production.env ]; then
               flutter build apk --release --dart-define-from-file=.env/production.env
             else
