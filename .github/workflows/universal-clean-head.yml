@@ -28,6 +28,13 @@
 #       staging), which is protocol noise, not composer output.
 #     - `pubspec.lock` is excluded: it churns with pub registry state over
 #       time, not with HEAD content, so it would make the gate flaky.
+#   Before that comparison it runs the SAME stray-Kotlin-source prune the
+#   build lanes run (universal-flutter-build.yml / universal-release.yml
+#   Dynamic Source Rename, universal-guided-tour.yml), so the gate judges
+#   the tree the build actually produces instead of counting sources the
+#   build throws away. It only ever deletes UNTRACKED files: a committed
+#   source outside the app package is logged and kept, so this can never
+#   manufacture a deletion the tracked-file drift check would then report.
 #   Any remaining diff fails the job with the full drift printed. Unlike the
 #   build workflow it never commits or pushes — it composes in place purely
 #   to compare, so it is safe to run on PRs and arbitrary branches.
@@ -239,6 +246,124 @@ jobs:
           else
             echo "ℹ️ composer.json absent after manifest selection. Nothing to compose."
           fi
+
+      # ── Prune stray Kotlin sources (match what the build lane builds) ────
+      # The build lane DISCARDS Kotlin sources outside the app's own package
+      # before it ever compiles, so a gate that counts them is measuring a
+      # tree the build never produces.
+      #
+      # Why they appear at all: the composer re-injects core's android/
+      # template on EVERY run, and its overwrite guard (The-Rokct-Protocol
+      # sdk_installer_base.py, the `if os.path.exists(file_dest):` branch)
+      # only protects files that ALREADY exist — so deleting a stray
+      # template source in the caller repo removes its own protection and
+      # the next compose copies it straight back in. Concretely, core's
+      # templates/android ships app/src/main/kotlin/com/app/demo/
+      # JuvoApplication.kt + MainActivity.kt into every shell.
+      #
+      # universal-flutter-build.yml prunes exactly these inside its Dynamic
+      # Source Rename step, and universal-release.yml/universal-guided-tour
+      # do the same. This lane composed and then judged the UNPRUNED tree:
+      # RokctAI/radio commit 0090072, run 33334757128 — the Android Build
+      # job (99320596062) logged "🗑️ Removing stray source outside target
+      # package: android/app/src/main/kotlin/com/app/demo/MainActivity.kt"
+      # and "✅ Kotlin source root pruned: only app/radio/fm sources
+      # remain", while the SAME run's clean-head job (99319590550) failed on
+      # "?? android/app/src/main/kotlin/com/" with the tracked-file diff
+      # EMPTY. This step closes that gap so the gate judges the same tree.
+      #
+      # No rename happens in this lane (nothing is committed or pushed), so
+      # the app's OWN build.gradle namespace is the source of truth for what
+      # to keep.
+      - name: Prune Stray Kotlin Sources Outside App Package
+        if: steps.detect.outputs.is_shell == 'true'
+        run: |
+          BASE_DIR="android/app/src/main/kotlin"
+          GRADLE_FILE="android/app/build.gradle"
+          if [ ! -f "$GRADLE_FILE" ] && [ -f "android/app/build.gradle.kts" ]; then
+            GRADLE_FILE="android/app/build.gradle.kts"
+          fi
+
+          # FAIL-SAFE 1: no kotlin source root, nothing to prune.
+          if [ ! -d "$BASE_DIR" ]; then
+            echo "ℹ️ No $BASE_DIR - nothing to prune. Skipping."
+            exit 0
+          fi
+
+          # FAIL-SAFE 2: no build.gradle means no namespace to trust.
+          if [ ! -f "$GRADLE_FILE" ]; then
+            echo "⚠️ No android/app/build.gradle(.kts) found - cannot determine the app package. Skipping prune (nothing deleted)."
+            exit 0
+          fi
+
+          # Anchored at line start so a commented-out namespace or an
+          # unrelated key (testNamespace, ...) cannot win the match, and the
+          # separator is optional so BOTH Gradle spellings parse:
+          #   namespace "com.app.demo"      (core's template)
+          #   namespace = "app.radio.fm"    (radio, and the Kotlin DSL)
+          # Single quotes, a trailing semicolon and a trailing comment are
+          # all tolerated; only the quoted package itself is captured, so an
+          # "=" can never be mistaken for the package name.
+          TARGET_PACKAGE=$(sed -n -E "s/^[[:space:]]*namespace[[:space:]]*[=(]?[[:space:]]*['\"]([A-Za-z0-9_.]+)['\"].*$/\1/p" "$GRADLE_FILE" | head -n 1)
+
+          # FAIL-SAFE 3: an empty/garbage package would make the keep
+          # pattern match nothing and delete EVERY Kotlin source, MainActivity
+          # included. Never prune on an unparsed namespace.
+          if [ -z "$TARGET_PACKAGE" ]; then
+            echo "⚠️ Could not parse a namespace from $GRADLE_FILE - skipping prune (nothing deleted)."
+            echo "   Namespace-ish lines seen:"
+            grep -n -i "namespace" "$GRADLE_FILE" | sed 's/^/     /' || echo "     (none)"
+            exit 0
+          fi
+
+          TARGET_PATH=$(echo "$TARGET_PACKAGE" | tr '.' '/')
+
+          # FAIL-SAFE 4: if the app's own package dir is not there, the
+          # namespace does not describe this source tree - pruning would
+          # wipe the whole root. Skip instead.
+          if [ ! -d "$BASE_DIR/$TARGET_PATH" ]; then
+            echo "⚠️ Namespace '$TARGET_PACKAGE' resolves to $BASE_DIR/$TARGET_PATH, which does not exist - skipping prune (nothing deleted)."
+            exit 0
+          fi
+
+          echo "🎯 App package: $TARGET_PACKAGE (keeping $BASE_DIR/$TARGET_PATH)"
+          KEPT=0
+          REMOVED=0
+          KEPT_TRACKED=0
+          while IFS= read -r KT_FILE; do
+            case "$KT_FILE" in
+              "$BASE_DIR/$TARGET_PATH"/*)
+                # Inside the app's own package (any depth) - always keep.
+                echo "  ✅ keep:   $KT_FILE"
+                KEPT=$((KEPT + 1))
+                continue
+                ;;
+            esac
+            # FAIL-SAFE 5 (gate-specific, this lane only): never delete a
+            # TRACKED file. This step exists purely to stop the gate
+            # counting compose output the build lane throws away; deleting a
+            # committed source would instead manufacture a " D" deletion and
+            # fail repos that legitimately track sources outside their
+            # namespace (minilauncher tracks com/app/demo/JuvoApplication.kt
+            # and MainActivity.kt while its namespace is
+            # com.example.minimal_launcher, and its target dir exists, so
+            # fail-safes 1-4 would not have caught it). The build lane may
+            # delete such a file in its own workspace, but it never commits
+            # that deletion, so HEAD is not drifting - flag, never remove.
+            if git ls-files --error-unmatch -- "$KT_FILE" >/dev/null 2>&1; then
+              echo "  ⚠️ keep (tracked): $KT_FILE is outside $TARGET_PACKAGE but committed at HEAD - not deleting; the build lane discards it at build time."
+              KEPT_TRACKED=$((KEPT_TRACKED + 1))
+              continue
+            fi
+            echo "  🗑️ remove: $KT_FILE (untracked compose output outside $TARGET_PACKAGE)"
+            rm -f "$KT_FILE"
+            REMOVED=$((REMOVED + 1))
+          done < <(find "$BASE_DIR" -type f -name '*.kt' | sort)
+
+          if [ "$REMOVED" -gt 0 ]; then
+            find "$BASE_DIR" -mindepth 1 -type d -empty -delete
+          fi
+          echo "✅ Kotlin source root pruned: $KEPT kept, $KEPT_TRACKED kept-because-tracked, $REMOVED removed."
 
       - name: Verify Composed Files Are Clean at HEAD
         if: steps.detect.outputs.is_shell == 'true'
