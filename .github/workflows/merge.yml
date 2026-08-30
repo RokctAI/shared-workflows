@@ -7,6 +7,14 @@ permissions: write-all
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  # A PR gets exactly one merge evaluation per push, from the trigger above.
+  # This hourly sweep gives every still-open PR another one, so a PR that
+  # turns green after its pull_request run already finished gets picked up
+  # instead of sitting open indefinitely. Scheduled runs execute from the
+  # default branch and carry no pull_request payload; the shared workflow's
+  # sweep job enumerates the open PRs itself and applies the same gates.
+  schedule:
+    - cron: '23 * * * *'
 
 jobs:
   merge:
