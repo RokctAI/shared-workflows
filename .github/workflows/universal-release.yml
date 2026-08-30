@@ -914,7 +914,12 @@ jobs:
           }
 
           flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
+          # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+          # which refuses to run when any resolved package ships a
+          # native-asset build hook ("'dart compile' does not support
+          # build hooks"). --force-jit avoids that; the SDK composer that
+          # runs earlier in this job already generates with the same flag.
+          dart run build_runner build --force-jit --delete-conflicting-outputs
           flutter build windows --release
 
           # Bundle the complete MSVC runtime family from the redist's *.CRT
@@ -1802,7 +1807,12 @@ jobs:
         run: |
             echo "Building Android Release APK..."
             flutter pub get
-            dart run build_runner build --delete-conflicting-outputs
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support
+            # build hooks"). --force-jit avoids that; the SDK composer that
+            # runs earlier in this job already generates with the same flag.
+            dart run build_runner build --force-jit --delete-conflicting-outputs
             if [ -f .env/production.env ]; then
               flutter build apk --release --dart-define-from-file=.env/production.env
             else
