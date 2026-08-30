@@ -21,6 +21,11 @@ on:
 jobs:
   telemetry:
     runs-on: ubuntu-latest
+    # Counts merge-workflow usage, which means PR evaluations. The caller's
+    # hourly `schedule` trigger is not usage: letting it through would spend a
+    # runner every hour in every consumer repo and bury the PR-driven signal
+    # under ~24 automated hits per repo per day. Same guard as `auto-merge`.
+    if: github.event_name == 'pull_request'
     continue-on-error: true
     steps:
       - name: Track Usage
