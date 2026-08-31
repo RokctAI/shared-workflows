@@ -138,6 +138,26 @@ assets are never lost to a tablet flake. Turning `tablet` off later does
 not delete previously committed `marketing/tour/tablet/` outputs —
 remove the directory by hand to retire the tablet listing assets.
 
+## What "success" means
+
+A tour run is a success only when it captured what its resolved manifest
+asked for. `run_tour.sh` deliberately keeps going on a PARTIAL capture —
+exiting 0 whenever at least one still landed — so the screenshots it did
+get are still assembled and committed; that tolerance is about not losing
+assets, not about the verdict. Each leg therefore writes what it actually
+produced to `<out-dir>.status` (`tour_screenshots.status`,
+`tour_screenshots_tablet.status`: expected count, captured count,
+`flutter test` exit code), the `Tour Status` step records the verdict, and
+a `Tour Completeness Gate` AFTER the commit step turns the job red when
+the leg captured materially fewer stills than expected (more than one
+short) or `flutter test` exited non-zero — the same
+commit-then-fail-honestly shape the tablet gate already uses. One missing
+still stays a warning.
+
+Before that gate, a crash partway through the tour reported green: run
+33448833555 captured 4 of 19 stills, logged `flutter test exited 1 but 4
+screenshots were captured - continuing`, and still reported ✅.
+
 ## Who owns what
 
 - **SDK template repos** own brand-neutral tour *fragments* next to their
