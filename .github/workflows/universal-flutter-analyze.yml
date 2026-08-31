@@ -204,7 +204,25 @@ jobs:
           # Only run if build_runner is actually a dependency; otherwise a no-op.
           if grep -qE '^\s*build_runner\s*:' pubspec.yaml || (flutter pub deps --style=compact 2>/dev/null | grep -q 'build_runner'); then
             echo "🛠️  Regenerating generated code with build_runner..."
-            if dart run build_runner build --delete-conflicting-outputs 2>&1 | tee buildrunner_log.txt; then
+            # build_runner >=2.15 AOT-compiles builders via 'dart compile',
+            # which refuses to run when any resolved package ships a
+            # native-asset build hook ("'dart compile' does not support build
+            # hooks"). objective_c (transitive via path_provider_foundation)
+            # ships one, so composed shell apps hit it. --force-jit avoids it.
+            # Older build_runner versions reject the flag outright, so fall
+            # back when the flag itself is what was refused. The SDK composer
+            # that runs earlier in this job cannot be relied on to fail first:
+            # it performs the same fallback internally and does not abort the
+            # compose run when code generation fails.
+            if dart run build_runner build --force-jit --delete-conflicting-outputs 2>&1 | tee buildrunner_log.txt; then
+              codegen_ok=true
+            elif grep -q 'Could not find an option named' buildrunner_log.txt; then
+              echo "build_runner does not recognize --force-jit (older version); retrying with plain build"
+              if dart run build_runner build --delete-conflicting-outputs 2>&1 | tee -a buildrunner_log.txt; then
+                codegen_ok=true
+              fi
+            fi
+            if [ "${codegen_ok:-}" = "true" ]; then
               echo "✅ Code generation succeeded."
             else
               echo "codegen_failed=true" >> "$GITHUB_ENV"
