@@ -21,6 +21,11 @@ on:
 jobs:
   telemetry:
     runs-on: ubuntu-latest
+    # Counts merge-workflow usage, which means PR evaluations. The caller's
+    # hourly `schedule` trigger is not usage: letting it through would spend a
+    # runner every hour in every consumer repo and bury the PR-driven signal
+    # under ~24 automated hits per repo per day. Same guard as `auto-merge`.
+    if: github.event_name == 'pull_request'
     continue-on-error: true
     steps:
       - name: Track Usage
@@ -83,3 +88,85 @@ jobs:
         run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Second evaluation opportunity for the same PRs the fast path above judges.
+  #
+  # The fast path is driven by the caller's `pull_request` trigger, so a PR gets
+  # exactly one merge evaluation per push. If that evaluation does not arm
+  # auto-merge — the PR was not mergeable yet, `gh pr merge --auto` was refused,
+  # or a gate was not satisfied at that instant — nothing re-evaluates it, and a
+  # PR that turns green minutes later stays open indefinitely.
+  #
+  # This job runs from the caller's `schedule` trigger. Scheduled runs execute
+  # from the default branch and carry no `github.event.pull_request`, so the
+  # candidate PRs are enumerated from the REST API instead. `pulls` is read via
+  # `gh api` rather than `gh pr list` so that `user.login` is the same string the
+  # webhook payload carries for GitHub App authors (`name[bot]`), keeping the
+  # author gate character-for-character identical to the fast path.
+  #
+  # Gating is deliberately unchanged: same author list, same
+  # `.github/workflows/` file rule, same trivial-diff rule. Drafts and PRs that
+  # already have auto-merge armed are skipped — both are strictly narrower than
+  # the fast path and only avoid calls that could not succeed anyway.
+  #
+  # No loop risk: `schedule` cannot be raised by a workflow, and the only write
+  # this job performs is arming GitHub's native auto-merge, which pushes nothing.
+  sweep:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Re-evaluate Open Pull Requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ALLOWED_USERS: ${{ inputs.allowed_users }}
+        run: |
+          ALLOWED="${ALLOWED_USERS// /}"
+
+          gh api --paginate "repos/${GH_REPO}/pulls?state=open&per_page=100" \
+            --jq '.[] | [.number, (.draft|tostring), (.auto_merge != null|tostring), .user.login, .html_url] | @tsv' \
+            > open_prs.tsv
+
+          if [ ! -s open_prs.tsv ]; then
+            echo "No open pull requests to re-evaluate."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r NUM DRAFT ARMED AUTHOR URL; do
+            [ -n "$NUM" ] || continue
+
+            if [ "$DRAFT" = "true" ]; then
+              echo "PR #${NUM}: skipped (draft)"
+              continue
+            fi
+
+            if [ "$ARMED" = "true" ]; then
+              echo "PR #${NUM}: skipped (auto-merge already armed)"
+              continue
+            fi
+
+            if [[ ",$ALLOWED," != *",$AUTHOR,"* ]]; then
+              echo "PR #${NUM}: skipped (author '${AUTHOR}' not in allowed_users)"
+              continue
+            fi
+
+            FILES=$(gh pr view "$NUM" --json files --jq '.files[].path')
+            if echo "$FILES" | grep -q ".github/workflows/"; then
+              echo "PR #${NUM}: skipped (touches .github/workflows/)"
+              continue
+            fi
+
+            # GitHub refuses to render diffs for PRs over 300 files (HTTP 406 too_large).
+            # Such a PR is by definition not trivial — treat it as non-trivial, don't fail.
+            if ! DIFF=$(gh pr diff "$NUM"); then
+              DIFF="(diff unavailable: too large to render)"
+            fi
+
+            if [ -n "$DIFF" ]; then
+              echo "PR #${NUM}: skipped (diff not trivial)"
+              continue
+            fi
+
+            echo "PR #${NUM}: all gates passed — enabling auto-merge"
+            gh pr merge --auto --squash "$URL" || echo "PR #${NUM}: enabling auto-merge failed; will retry on the next sweep"
+          done < open_prs.tsv
