@@ -1711,10 +1711,19 @@ jobs:
                   exit 1
               fi
 
-              VENDOR_PACKAGE=$(grep 'namespace' "$GRADLE_FILE" | head -n 1 | sed "s/.*namespace *['\" ]*\([^'\" ]*\)['\" ]*.*/\1/")
+              # Anchored at line start so a commented-out namespace or an
+              # unrelated key (testNamespace, ...) cannot win the match, and the
+              # separator is optional so BOTH Gradle spellings parse:
+              #   namespace "com.app.demo"      (core's template)
+              #   namespace = "app.radio.fm"    (radio, and the Kotlin DSL)
+              # Only the quoted package itself is captured, so an "=" can never be
+              # mistaken for the package name and sent to a path that cannot exist.
+              VENDOR_PACKAGE=$(sed -n -E "s/^[[:space:]]*namespace[[:space:]]*[=(]?[[:space:]]*['\"]([A-Za-z0-9_.]+)['\"].*$/\1/p" "$GRADLE_FILE" | head -n 1)
 
               if [ -z "$VENDOR_PACKAGE" ]; then
                   echo "❌ Error: Could not extract namespace from $GRADLE_FILE"
+                  echo "   Namespace-ish lines seen:"
+                  grep -n -i "namespace" "$GRADLE_FILE" | sed 's/^/     /' || echo "     (none)"
                   exit 1
               fi
 
