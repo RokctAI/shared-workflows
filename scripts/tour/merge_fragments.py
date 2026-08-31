@@ -25,8 +25,8 @@ demo data (e.g. agent's ``lms/dart/templates/tour/lms.tour.yaml``). The app
 shell repo keeps only a thin manifest (``tour/app.tour.yaml``) naming which
 fragments to include, in what order, plus any app-specific steps and all
 branded wording (app name, tagline, video hook). This script resolves the
-fragments, substitutes placeholders (``{app_name}``, ``{app_tagline}``) into
-fragment captions, and emits:
+fragments, substitutes placeholders (``{app_name}``, ``{app_tagline}``,
+``{demo_email}``) into fragment captions and dart blocks, and emits:
 
   * a resolved JSON plan (consumed by capture/assemble) — each step is
     tagged with its chapter (the fragment it came from; app-shell steps
@@ -72,6 +72,10 @@ KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HIGHLIGHT_RE = re.compile(r"\*([^*\n]+)\*")
 VALID_ACTIONS = ("wait", "route", "dart")
 DEFAULT_SETTLE_SECONDS = 5
+# Demo account the shared auth fragment signs in as when an app shell
+# declares no setup.demo_email. MockAuthRepository maps the address to a
+# role, so a shell whose session_policy rejects 'customer' must set its own.
+DEFAULT_DEMO_EMAIL = "demo.student@example.com"
 # One caption beat per still in the video (WhatsApp-status pacing);
 # video.beat_seconds in the manifest overrides it.
 DEFAULT_BEAT_SECONDS = 4.0
@@ -385,7 +389,7 @@ def normalize_step(raw, origin, placeholders):
         "highlight": highlight,
         "action": action,
         "route": route if action == "route" else None,
-        "dart": dart if action == "dart" else None,
+        "dart": substitute(dart, placeholders) if action == "dart" else None,
         "settle_ms": int(settle * 1000),
         "screenshot": screenshot,
         "origin": origin,
@@ -496,14 +500,25 @@ def main():
     app = manifest.get("app") or {}
     app_name = str(app.get("name") or "This app")
     app_tagline = str(app.get("tagline") or "")
-    placeholders = {"app_name": app_name, "app_tagline": app_tagline}
+
+    setup = manifest.get("setup") or {}
+    if not isinstance(setup, dict):
+        warn("setup: must be a mapping — ignored")
+        setup = {}
+    demo_email = str(setup.get("demo_email") or "").strip() or DEFAULT_DEMO_EMAIL
+    log(f"demo account: {demo_email}" + ("" if setup.get("demo_email") else " (default)"))
+
+    placeholders = {
+        "app_name": app_name,
+        "app_tagline": app_tagline,
+        "demo_email": demo_email,
+    }
 
     video = manifest.get("video") or {}
     store = manifest.get("store") or {}
     if not isinstance(store, dict):
         warn("store: must be a mapping — ignored")
         store = {}
-    setup = manifest.get("setup") or {}
 
     sdk_index = composer_sdk_index(args.composer)
     token = os.environ.get(args.token_env, "") or os.environ.get("GITHUB_TOKEN", "")
