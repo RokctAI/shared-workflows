@@ -848,11 +848,42 @@ jobs:
           # tour outputs were staged into the commit above).
           git checkout -- . || true
           # Another workflow may have pushed to this ref while the tour ran;
-          # rebase our single output commit on top rather than failing.
-          git fetch origin "$GITHUB_REF"
-          if ! git rebase FETCH_HEAD; then
-            git rebase --abort
-            echo "::error::Tour output commit conflicts with new commits on $GITHUB_REF."
+          # rebase our single output commit on top rather than failing. That
+          # rebase can be blocked with no real conflict in sight: a compose
+          # commit-back landing on the ref mid-tour adds files under the
+          # TRACKED .rokct/cache, and this runner's composer has already
+          # written its own UNTRACKED copy at the same path, so the checkout
+          # refuses ("untracked working tree files would be overwritten") and
+          # the tour's screenshots are thrown away (paas_driver run
+          # 33474911777). The composer rewrites .rokct/cache from scratch on
+          # every run, so an untracked file in there is disposable - drop
+          # those, strictly inside that directory, and try the rebase again.
+          rebased=""
+          for attempt in 1 2; do
+            git fetch origin "$GITHUB_REF"
+            if git rebase FETCH_HEAD; then
+              echo "✅ Rebased the tour output commit onto $GITHUB_REF (attempt $attempt)."
+              rebased=1
+              break
+            fi
+            # When the checkout refuses before HEAD is even detached there is
+            # no rebase to abort, so `git rebase --abort` exits 128 - which
+            # under `set -e` ended this step before it could report anything.
+            git rebase --abort || true
+            if [ "$attempt" -ge 2 ] || [ ! -d .rokct/cache ]; then
+              echo "::warning::Rebase attempt $attempt on $GITHUB_REF failed and there is nothing left to retry."
+              break
+            fi
+            echo "::warning::Rebase attempt $attempt on $GITHUB_REF was blocked; clearing untracked files under .rokct/cache (the composer regenerates that directory every run) and retrying."
+            # Scoped to .rokct/cache and NOTHING else - a clean at the repo
+            # root would destroy real work. `git clean` never removes tracked
+            # files, so the cache's committed contents are untouched; -ff is
+            # what lets it clear the nested SDK clones the composer leaves
+            # in there.
+            git clean -ffd -- .rokct/cache
+          done
+          if [ -z "$rebased" ]; then
+            echo "::error::Tour output commit could not be rebased onto $GITHUB_REF; it was NOT pushed."
             exit 1
           fi
           git push origin HEAD:${{ github.ref }}
