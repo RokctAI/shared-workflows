@@ -100,13 +100,47 @@ jobs:
           fetch-depth: 0
       - name: Run Gitleaks
         id: gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
-        with:
-          report-path: gitleaks-report.json
+        # gitleaks-action refuses to run for a GitHub organization without a
+        # licence key. GITLEAKS_LICENSE is an org secret scoped to public
+        # repos, so in private repos it arrives empty, the action exits with
+        # "missing gitleaks license", and continue-on-error concluded the job
+        # green while nothing had been scanned. Gate the action on the licence
+        # and say so out loud in the step below instead of faking a pass.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        if: env.GITLEAKS_LICENSE != ''
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        with:
+          report-path: gitleaks-report.json
         continue-on-error: true
+
+      - name: Secret Scanning Did Not Run (No Gitleaks Licence)
+        # Deliberately loud. A silent guarded skip would turn a broken scan
+        # into apparent health, which is worse than a visible failure.
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        if: env.GITLEAKS_LICENSE == ''
+        run: |
+          echo "::warning title=Secret scanning did not run::Gitleaks was not executed in this repository because no GITLEAKS_LICENSE is available. This repository was NOT scanned for secrets."
+          echo "-------------------------------------------------------"
+          echo "⚠️  SECRET SCANNING DID NOT RUN IN THIS REPOSITORY."
+          echo "-------------------------------------------------------"
+          echo "gitleaks-action requires an organization licence key, and"
+          echo "GITLEAKS_LICENSE is empty here."
+          echo ""
+          echo "This is NOT a clean result. No commit, no file and no history"
+          echo "was examined for secrets by this job."
+          echo "-------------------------------------------------------"
+          {
+            echo "### 🔑 Secret Scanning Did Not Run"
+            echo ""
+            echo "Gitleaks was **not executed** in this repository, so **no secret scan was performed**."
+            echo ""
+            echo "**Why:** \`gitleaks/gitleaks-action\` requires an organization licence key and \`GITLEAKS_LICENSE\` is unavailable to this repository."
+            echo ""
+            echo "⚠️ **A green \`Secret Scanning\` check here means \"not scanned\", not \"no secrets found\".**"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Display Found Secret Types
         if: steps.gitleaks.outcome == 'failure' && hashFiles('gitleaks-report.json') != ''
