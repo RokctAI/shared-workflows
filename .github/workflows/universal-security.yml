@@ -86,7 +86,6 @@ jobs:
     needs: telemetry
     name: 🔑 Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
-    if: github.event.repository.visibility == 'public'
     steps:
       - name: System Essentials
         run: |
@@ -208,7 +207,7 @@ jobs:
   # Python Security
   # -----------------------------
   security-python:
-    needs: [telemetry, secret-scan]
+    needs: telemetry
     name: 🐍 Python Security (Bandit & Pip Audit)
     runs-on: ubuntu-latest
     container:
@@ -311,7 +310,7 @@ jobs:
 # Node Security
 # -----------------------------
   security-node:
-    needs: [telemetry, secret-scan]
+    needs: telemetry
     name: 📦 Node Security (NPM Audit)
     runs-on: ubuntu-latest
     container:
