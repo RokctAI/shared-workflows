@@ -428,6 +428,19 @@ jobs:
           wait "$CAP_PID" || true
           COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "Captured $COUNT screenshots (expected ${EXPECTED_SHOTS:-0})"
+          # What this leg actually produced, for the status gates further
+          # down the job. This script deliberately exits 0 on a PARTIAL
+          # capture so the stills it did get are still assembled and
+          # committed - which also means its exit code cannot be the
+          # honest verdict on the run. One file per leg (the tablet leg
+          # overrides TOUR_OUT), rewritten by a retry so the last attempt
+          # is the one judged.
+          {
+            echo "TOUR_LEG_OUT=$OUT"
+            echo "TOUR_LEG_EXPECTED=${EXPECTED_SHOTS:-0}"
+            echo "TOUR_LEG_COUNT=$COUNT"
+            echo "TOUR_LEG_TEST_EXIT=$TEST_EXIT"
+          } > "$OUT.status"
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Guided tour captured zero screenshots."
             exit 1
@@ -526,13 +539,49 @@ jobs:
       # third branch below tells those two situations apart. Outcomes go
       # through env so the shell compares values, not interpolated literals.
       - name: Tour Status
+        id: tour-status
         if: always()
         env:
           TOUR_OUTCOME: ${{ steps.tour.outcome }}
           TOUR_RETRY_OUTCOME: ${{ steps.tour-retry.outcome }}
         run: |
           if [ "$TOUR_OUTCOME" = "success" ] || [ "$TOUR_RETRY_OUTCOME" = "success" ]; then
-            echo "✅ Tour succeeded (first attempt: $TOUR_OUTCOME, retry: $TOUR_RETRY_OUTCOME)."
+            # A green emulator step is NOT a complete tour. run_tour.sh
+            # exits 0 whenever at least ONE still was captured, on purpose,
+            # so a partial run still gets its screenshots assembled and
+            # committed - which means its exit code cannot double as the
+            # verdict. Judge the leg on what it actually produced (run
+            # 33448833555 reported ✅ having captured 4 of 19 stills, with
+            # `flutter test` exited 1, because an SDK crash killed every
+            # step after sign-in).
+            #
+            # The verdict is only RECORDED here; the gate that acts on it
+            # sits after the commit step, so partial stills still ship.
+            PARTIAL=""
+            if [ -f tour_screenshots.status ]; then
+              EXPECTED=$(sed -n 's/^TOUR_LEG_EXPECTED=//p' tour_screenshots.status | tail -1)
+              COUNT=$(sed -n 's/^TOUR_LEG_COUNT=//p' tour_screenshots.status | tail -1)
+              TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots.status | tail -1)
+              # One dropped still (a single flaky finder) stays a warning;
+              # anything beyond that, or a non-zero `flutter test`, means
+              # steps did not run and the tour is not a success.
+              if [ "${TEST_EXIT:-0}" -ne 0 ]; then
+                PARTIAL="flutter test exited $TEST_EXIT"
+              elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$((EXPECTED - 1))" ]; then
+                PARTIAL="captured $COUNT of $EXPECTED screenshots"
+              elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$EXPECTED" ]; then
+                echo "::warning::Tour captured $COUNT of $EXPECTED screenshots - one still short."
+              fi
+            else
+              echo "::warning::No tour_screenshots.status written - capture completeness could not be checked."
+            fi
+            if [ -n "$PARTIAL" ]; then
+              echo "partial=true" >> "$GITHUB_OUTPUT"
+              echo "partial-reason=$PARTIAL" >> "$GITHUB_OUTPUT"
+              echo "::error::Tour did NOT complete: $PARTIAL. Whatever was captured is still assembled and committed below; the job is failed afterwards by the Tour Completeness gate."
+            else
+              echo "✅ Tour succeeded (first attempt: $TOUR_OUTCOME, retry: $TOUR_RETRY_OUTCOME)."
+            fi
           elif [ "$TOUR_OUTCOME" != "failure" ] && [ "$TOUR_RETRY_OUTCOME" != "failure" ]; then
             echo "::error::Tour never ran (first: ${TOUR_OUTCOME:-not run}, retry: ${TOUR_RETRY_OUTCOME:-not run}) - an earlier step failed before the emulator leg. Fix the upstream failure logged above; the tour itself was not attempted."
             exit 1
@@ -830,6 +879,47 @@ jobs:
           fi
           echo "✅ Tablet leg succeeded (tour: ${{ steps.tour-tablet.outcome }}, retry: ${{ steps.tour-tablet-retry.outcome }})."
 
+      # The phone leg's honest failure signal, deliberately AFTER the commit
+      # step for the same reason as the tablet gate above: run_tour.sh keeps
+      # going on a PARTIAL capture so the stills it did get are assembled and
+      # pushed, and "Tour Status" only RECORDS the verdict. This is where a
+      # tour that captured materially fewer screenshots than its resolved
+      # step count - or whose `flutter test` exited non-zero - turns the job
+      # red, with the partial assets already safely committed. Before this
+      # gate existed, such a run reported ✅ (run 33448833555: 4 of 19).
+      - name: Tour Completeness Gate
+        if: always()
+        env:
+          TOUR_PARTIAL: ${{ steps.tour-status.outputs.partial }}
+          TOUR_PARTIAL_REASON: ${{ steps.tour-status.outputs.partial-reason }}
+        run: |
+          STATUS=0
+          if [ "$TOUR_PARTIAL" = "true" ]; then
+            echo "::error::Guided tour incomplete: $TOUR_PARTIAL_REASON. The screenshots that WERE captured are committed; the tour itself did not finish, so this run is not a success."
+            STATUS=1
+          fi
+          # Same judgement for the tablet leg when it ran. Its own status
+          # gate above only sees the emulator step's outcome, which is green
+          # for a partial capture just like the phone leg's.
+          if [ -f tour_screenshots_tablet.status ]; then
+            EXPECTED=$(sed -n 's/^TOUR_LEG_EXPECTED=//p' tour_screenshots_tablet.status | tail -1)
+            COUNT=$(sed -n 's/^TOUR_LEG_COUNT=//p' tour_screenshots_tablet.status | tail -1)
+            TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots_tablet.status | tail -1)
+            if [ "${TEST_EXIT:-0}" -ne 0 ]; then
+              echo "::error::Tablet tour incomplete: flutter test exited $TEST_EXIT (captured ${COUNT:-0} of ${EXPECTED:-0} screenshots)."
+              STATUS=1
+            elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$((EXPECTED - 1))" ]; then
+              echo "::error::Tablet tour incomplete: captured $COUNT of $EXPECTED screenshots."
+              STATUS=1
+            elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$EXPECTED" ]; then
+              echo "::warning::Tablet tour captured $COUNT of $EXPECTED screenshots - one still short."
+            fi
+          fi
+          if [ "$STATUS" -eq 0 ]; then
+            echo "✅ Tour capture complete."
+          fi
+          exit "$STATUS"
+
       - name: Upload Tour Artifacts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -842,6 +932,8 @@ jobs:
             tour.resolved.json
             tour_logcat.txt
             tour_test_output.log
+            tour_screenshots.status
             tour_logcat_tablet.txt
             tour_test_output_tablet.log
+            tour_screenshots_tablet.status
           if-no-files-found: warn
