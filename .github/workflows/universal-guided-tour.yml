@@ -376,9 +376,12 @@ jobs:
           rm -f "$OUT.anr"
 
           adb wait-for-device
-          # Portrait canvas for the stills/video: 1080x1920 9:16 on the
-          # phone leg, 1600x2560 10:16 on the tablet leg. Tablet AVDs are
-          # landscape-natural, so pin rotation to portrait too — a no-op
+          # Portrait canvas for the stills/video: 1080x1920 9:16 at density
+          # 400 on the phone leg (1080 / (400/160) = 432dp wide, one plane,
+          # a phone), 1600x2560 10:16 at density 240 on the tablet leg
+          # (1600 / (240/160) = 1066dp wide, past the 840dp three-plane
+          # breakpoint - see the tablet leg's comment below). Tablet AVDs
+          # are landscape-natural, so pin rotation to portrait too — a no-op
           # on the phone AVD, which already boots portrait.
           adb shell settings put system accelerometer_rotation 0 || true
           adb shell settings put system user_rotation 0 || true
@@ -428,6 +431,12 @@ jobs:
           TOUR_PERMS_LABEL="POST_NOTIFICATIONS/ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION"
           TOUR_APK="build/app/outputs/flutter-apk/app-debug.apk"
           TOUR_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          # Read below by the grant loop AND handed to the capture watcher
+          # (--package), whose foreground guard keeps a still only while this
+          # package owns the focused window. Declared out here so a shell
+          # whose APK or aapt could not be read leaves it empty instead of
+          # tripping `set -u`.
+          TOUR_PKG=""
           if [ ! -f "$TOUR_APK" ]; then
             echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL ($TOUR_APK not found) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
           elif ! adb install -r "$TOUR_APK"; then
@@ -437,7 +446,6 @@ jobs:
             # it comes from dartDefines.<ROLE>_ANDROID_PACKAGE_NAME in
             # .env/production.env and differs per shell, so read it back off
             # the APK that was just installed rather than guessing.
-            TOUR_PKG=""
             TOUR_AAPT2=$(find "$TOUR_SDK/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
             if [ -n "$TOUR_AAPT2" ]; then
               TOUR_PKG=$("$TOUR_AAPT2" dump packagename "$TOUR_APK" 2>/dev/null | tr -d '\r' | head -n 1)
@@ -476,6 +484,7 @@ jobs:
             --expected "${EXPECTED_SHOTS:-0}" \
             --timeout 2400 \
             --serial emulator-5554 \
+            --package "$TOUR_PKG" \
             --logcat-dump "$LOGCAT_DUMP" \
             --stdout-log "$TEST_LOG" &
           CAP_PID=$!
@@ -580,6 +589,34 @@ jobs:
           else
             echo "::warning::[tour-anr] WARNING: this leg's stills are UNVERIFIED for ANR contamination - neither the per-capture tally nor the end-of-leg window dump could be read."
           fi
+          # Foreground guard, leg-level half. Same split as the ANR guard
+          # above and the same sidecar: capture_screenshots.py is the only
+          # thing that runs around each capture and knows the step name, so
+          # it does the per-still work and leaves its tally in "$OUT.anr";
+          # this half turns that tally into the leg's verdict.
+          #
+          # A TOUR_SHOT marker only proves the Dart widget tree settled, and
+          # the capture answering it is the whole framebuffer - so through the
+          # app launch transition, and the window shuffle the forced `wm size`
+          # / `wm density` above triggers, the still is a picture of the
+          # LAUNCHER. That is what put the home screen and its taskbar into
+          # steps 01-04 of supacharge, paas_driver and minilauncher.
+          #
+          # No end-of-leg half, unlike the ANR guard: once the tour has
+          # finished the launcher owning the screen is normal and says
+          # nothing about the stills.
+          FG_COUNT=$(sed -n 's/^TOUR_FOREGROUND_BLOCKED=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd '0-9')
+          FG_STEPS=$(sed -n 's/^TOUR_FOREGROUND_STEPS=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd 'A-Za-z0-9_,-')
+          FG_CHECKED=$(sed -n 's/^TOUR_FOREGROUND_CHECKED=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd '0-9')
+          if [ "${FG_COUNT:-0}" -gt 0 ]; then
+            echo "::error::[tour-foreground] ERROR: the launcher still owned the screen at step ${FG_STEPS:-unknown} on $OUT - the affected stills were refused, and the completeness gate fails this run rather than ship a Play-store asset with the launcher in frame."
+          elif [ "${FG_CHECKED:-0}" -gt 0 ]; then
+            # The POSITIVE line, same reason as the ANR one above: a grep has
+            # to tell "checked, the app had the screen" from "never checked".
+            echo "[tour-foreground] the app owned the screen for every checked capture on $OUT"
+          else
+            echo "::warning::[tour-foreground] WARNING: this leg's stills are UNVERIFIED for launcher contamination - the per-capture tally could not be read."
+          fi
           # What this leg actually produced, for the status gates further
           # down the job. This script deliberately exits 0 on a PARTIAL
           # capture so the stills it did get are still assembled and
@@ -594,6 +631,8 @@ jobs:
             echo "TOUR_LEG_TEST_EXIT=$TEST_EXIT"
             echo "TOUR_LEG_ANR=${ANR_COUNT:-0}"
             echo "TOUR_LEG_ANR_STEPS=${ANR_STEPS:-}"
+            echo "TOUR_LEG_FOREGROUND=${FG_COUNT:-0}"
+            echo "TOUR_LEG_FOREGROUND_STEPS=${FG_STEPS:-}"
           } > "$OUT.status"
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Guided tour captured zero screenshots."
@@ -718,6 +757,8 @@ jobs:
               TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots.status | tail -1)
               ANR=$(sed -n 's/^TOUR_LEG_ANR=//p' tour_screenshots.status | tail -1)
               ANR_STEPS=$(sed -n 's/^TOUR_LEG_ANR_STEPS=//p' tour_screenshots.status | tail -1)
+              FG=$(sed -n 's/^TOUR_LEG_FOREGROUND=//p' tour_screenshots.status | tail -1)
+              FG_STEPS=$(sed -n 's/^TOUR_LEG_FOREGROUND_STEPS=//p' tour_screenshots.status | tail -1)
               # One dropped still (a single flaky finder) stays a warning;
               # anything beyond that, or a non-zero `flutter test`, means
               # steps did not run and the tour is not a success.
@@ -730,8 +771,15 @@ jobs:
               # The capture watcher REJECTS those frames instead of
               # publishing them, and this is where that becomes a red run. Not
               # count-tolerant: ONE contaminated still is one too many.
+              #
+              # A launcher-contaminated still is refused for exactly the same
+              # reason and judged exactly the same way - the framebuffer
+              # capture caught the home screen or its taskbar because the app
+              # did not have the screen yet, and the test never noticed.
               if [ "${ANR:-0}" -gt 0 ]; then
                 PARTIAL="ANR dialog present at step ${ANR_STEPS:-unknown} - contaminated stills refused"
+              elif [ "${FG:-0}" -gt 0 ]; then
+                PARTIAL="launcher still owned the screen at step ${FG_STEPS:-unknown} - contaminated stills refused"
               elif [ "${TEST_EXIT:-0}" -ne 0 ]; then
                 PARTIAL="flutter test exited $TEST_EXIT"
               elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$((EXPECTED - 1))" ]; then
@@ -798,9 +846,26 @@ jobs:
       # `pixel_tablet` device profile (shipped by current cmdline-tools;
       # same api-34 google_apis x86_64 system image as the phone leg) and
       # the canvas is forced anyway via `wm size 1600x2560` +
-      # `wm density 320` — a 10-inch-class sw800dp portrait geometry whose
-      # sides sit inside Play's 320-3840px screenshot bounds, so the app
-      # renders its real tablet layouts. Every tablet step below is
+      # `wm density 240` — 1600px / (240/160) = 1066dp of portrait width,
+      # the geometry a 12.4-inch 2560x1600 tablet (Galaxy Tab S7 FE class,
+      # ~243ppi, so the hdpi 240 bucket) really reports.
+      #
+      # The DENSITY is what makes this leg a tablet, not the pixels.
+      # PlaneHost.planeCountFor in RokctAI/core hands out three planes only
+      # from AppBreakpoints.expanded (840dp) up, two from medium (600dp) and
+      # one below that. The previous `wm density 320` made this same 1600px
+      # panel 1600 / (320/160) = 800dp wide — UNDER 840 — so every "tablet"
+      # still was the two-plane FOLDABLE layout and the tablet gallery was
+      # mislabelled. Real 10-inch tablets land there too (the pixel_tablet
+      # profile's own 2560x1600 @ 320 is exactly 800dp in portrait), which
+      # is why the number has to be chosen rather than inherited. 1066dp
+      # clears 840 by 226dp, so the leg cannot slip back to two planes on a
+      # rounding change.
+      #
+      # The pixel size is deliberately UNCHANGED: it is what assemble.py's
+      # `tablet` device preset composites onto (WIDTH/HEIGHT 1600x2560) and
+      # it sits inside Play's 320-3840px screenshot bounds. Every tablet
+      # step below is
       # continue-on-error or outcome-gated so a tablet failure can NEVER
       # block the phone outputs from committing; the "Tablet Leg Status"
       # gate AFTER the commit step then fails the job for real (honest
@@ -823,7 +888,7 @@ jobs:
           EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
           TOUR_OUT: tour_screenshots_tablet
           TOUR_WM_SIZE: 1600x2560
-          TOUR_WM_DENSITY: "320"
+          TOUR_WM_DENSITY: "240"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
         with:
@@ -860,7 +925,7 @@ jobs:
           EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
           TOUR_OUT: tour_screenshots_tablet
           TOUR_WM_SIZE: 1600x2560
-          TOUR_WM_DENSITY: "320"
+          TOUR_WM_DENSITY: "240"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
         with:
@@ -1105,12 +1170,17 @@ jobs:
             TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots_tablet.status | tail -1)
             ANR=$(sed -n 's/^TOUR_LEG_ANR=//p' tour_screenshots_tablet.status | tail -1)
             ANR_STEPS=$(sed -n 's/^TOUR_LEG_ANR_STEPS=//p' tour_screenshots_tablet.status | tail -1)
+            FG=$(sed -n 's/^TOUR_LEG_FOREGROUND=//p' tour_screenshots_tablet.status | tail -1)
+            FG_STEPS=$(sed -n 's/^TOUR_LEG_FOREGROUND_STEPS=//p' tour_screenshots_tablet.status | tail -1)
             # Same judgement as the phone leg above, and the leg the ANR was
             # actually found on: an "isn't responding" dialog was burned into
             # all 8 paas_customer and all 23 supacharge TABLET stills while
             # both runs reported success.
             if [ "${ANR:-0}" -gt 0 ]; then
               echo "::error::[tour-anr] ERROR: ANR dialog present at step ${ANR_STEPS:-unknown} on the tablet leg - the contaminated stills were refused rather than committed to the store assets."
+              STATUS=1
+            elif [ "${FG:-0}" -gt 0 ]; then
+              echo "::error::[tour-foreground] ERROR: the launcher still owned the screen at step ${FG_STEPS:-unknown} on the tablet leg - the contaminated stills were refused rather than committed to the store assets."
               STATUS=1
             elif [ "${TEST_EXIT:-0}" -ne 0 ]; then
               echo "::error::Tablet tour incomplete: flutter test exited $TEST_EXIT (captured ${COUNT:-0} of ${EXPECTED:-0} screenshots)."
