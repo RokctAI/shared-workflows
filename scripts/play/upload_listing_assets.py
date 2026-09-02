@@ -49,26 +49,37 @@ app's checkout, exactly where the tour pipeline writes them:
       The tour pipeline's TABLET leg writes its styled stills here
       (1600x2560, a 10-inch portrait canvas) — classified by DIRECTORY:
       every portrait image within Play's 320-3840px bounds ->
-      tenInchScreenshots, uploaded in sorted filename order, capped at
-      Play's limit of 8 with every skipped file named. The tablet leg
-      never writes a feature graphic or icon here (those exist once per
-      listing and come from the phone dir above); anything non-portrait
-      or out of bounds is logged and skipped. Mapped to
-      tenInchScreenshots only, NOT sevenInchScreenshots: the tablet leg
-      runs a 10-inch-class geometry (1600x2560 at 320dpi, sw800dp), and
-      the phone set at 1080x1920 already shows the handset/7-inch-class
-      content — duplicating the 10-inch layouts into the sevenInch slot
-      would misrepresent what a 7-inch device renders.
+      tenInchScreenshots, ordered by the SAME marketing/store/
+      screenshots.txt pick-list the phoneScreenshots use (see below),
+      else sorted filename order, capped at Play's limit of 8 with every
+      skipped file named. The tablet leg never writes a feature graphic
+      or icon here (those exist once per listing and come from the phone
+      dir above); anything non-portrait or out of bounds is logged and
+      skipped. Mapped to tenInchScreenshots only, NOT
+      sevenInchScreenshots: the tablet leg runs a 10-inch-class geometry
+      (1600x2560 at 240dpi, sw1066dp), and the phone set at 1080x1920
+      already shows the handset/7-inch-class content — duplicating the
+      10-inch layouts into the sevenInch slot would misrepresent what a
+      7-inch device renders.
 
   marketing/store/screenshots.txt
-      Optional curated pick-list for the phoneScreenshots: one still
-      key per line (a marketing/tour/store/ filename, with or without
-      its extension), blank lines and '#' comment lines ignored. The
-      listed order IS the Play order; keys that match no discovered
-      portrait screenshot are logged and skipped; over 8 keys, the
-      first 8 win (logged). When the file is absent, holds no
-      effective lines, or matches nothing, the default first-8-by-
-      filename behavior above applies unchanged.
+      Optional curated pick-list for BOTH screenshot legs — the
+      phoneScreenshots and the tenInchScreenshots: one still key per
+      line (a marketing/tour/store/ filename, with or without its
+      extension, or the bare step key without its NN- prefix), blank
+      lines and '#' comment lines ignored. The listed order IS the Play
+      order; keys that match no discovered portrait screenshot are
+      logged and skipped; over 8 keys, the first 8 win (logged). When
+      the file is absent, holds no effective lines, or matches nothing,
+      the default first-8-by-filename behavior above applies unchanged.
+
+      ONE pick-list, both legs, because the alternative is what
+      RokctAI/paas_manager#106 hit: the phone listing was curated and
+      stayed curated, while the tablet copy of the same misleading
+      still had to be DELETED by hand — and the next tour run recreates
+      it (scripts/tour/assemble.py's write_store_stills wipes and
+      rewrites marketing/tour/tablet/store/ wholesale), so it rejoins a
+      public listing with nobody watching.
 
   marketing/store/listing/<locale>/title.txt
                             /short_description.txt
@@ -98,7 +109,9 @@ app's checkout, exactly where the tour pipeline writes them:
 
 Edits flow: edits.insert -> per locale with listing text:
 listings.patch (only the fields with repo content) -> per image type
-with local candidates: images.deleteall then upload in sorted order ->
+with local candidates: the whole replacement set is verified and opened
+FIRST (nothing is deleted until it is known to be replaceable), then
+per type images.deleteall then upload in sorted order ->
 listings.patch (video only, when video.txt exists) -> edits.commit.
 
 Exits 0 with a clear log when the checkout ships no store assets (apps
@@ -207,21 +220,54 @@ def read_curated_keys(app_dir):
     return keys
 
 
+def step_key_of(name):
+    """`name` with its "NN-" store-still number stripped, or "" if it has none.
+
+    assemble.py writes every store still as "{number:02d}-{step_key}.png", so
+    this is the part of the filename that identifies the STEP rather than its
+    position in the leg.
+    """
+    stem = os.path.splitext(os.path.basename(name))[0]
+    number, sep, rest = stem.partition("-")
+    return rest if sep and number.isdigit() and rest else ""
+
+
 def curate_screenshots(screenshots, curated_keys, store_dir):
     """Order `screenshots` by the pick-list; unmatched keys skip-and-log.
 
     Keys match a discovered portrait screenshot's filename with or
-    without its extension. Returns the curated list (uncapped), or None
-    when nothing matched — the caller falls back to the default order.
+    without its extension, and - as a LOWER-priority alias - with its
+    "NN-" step number stripped too. Returns the curated list (uncapped),
+    or None when nothing matched — the caller falls back to the default
+    order.
+
+    That step-key fallback is what lets ONE pick-list serve both the
+    phone and the tablet leg. assemble.py names every store still
+    "{number:02d}-{step_key}.png" and numbers within a leg, over the
+    steps that leg actually captured — so a leg that dropped a step
+    renumbers everything after it, and a key written as "03-driver_home"
+    against the phone stills would otherwise silently miss the tablet's
+    "02-driver_home" and quietly drop that shot. Matching on the step key
+    finds it on either leg. Exact filenames still win outright, so no key
+    that resolved before resolves to a different file; the fallback only
+    rescues keys that used to be warned about and dropped.
     """
     by_key = {}
+    by_step = {}
     for path in screenshots:
         name = os.path.basename(path)
         by_key[name] = path
         by_key[os.path.splitext(name)[0]] = path
+        step = step_key_of(name)
+        if step:
+            by_step.setdefault(step, path)
     ordered = []
     for key in curated_keys:
         path = by_key.get(key)
+        if path is None:
+            # Exact filename first, step key only as a fallback, so a key that
+            # resolved before resolves to the same file now.
+            path = by_step.get(step_key_of(key) or os.path.splitext(key)[0])
         if path is None:
             warn(
                 f"screenshots.txt: no portrait screenshot named {key!r} "
@@ -316,7 +362,7 @@ def discover_images(store_dir, curated_keys=None):
     return assets
 
 
-def discover_tablet_screenshots(tablet_store_dir):
+def discover_tablet_screenshots(tablet_store_dir, curated_keys=None):
     """The tablet store dir's stills, in upload order: tenInchScreenshots.
 
     Classification is by DIRECTORY, not dimensions — the tour pipeline's
@@ -324,12 +370,21 @@ def discover_tablet_screenshots(tablet_store_dir):
     feature graphic or icon; those stay with the phone run). Every
     portrait image within Play's 320-3840px per-side bounds qualifies;
     anything else (wrong shape, out of bounds, over the 15MB limit,
-    unreadable) is logged and skipped, never fatal. Sorted filename
-    order, capped at Play's per-type limit of 8 with every skipped file
-    named — the same overflow logging as phoneScreenshots. The
-    screenshots.txt pick-list stays phone-only: its keys name
-    marketing/tour/store/ files, and the tablet stills mirror the same
-    step keys/order anyway.
+    unreadable) is logged and skipped, never fatal. Capped at Play's
+    per-type limit of 8 with every skipped file named — the same
+    overflow logging as phoneScreenshots.
+
+    Order is the marketing/store/screenshots.txt pick-list when one is
+    in effect - the SAME `curate_screenshots` call the phone leg makes,
+    on the SAME keys - else sorted filename order. Curating only the
+    phone leg is what made RokctAI/paas_manager#106's tablet fix
+    temporary: a still deleted by hand from marketing/tour/tablet/store/
+    is written straight back by the next tour run (write_store_stills
+    refreshes that directory wholesale), so the only durable way to keep
+    a still off the tablet listing is to leave its key out of the
+    pick-list. `curated_keys` None (file absent, or blank/comment-only)
+    keeps the previous first-8-by-filename behaviour exactly, which is
+    what every shell that has not curated anything still gets.
     """
     screenshots = []
     for name in sorted(os.listdir(tablet_store_dir)):
@@ -356,12 +411,16 @@ def discover_tablet_screenshots(tablet_store_dir):
                 f"skipping {path}: {width}x{height} is not a portrait tablet "
                 f"screenshot ({PHONE_MIN_PX}-{PHONE_MAX_PX}px per side)"
             )
+    if curated_keys and screenshots:
+        curated = curate_screenshots(screenshots, curated_keys, tablet_store_dir)
+        if curated is not None:
+            screenshots = curated
     capped = screenshots[:PHONE_MAX_COUNT]
     for over_cap in screenshots[PHONE_MAX_COUNT:]:
         log(
             f"skipping {over_cap}: over Play's {PHONE_MAX_COUNT}-image "
             "tenInchScreenshots cap (first "
-            f"{PHONE_MAX_COUNT} in filename order win)"
+            f"{PHONE_MAX_COUNT} in the order above win)"
         )
     return capped
 
@@ -474,6 +533,47 @@ def describe(path):
     return f"{path} ({width}x{height}, {os.path.getsize(path) / 1_000_000:.2f} MB)"
 
 
+def verify_upload_set(assets):
+    """Problems with `assets` as an upload set; empty list means it is good.
+
+    Run BEFORE the first `images().deleteall()`. Play has no "replace"
+    call, so refreshing an image type means deleting every image Play
+    serves for it and uploading the repo's set in its place. Discovery
+    validated these files, but that was earlier and against the
+    filesystem as it was then - so everything the upload actually needs
+    is re-established here, while the live listing is still intact:
+    the file is still there, still within the size limit, still readable
+    as an image, and still has an extension the API has a MIME type for.
+
+    A type with nothing to upload counts as a problem too. "Delete the
+    eight screenshots Play is serving and put nothing back" is never
+    what a deploy meant to do, and it is exactly what an empty list
+    would quietly achieve.
+    """
+    problems = []
+    for image_type, paths in sorted(assets.items()):
+        if not paths:
+            problems.append(
+                f"{image_type}: nothing to upload, so clearing it would leave "
+                "the listing with no images of this type"
+            )
+            continue
+        for path in paths:
+            extension = os.path.splitext(path)[1].lower()
+            if extension not in MIME_TYPES:
+                problems.append(f"{path}: {extension or 'no extension'} has no upload MIME type")
+            elif not os.path.isfile(path):
+                problems.append(f"{path}: no longer on disk")
+            elif os.path.getsize(path) > MAX_IMAGE_BYTES:
+                problems.append(
+                    f"{path}: {os.path.getsize(path) / 1_000_000:.1f} MB is over "
+                    f"Play's {MAX_IMAGE_BYTES // (1024 * 1024)}MB listing-image limit"
+                )
+            elif image_size(path) is None:
+                problems.append(f"{path}: no longer readable as an image")
+    return problems
+
+
 def upload_assets(
     package_name, service_account_json, language, assets, video_url, listing_texts
 ):
@@ -547,7 +647,37 @@ def upload_assets(
                 f"{', '.join(sorted(to_patch))} from the repo"
             )
 
-    for image_type, paths in assets.items():
+    # Verify the whole replacement set, and open every file, BEFORE the
+    # first deleteall below. `deleteall` is how Play refreshes an image
+    # type - there is no replace - so it removes what the listing is
+    # serving, which for an app whose screenshots were set by hand in Play
+    # Console is the only copy that exists. Establishing that the
+    # replacements are all there and all loadable first means a bad set
+    # aborts with the live images untouched, instead of being discovered
+    # one deleteall too late.
+    if assets:
+        problems = verify_upload_set(assets)
+        if problems:
+            raise RuntimeError(
+                "refusing to touch the listing images: the replacement set did not "
+                "verify, and clearing an image type before finding that out would "
+                "have taken down what Play is serving — " + "; ".join(problems)
+            )
+        opened = {
+            image_type: [
+                (path, MediaFileUpload(path, mimetype=MIME_TYPES[os.path.splitext(path)[1].lower()]))
+                for path in paths
+            ]
+            for image_type, paths in assets.items()
+        }
+        log(
+            f"verified {sum(len(v) for v in opened.values())} replacement image(s) "
+            f"across {len(opened)} image type(s) — safe to refresh the listing"
+        )
+    else:
+        opened = {}
+
+    for image_type, uploads in opened.items():
         edits.images().deleteall(
             packageName=package_name,
             editId=edit_id,
@@ -555,10 +685,7 @@ def upload_assets(
             imageType=image_type,
         ).execute()
         log(f"{image_type} ({language}): cleared existing images")
-        for path in paths:
-            media = MediaFileUpload(
-                path, mimetype=MIME_TYPES[os.path.splitext(path)[1].lower()]
-            )
+        for path, media in uploads:
             edits.images().upload(
                 packageName=package_name,
                 editId=edit_id,
@@ -629,15 +756,19 @@ def main():
     )
     args = parser.parse_args()
 
+    # Read ONCE and handed to both legs: one pick-list curates the phone
+    # listing and the tablet listing, so a still kept off one is kept off
+    # the other and stays off across tour runs.
+    curated_keys = read_curated_keys(args.app_dir)
     store_dir = os.path.join(args.app_dir, STORE_DIR)
     if os.path.isdir(store_dir):
-        assets = discover_images(store_dir, read_curated_keys(args.app_dir))
+        assets = discover_images(store_dir, curated_keys)
     else:
         log(f"no store assets directory at {store_dir} — no listing images to push")
         assets = {}
     tablet_store_dir = os.path.join(args.app_dir, TABLET_STORE_DIR)
     if os.path.isdir(tablet_store_dir):
-        tablet_screenshots = discover_tablet_screenshots(tablet_store_dir)
+        tablet_screenshots = discover_tablet_screenshots(tablet_store_dir, curated_keys)
         if tablet_screenshots:
             assets["tenInchScreenshots"] = tablet_screenshots
     else:

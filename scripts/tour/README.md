@@ -102,10 +102,21 @@ After the phone leg, the workflow reruns the SAME tour serially on a
 second emulator (input `tablet`, ON by default — no caller change
 needed; pass `tablet: false` to opt out) using the SDK's `pixel_tablet`
 device profile on the same api-34 google_apis x86_64 system image, with
-the canvas forced to a 10-inch-class portrait geometry: `wm size
-1600x2560`, `wm density 320` (sw800dp, so the app renders its real
-tablet layouts; both sides sit inside Play's 320-3840px screenshot
-bounds). `run_tour.sh` is shared by both legs — the tablet leg only
+the canvas forced to a tablet-class portrait geometry: `wm size
+1600x2560`, `wm density 240` — 1600 / (240/160) = **1066dp** wide, what
+a 12.4-inch 2560x1600 panel (Galaxy Tab S7 FE class, ~243ppi) really
+reports, and both sides sit inside Play's 320-3840px screenshot bounds.
+
+The density is what makes the leg a tablet. `PlaneHost.planeCountFor`
+(RokctAI/core) gives three planes only from 840dp up, two from 600dp;
+the earlier `wm density 320` made this same 1600px panel 800dp wide, so
+every "tablet" still was the two-plane FOLDABLE layout and the gallery
+was mislabelled. Real 10-inch tablets land under 840dp too — the
+`pixel_tablet` profile's own 2560x1600 @ 320 is exactly 800dp in
+portrait — so the number is chosen, not inherited. The PIXEL size is
+unchanged: `assemble.py`'s `tablet` preset composites onto 1600x2560.
+
+`run_tour.sh` is shared by both legs — the tablet leg only
 overrides its `TOUR_OUT` / `TOUR_WM_SIZE` / `TOUR_WM_DENSITY` /
 `TOUR_LOGCAT` / `TOUR_TEST_LOG` env defaults — and gets the same
 fresh-AVD retry and zero-screenshots check as the phone leg.
@@ -121,7 +132,9 @@ canvas, scaled phone-frame boxes):
 - `marketing/tour/tablet/store/NN-key.png` — styled tablet stills. The
   directory is separate from `marketing/tour/store/` ON PURPOSE: the
   Play deploy classifies it by LOCATION into `tenInchScreenshots`
-  (first 8 in filename order; overflow logged) — a 1600x2560 still is
+  (ordered by the same `marketing/store/screenshots.txt` pick-list the
+  phone listing uses, else first 8 in filename order; overflow logged)
+  — a 1600x2560 still is
   dimensionally indistinguishable from a large phone screenshot, so
   directory is the only reliable signal. The tablet run never writes a
   feature graphic, icon, or `tour-wide` reel — those Play assets exist
@@ -263,6 +276,27 @@ so the chip always provides its own contrast. The phrase never splits
 across a line wrap — when it does not fit the current line it drops whole
 to the next row. The markers are stripped everywhere else, so the guide
 stays plain text.
+
+### How long a caption may be
+
+The caption block is drawn into a fixed box and the phone card is pasted
+over it afterwards, so a caption the box cannot hold is not reflowed — it
+is clipped. The assembler measures the fit and FAILS the run rather than
+publishing a clipped still, naming the step and the overrun. Two budgets,
+both on the phone leg (1080x1920, DejaVu Sans Bold 64px, 84px rows) —
+the tablet leg's larger canvas is never the binding one:
+
+- **at most 7 wrapped rows.** In practice ~170 characters, but rows are
+  what is measured, since word lengths decide where the wraps land.
+- **each row at most 936px wide.** Ordinary words wrap on their own; the
+  one thing that cannot is the `*highlight*` phrase, which never splits.
+  Keep it to a genuine key phrase (roughly 22 characters or fewer) rather
+  than a whole clause — a phrase too wide for one row runs off the canvas
+  and loses its last letters.
+
+The wide reel's caption column is narrower still (800px, half a landscape
+canvas). An overrun there crowds the phone rather than losing characters,
+so it warns instead of failing.
 
 `video.chapter_frame_anchor` maps chapter names (fragment names, plus
 `app` for pre-chapter plans) to how that chapter's phone frame meets the
