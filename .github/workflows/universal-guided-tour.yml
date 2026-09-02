@@ -370,6 +370,10 @@ jobs:
           TEST_LOG="${TOUR_TEST_LOG:-tour_test_output.log}"
           rm -rf "$OUT"
           mkdir -p "$OUT"
+          # The ANR sidecar is written by the capture watcher NEXT to the
+          # output dir, so `rm -rf "$OUT"` does not clear it - drop it here so
+          # a retry leg can never inherit the previous attempt's verdict.
+          rm -f "$OUT.anr"
 
           adb wait-for-device
           # Portrait canvas for the stills/video: 1080x1920 9:16 on the
@@ -483,6 +487,69 @@ jobs:
           wait "$CAP_PID" || true
           COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "Captured $COUNT screenshots (expected ${EXPECTED_SHOTS:-0})"
+
+          # ANR guard, leg-level half. Captures are whole-framebuffer
+          # `adb exec-out screencap -p` while `flutter test` drives the widgets
+          # IN-PROCESS, so a blocking Android system dialog sits OVER the app
+          # and the test still passes and still reports its full expected
+          # count: the run concludes `success` with the "<app> isn't
+          # responding" dialog burned into every still, and assemble.py then
+          # feeds those stills to store/ and the Play listing. Nothing about
+          # that is tablet-specific, so the guard lives HERE, in the one script
+          # all four emulator invocations run (phone, phone retry, tablet,
+          # tablet retry).
+          #
+          # capture_screenshots.py does the per-still work - it is the only
+          # thing that runs around each capture and the only thing that knows
+          # the step name - and leaves its tally in "$OUT.anr". This half reads
+          # that tally and adds the one case a per-capture check cannot cover:
+          # a dialog that comes up when no TOUR_SHOT marker is left to guard.
+          ANR_COUNT=$(sed -n 's/^TOUR_ANR_BLOCKED=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd '0-9')
+          ANR_STEPS=$(sed -n 's/^TOUR_ANR_STEPS=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd 'A-Za-z0-9_,-')
+          ANR_CHECKED=$(sed -n 's/^TOUR_ANR_CHECKED=//p' "$OUT.anr" 2>/dev/null | tail -1 | tr -cd '0-9')
+          ANR_VERIFIED=""
+          if [ "${ANR_CHECKED:-0}" -gt 0 ]; then
+            ANR_VERIFIED=1
+          elif [ ! -f "$OUT.anr" ]; then
+            echo "::warning::[tour-anr] WARNING: no $OUT.anr was written - the per-capture ANR check did not report, so only the end-of-leg check below applies."
+          fi
+          # dumpsys window is the primitive because it lists what is actually
+          # IN THE WINDOW STACK, which is exactly what a framebuffer capture
+          # burns in. AppNotRespondingDialog titles its window "Application Not
+          # Responding: <process>" and AppErrorDialog "Application Error:
+          # <process>", and nothing else prints those strings, so a match is
+          # positive evidence rather than a heuristic. The narrow `windows`
+          # sub-command first, the bare dump as the fallback; an unreadable
+          # dump is reported as a WARNING and never discards stills that were
+          # fine.
+          ANR_DUMP="$OUT.windows.tmp"
+          rm -f "$ANR_DUMP"
+          adb shell dumpsys window windows > "$ANR_DUMP" 2>/dev/null || true
+          if [ ! -s "$ANR_DUMP" ]; then
+            adb shell dumpsys window > "$ANR_DUMP" 2>/dev/null || true
+          fi
+          ANR_WINDOW=""
+          if [ -s "$ANR_DUMP" ]; then
+            ANR_VERIFIED=1
+            ANR_WINDOW=$(tr -d '\r' < "$ANR_DUMP" \
+              | grep -m1 -oE "Application (Not Responding|Error): ?[^ }]*" || true)
+          fi
+          rm -f "$ANR_DUMP"
+          if [ -n "$ANR_WINDOW" ]; then
+            echo "::error::[tour-anr] ERROR: ANR dialog present at step end-of-leg ($ANR_WINDOW) on $OUT - the system dialog was still in the window stack when the leg finished."
+            ANR_COUNT=$(( ${ANR_COUNT:-0} + 1 ))
+            ANR_STEPS="${ANR_STEPS:+$ANR_STEPS,}end-of-leg"
+          fi
+          if [ "${ANR_COUNT:-0}" -gt 0 ]; then
+            echo "::error::[tour-anr] ERROR: ANR dialog present at step ${ANR_STEPS:-unknown} on $OUT - the affected stills were refused, and the completeness gate fails this run rather than ship a contaminated Play-store asset."
+          elif [ -n "$ANR_VERIFIED" ]; then
+            # The POSITIVE line, for the same reason the POST_NOTIFICATIONS
+            # grant logs one: a grep must tell "checked, no ANR" apart from
+            # "never checked".
+            echo "[tour-anr] no ANR dialog detected on $OUT"
+          else
+            echo "::warning::[tour-anr] WARNING: this leg's stills are UNVERIFIED for ANR contamination - neither the per-capture tally nor the end-of-leg window dump could be read."
+          fi
           # What this leg actually produced, for the status gates further
           # down the job. This script deliberately exits 0 on a PARTIAL
           # capture so the stills it did get are still assembled and
@@ -495,6 +562,8 @@ jobs:
             echo "TOUR_LEG_EXPECTED=${EXPECTED_SHOTS:-0}"
             echo "TOUR_LEG_COUNT=$COUNT"
             echo "TOUR_LEG_TEST_EXIT=$TEST_EXIT"
+            echo "TOUR_LEG_ANR=${ANR_COUNT:-0}"
+            echo "TOUR_LEG_ANR_STEPS=${ANR_STEPS:-}"
           } > "$OUT.status"
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Guided tour captured zero screenshots."
@@ -617,10 +686,23 @@ jobs:
               EXPECTED=$(sed -n 's/^TOUR_LEG_EXPECTED=//p' tour_screenshots.status | tail -1)
               COUNT=$(sed -n 's/^TOUR_LEG_COUNT=//p' tour_screenshots.status | tail -1)
               TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots.status | tail -1)
+              ANR=$(sed -n 's/^TOUR_LEG_ANR=//p' tour_screenshots.status | tail -1)
+              ANR_STEPS=$(sed -n 's/^TOUR_LEG_ANR_STEPS=//p' tour_screenshots.status | tail -1)
               # One dropped still (a single flaky finder) stays a warning;
               # anything beyond that, or a non-zero `flutter test`, means
               # steps did not run and the tour is not a success.
-              if [ "${TEST_EXIT:-0}" -ne 0 ]; then
+              #
+              # An ANR outranks both. A blocking system dialog is captured by
+              # the whole-framebuffer screencap while the in-process
+              # `flutter test` sails on reporting its full expected count, so
+              # the run would otherwise conclude ✅ with the dialog burned into
+              # stills that assemble.py feeds straight to the Play listing.
+              # The capture watcher REJECTS those frames instead of
+              # publishing them, and this is where that becomes a red run. Not
+              # count-tolerant: ONE contaminated still is one too many.
+              if [ "${ANR:-0}" -gt 0 ]; then
+                PARTIAL="ANR dialog present at step ${ANR_STEPS:-unknown} - contaminated stills refused"
+              elif [ "${TEST_EXIT:-0}" -ne 0 ]; then
                 PARTIAL="flutter test exited $TEST_EXIT"
               elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$((EXPECTED - 1))" ]; then
                 PARTIAL="captured $COUNT of $EXPECTED screenshots"
@@ -991,7 +1073,16 @@ jobs:
             EXPECTED=$(sed -n 's/^TOUR_LEG_EXPECTED=//p' tour_screenshots_tablet.status | tail -1)
             COUNT=$(sed -n 's/^TOUR_LEG_COUNT=//p' tour_screenshots_tablet.status | tail -1)
             TEST_EXIT=$(sed -n 's/^TOUR_LEG_TEST_EXIT=//p' tour_screenshots_tablet.status | tail -1)
-            if [ "${TEST_EXIT:-0}" -ne 0 ]; then
+            ANR=$(sed -n 's/^TOUR_LEG_ANR=//p' tour_screenshots_tablet.status | tail -1)
+            ANR_STEPS=$(sed -n 's/^TOUR_LEG_ANR_STEPS=//p' tour_screenshots_tablet.status | tail -1)
+            # Same judgement as the phone leg above, and the leg the ANR was
+            # actually found on: an "isn't responding" dialog was burned into
+            # all 8 paas_customer and all 23 supacharge TABLET stills while
+            # both runs reported success.
+            if [ "${ANR:-0}" -gt 0 ]; then
+              echo "::error::[tour-anr] ERROR: ANR dialog present at step ${ANR_STEPS:-unknown} on the tablet leg - the contaminated stills were refused rather than committed to the store assets."
+              STATUS=1
+            elif [ "${TEST_EXIT:-0}" -ne 0 ]; then
               echo "::error::Tablet tour incomplete: flutter test exited $TEST_EXIT (captured ${COUNT:-0} of ${EXPECTED:-0} screenshots)."
               STATUS=1
             elif [ "${EXPECTED:-0}" -gt 0 ] && [ "${COUNT:-0}" -lt "$((EXPECTED - 1))" ]; then
@@ -1019,7 +1110,9 @@ jobs:
             tour_logcat.txt
             tour_test_output.log
             tour_screenshots.status
+            tour_screenshots.anr
             tour_logcat_tablet.txt
             tour_test_output_tablet.log
             tour_screenshots_tablet.status
+            tour_screenshots_tablet.anr
           if-no-files-found: warn
