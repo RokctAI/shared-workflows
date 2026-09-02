@@ -381,6 +381,61 @@ jobs:
           adb shell wm size "$WM_SIZE" || true
           adb shell wm density "$WM_DENSITY" || true
 
+          # The manager main page and the driver home page both call
+          # PushPermissionService.request() on mount, and on API 33+ that
+          # raises the system POST_NOTIFICATIONS dialog. Captures use
+          # `adb exec-out screencap -p` (the whole framebuffer), so the dialog
+          # is burned into the stills - it was sitting over the app in the
+          # paas_manager shots. Pre-granting the runtime permission keeps the
+          # app's own request() call under test (it simply returns authorized)
+          # while taking the dialog out of the frame.
+          #
+          # Deliberately NOT `adb install -g`: a blanket grant would also hand
+          # the app ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION, and the tour
+          # genuinely exercises Geolocator.requestPermission() flows - that
+          # would silently change which branch they take and mask a real
+          # permission regression. Grant one permission, change one thing.
+          #
+          # `pm grant` needs the package installed and nothing installs it
+          # before `flutter test` does, hence the explicit install here; the
+          # same-signature upgrade install `flutter test` performs afterwards
+          # preserves runtime grants.
+          TOUR_APK="build/app/outputs/flutter-apk/app-debug.apk"
+          TOUR_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -f "$TOUR_APK" ]; then
+            echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS ($TOUR_APK not found) - screenshots may contain the permission dialog"
+          elif ! adb install -r "$TOUR_APK"; then
+            echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS (adb install -r $TOUR_APK failed) - screenshots may contain the permission dialog"
+          else
+            # The applicationId is NOT the gradle `namespace` (com.app.demo) -
+            # it comes from dartDefines.<ROLE>_ANDROID_PACKAGE_NAME in
+            # .env/production.env and differs per shell, so read it back off
+            # the APK that was just installed rather than guessing.
+            TOUR_PKG=""
+            TOUR_AAPT2=$(find "$TOUR_SDK/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$TOUR_AAPT2" ]; then
+              TOUR_PKG=$("$TOUR_AAPT2" dump packagename "$TOUR_APK" 2>/dev/null | tr -d '\r' | head -n 1)
+            fi
+            if [ -z "$TOUR_PKG" ]; then
+              TOUR_AAPT=$(find "$TOUR_SDK/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
+              if [ -n "$TOUR_AAPT" ]; then
+                TOUR_PKG=$("$TOUR_AAPT" dump badging "$TOUR_APK" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)
+              fi
+            fi
+            if [ -z "$TOUR_PKG" ]; then
+              echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS (could not read the package name out of $TOUR_APK - no usable aapt2/aapt under $TOUR_SDK/build-tools) - screenshots may contain the permission dialog"
+            else
+              # adb shell does not always propagate the guest exit code, so
+              # judge `pm grant` by its output: silence is success.
+              GRANT_ERR=$(adb shell pm grant "$TOUR_PKG" android.permission.POST_NOTIFICATIONS 2>&1 | tr -d '\r')
+              if [ -z "$GRANT_ERR" ]; then
+                echo "[tour-permission] granted POST_NOTIFICATIONS to $TOUR_PKG"
+              else
+                echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS to $TOUR_PKG ($GRANT_ERR) - screenshots may contain the permission dialog"
+              fi
+            fi
+          fi
+
           rm -f "$TEST_LOG"
           python3 .tour-tools/scripts/tour/capture_screenshots.py \
             --out "$OUT" \
