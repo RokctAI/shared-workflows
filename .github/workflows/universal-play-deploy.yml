@@ -17,6 +17,15 @@
 #      (.github/.play-store-release-state.json), not just relied on cron.
 #   3. No-ops cleanly if there is nothing new to ship (no version bump / no
 #      new commits since the last recorded deploy).
+#   4. REFUSES to deploy when that marker is missing, unreadable, or
+#      incomplete. Every rule in 2 and 3 is written as "last value is set AND
+#      matches", so an absent marker leaves all of them inert and the gate
+#      would pass anything. An unknown state is not permission: it is refused
+#      (red, with the file named), and the one deploy that legitimately has no
+#      marker is authorised deliberately via the `allow_first_release` input.
+#      That first deploy also REPLACES every listing image Play serves, which
+#      for an app whose screenshots were set by hand in Play Console is the
+#      only copy of them.
 
 name: Universal Play Store Deploy
 
@@ -70,6 +79,17 @@ on:
         type: string
         default: ".github/.play-store-release-state.json"
         description: "Path to the committed marker file used for weekly-limit + no-op tracking"
+      allow_first_release:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          Authorise ONE deploy with no usable release-state marker. Without it a
+          missing or unreadable marker REFUSES the deploy instead of being read as
+          'first-ever release'. Set it deliberately, for one run: that run also
+          replaces every listing image Play currently serves for this app with
+          whatever is in the repo, which destroys screenshots set by hand in Play
+          Console.
     secrets:
       # Deploy credentials resolve with a per-secret fallback chain. A GitHub
       # Actions secret always wins. For the two JSON credentials the next stop
@@ -170,22 +190,44 @@ jobs:
         id: state
         run: |
           STATE_FILE="${{ inputs.state_file }}"
-          if [ -f "$STATE_FILE" ]; then
-            echo "📖 Found existing state marker: $STATE_FILE"
-            cat "$STATE_FILE"
+          # Three outcomes, not two. The marker is either fully readable
+          # (state_known=true, and the Decide rules below have real values to
+          # compare against) or it is NOT, and "not" is reported as such rather
+          # than as a set of empty strings. Empty strings are what made every
+          # rule below inert: each is guarded by `[ -n "$LAST_..." ]`, so with
+          # nothing read there is nothing any of them can refuse.
+          LAST_VERSION=""
+          LAST_WEEK=""
+          LAST_SHA=""
+          STATE_KNOWN=false
+          STATE_PROBLEM=""
+          if [ ! -f "$STATE_FILE" ]; then
+            STATE_PROBLEM="there is no release-state marker at $STATE_FILE"
+          elif ! jq -e . "$STATE_FILE" > /dev/null 2>&1; then
+            STATE_PROBLEM="the release-state marker $STATE_FILE could not be read as JSON"
+          else
             LAST_VERSION=$(jq -r '.last_version // ""' "$STATE_FILE")
             LAST_WEEK=$(jq -r '.last_release_iso_week // ""' "$STATE_FILE")
             LAST_SHA=$(jq -r '.last_release_sha // ""' "$STATE_FILE")
-          else
-            echo "📖 No prior state marker found. Treating as first-ever deploy."
-            LAST_VERSION=""
-            LAST_WEEK=""
-            LAST_SHA=""
+            if [ -z "$LAST_VERSION" ] || [ -z "$LAST_WEEK" ] || [ -z "$LAST_SHA" ]; then
+              # A partial marker is not a lesser marker - each missing field
+              # silently switches OFF the rule that depends on it.
+              STATE_PROBLEM="the release-state marker $STATE_FILE is missing last_version, last_release_iso_week or last_release_sha"
+            else
+              echo "📖 Found existing state marker: $STATE_FILE"
+              cat "$STATE_FILE"
+              STATE_KNOWN=true
+            fi
+          fi
+          if [ "$STATE_KNOWN" != "true" ]; then
+            echo "📖 Release state is UNKNOWN: $STATE_PROBLEM"
           fi
           {
             echo "last_version=$LAST_VERSION"
             echo "last_week=$LAST_WEEK"
             echo "last_sha=$LAST_SHA"
+            echo "state_known=$STATE_KNOWN"
+            echo "state_problem=$STATE_PROBLEM"
           } >> "$GITHUB_OUTPUT"
 
       - name: Decide
@@ -199,6 +241,10 @@ jobs:
           LAST_VERSION="${{ steps.state.outputs.last_version }}"
           LAST_WEEK="${{ steps.state.outputs.last_week }}"
           LAST_SHA="${{ steps.state.outputs.last_sha }}"
+          STATE_KNOWN="${{ steps.state.outputs.state_known }}"
+          STATE_PROBLEM="${{ steps.state.outputs.state_problem }}"
+          STATE_FILE="${{ inputs.state_file }}"
+          ALLOW_FIRST="${{ inputs.allow_first_release }}"
 
           echo "🔍 Current ISO week: $CURRENT_WEEK (last release week recorded: ${LAST_WEEK:-none})"
           echo "🔍 Current version: $VERSION (last released version: ${LAST_VERSION:-none})"
@@ -217,6 +263,27 @@ jobs:
           if [ -z "$VERSION" ]; then
             PROCEED=false
             REASON="no-version-resolved"
+          fi
+
+          # --- Rule: the release state must be KNOWN ---
+          # Every rule below is "the last value is set AND matches", so an
+          # absent marker leaves all of them inert and this gate would wave
+          # through an unattended, unreviewed store push - which also replaces
+          # every listing image Play is serving. A state nobody can read is not
+          # a first-ever release; it is an unknown, and an unknown is refused.
+          # `allow_first_release` is the only way through, and it is a
+          # deliberate, per-run decision by a person.
+          # Guarded like the rules below it, so a reason already established
+          # (not-on-main, no-version-resolved) keeps its own clean no-op and
+          # this refusal only ever speaks for a run that was otherwise going
+          # to deploy.
+          if [ "$PROCEED" = "true" ] && [ "$STATE_KNOWN" != "true" ]; then
+            if [ "$ALLOW_FIRST" = "true" ]; then
+              echo "::warning::allow_first_release is set, so this run proceeds with an unknown release state ($STATE_PROBLEM). It will REPLACE every listing image Play currently serves for this app with what is in the repo."
+            else
+              PROCEED=false
+              REASON="release-state-unknown"
+            fi
           fi
 
           # --- Rule: at most one release per ISO week, no matter how many
@@ -247,6 +314,13 @@ jobs:
 
           if [ "$PROCEED" = "true" ]; then
             echo "✅ Gate passed. Proceeding to build + deploy."
+          elif [ "$REASON" = "release-state-unknown" ]; then
+            # RED, not a clean no-op. The other reasons mean "nothing to do";
+            # this one means "I do not know what has already been released",
+            # and a silent green would leave that sitting unnoticed until a
+            # credential fix turns it into a live store push.
+            echo "::error::Refusing to deploy: $STATE_PROBLEM, so this workflow does not know what has already been released to Play. It is refusing rather than guessing - a missing marker is NOT a first-ever release. Publishing would also replace every listing image Play currently serves for this app. If this really is the first deploy, call this workflow once with allow_first_release: true (and let the record-state job land $STATE_FILE on main so later runs are gated normally)."
+            exit 1
           else
             echo "⏭️ No-op ($REASON). Skipping build + deploy cleanly."
           fi

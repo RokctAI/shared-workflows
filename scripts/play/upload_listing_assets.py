@@ -109,7 +109,9 @@ app's checkout, exactly where the tour pipeline writes them:
 
 Edits flow: edits.insert -> per locale with listing text:
 listings.patch (only the fields with repo content) -> per image type
-with local candidates: images.deleteall then upload in sorted order ->
+with local candidates: the whole replacement set is verified and opened
+FIRST (nothing is deleted until it is known to be replaceable), then
+per type images.deleteall then upload in sorted order ->
 listings.patch (video only, when video.txt exists) -> edits.commit.
 
 Exits 0 with a clear log when the checkout ships no store assets (apps
@@ -531,6 +533,47 @@ def describe(path):
     return f"{path} ({width}x{height}, {os.path.getsize(path) / 1_000_000:.2f} MB)"
 
 
+def verify_upload_set(assets):
+    """Problems with `assets` as an upload set; empty list means it is good.
+
+    Run BEFORE the first `images().deleteall()`. Play has no "replace"
+    call, so refreshing an image type means deleting every image Play
+    serves for it and uploading the repo's set in its place. Discovery
+    validated these files, but that was earlier and against the
+    filesystem as it was then - so everything the upload actually needs
+    is re-established here, while the live listing is still intact:
+    the file is still there, still within the size limit, still readable
+    as an image, and still has an extension the API has a MIME type for.
+
+    A type with nothing to upload counts as a problem too. "Delete the
+    eight screenshots Play is serving and put nothing back" is never
+    what a deploy meant to do, and it is exactly what an empty list
+    would quietly achieve.
+    """
+    problems = []
+    for image_type, paths in sorted(assets.items()):
+        if not paths:
+            problems.append(
+                f"{image_type}: nothing to upload, so clearing it would leave "
+                "the listing with no images of this type"
+            )
+            continue
+        for path in paths:
+            extension = os.path.splitext(path)[1].lower()
+            if extension not in MIME_TYPES:
+                problems.append(f"{path}: {extension or 'no extension'} has no upload MIME type")
+            elif not os.path.isfile(path):
+                problems.append(f"{path}: no longer on disk")
+            elif os.path.getsize(path) > MAX_IMAGE_BYTES:
+                problems.append(
+                    f"{path}: {os.path.getsize(path) / 1_000_000:.1f} MB is over "
+                    f"Play's {MAX_IMAGE_BYTES // (1024 * 1024)}MB listing-image limit"
+                )
+            elif image_size(path) is None:
+                problems.append(f"{path}: no longer readable as an image")
+    return problems
+
+
 def upload_assets(
     package_name, service_account_json, language, assets, video_url, listing_texts
 ):
@@ -604,7 +647,37 @@ def upload_assets(
                 f"{', '.join(sorted(to_patch))} from the repo"
             )
 
-    for image_type, paths in assets.items():
+    # Verify the whole replacement set, and open every file, BEFORE the
+    # first deleteall below. `deleteall` is how Play refreshes an image
+    # type - there is no replace - so it removes what the listing is
+    # serving, which for an app whose screenshots were set by hand in Play
+    # Console is the only copy that exists. Establishing that the
+    # replacements are all there and all loadable first means a bad set
+    # aborts with the live images untouched, instead of being discovered
+    # one deleteall too late.
+    if assets:
+        problems = verify_upload_set(assets)
+        if problems:
+            raise RuntimeError(
+                "refusing to touch the listing images: the replacement set did not "
+                "verify, and clearing an image type before finding that out would "
+                "have taken down what Play is serving — " + "; ".join(problems)
+            )
+        opened = {
+            image_type: [
+                (path, MediaFileUpload(path, mimetype=MIME_TYPES[os.path.splitext(path)[1].lower()]))
+                for path in paths
+            ]
+            for image_type, paths in assets.items()
+        }
+        log(
+            f"verified {sum(len(v) for v in opened.values())} replacement image(s) "
+            f"across {len(opened)} image type(s) — safe to refresh the listing"
+        )
+    else:
+        opened = {}
+
+    for image_type, uploads in opened.items():
         edits.images().deleteall(
             packageName=package_name,
             editId=edit_id,
@@ -612,10 +685,7 @@ def upload_assets(
             imageType=image_type,
         ).execute()
         log(f"{image_type} ({language}): cleared existing images")
-        for path in paths:
-            media = MediaFileUpload(
-                path, mimetype=MIME_TYPES[os.path.splitext(path)[1].lower()]
-            )
+        for path, media in uploads:
             edits.images().upload(
                 packageName=package_name,
                 editId=edit_id,
