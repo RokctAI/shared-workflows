@@ -32,8 +32,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          ignoreAuthors: |
-            dependabot[bot]
+          ignoreLabels: |
+            dependencies
           types: |
             feat
             fix
