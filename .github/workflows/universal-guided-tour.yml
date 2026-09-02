@@ -338,6 +338,7 @@ jobs:
             --out-dart integration_test/tour_steps.g.dart
 
       - name: Build Demo Debug APK (warm cache + compile gate)
+        id: build-apk
         shell: bash
         run: |
           BUILD_ARGS=(--debug --dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true)
@@ -807,6 +808,8 @@ jobs:
               echo "✅ Tour succeeded (first attempt: $TOUR_OUTCOME, retry: $TOUR_RETRY_OUTCOME)."
             fi
           elif [ "$TOUR_OUTCOME" != "failure" ] && [ "$TOUR_RETRY_OUTCOME" != "failure" ]; then
+            echo "partial=true" >> "$GITHUB_OUTPUT"
+            echo "partial-reason=tour never ran - an earlier step failed before the emulator leg (first: ${TOUR_OUTCOME:-not run}, retry: ${TOUR_RETRY_OUTCOME:-not run})" >> "$GITHUB_OUTPUT"
             echo "::error::Tour never ran (first: ${TOUR_OUTCOME:-not run}, retry: ${TOUR_RETRY_OUTCOME:-not run}) - an earlier step failed before the emulator leg. Fix the upstream failure logged above; the tour itself was not attempted."
             exit 1
           else
@@ -1159,15 +1162,28 @@ jobs:
       # step count - or whose `flutter test` exited non-zero - turns the job
       # red, with the partial assets already safely committed. Before this
       # gate existed, such a run reported ✅ (run 33448833555: 4 of 19).
+      # A tour that never RAN is judged here too: when the APK build (or any
+      # step before the emulator leg) fails, "Tour Status" exits 1 without a
+      # capture to judge, and this gate used to read an empty `partial` and
+      # print "Tour capture complete" (run 33653121405).
       - name: Tour Completeness Gate
         if: always()
         env:
           TOUR_PARTIAL: ${{ steps.tour-status.outputs.partial }}
           TOUR_PARTIAL_REASON: ${{ steps.tour-status.outputs.partial-reason }}
+          BUILD_OUTCOME: ${{ steps.build-apk.outcome }}
+          TOUR_STATUS_OUTCOME: ${{ steps.tour-status.outcome }}
         run: |
           STATUS=0
           if [ "$TOUR_PARTIAL" = "true" ]; then
             echo "::error::Guided tour incomplete: $TOUR_PARTIAL_REASON. The screenshots that WERE captured are committed; the tour itself did not finish, so this run is not a success."
+            STATUS=1
+          fi
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            echo "::error::Tour never ran: build failed. The demo APK did not compile, so the emulator leg was never attempted and there is nothing to judge; this run is not a success."
+            STATUS=1
+          elif [ "$TOUR_STATUS_OUTCOME" != "success" ]; then
+            echo "::error::Tour did not succeed: Tour Status reported '$TOUR_STATUS_OUTCOME' (build: '$BUILD_OUTCOME'). See the Tour Status step above for the failure; this run is not a success."
             STATUS=1
           fi
           # Same judgement for the tablet leg when it ran. Its own status
