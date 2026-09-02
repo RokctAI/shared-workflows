@@ -89,12 +89,16 @@ Colours default to the composed app's AppStyle palette (resolved at merge
 time; the canvas IS the brand primary colour); explicit video.brand_color /
 video.accent_color manifest keys win.
 
---require-varied makes the run fail loudly when every captured screenshot
-is byte-identical (a sure sign the capture regressed to placeholder
-frames); without the flag that situation only warns.
+Any two captured screenshots that are byte-identical fail the run: two
+steps showing the same pixels means one of them never reached its own
+screen, and the guide/video/store listing would otherwise publish the same
+still twice under two different captions. (--require-varied used to opt
+into failing when the WHOLE run was identical; it is now a no-op, kept so
+existing callers keep working.)
 """
 
 import argparse
+import collections
 import glob
 import hashlib
 import json
@@ -241,23 +245,25 @@ def find_shots(shots_dir, steps):
     return found
 
 
-def shots_all_identical(shots):
-    """True when 2+ screenshots were captured and every one is byte-identical.
+def duplicate_shot_groups(shots):
+    """Group step keys whose captured PNGs are byte-identical.
 
-    That situation almost certainly means the capture regressed to
-    placeholder frames, so the video and guide would show the same still
-    over and over.
+    Returns a list of key lists, each with two or more entries, in the order
+    the steps run. Two steps that capture the same pixels mean one of them
+    never reached its own screen - a navigation that silently no-ops, a tap
+    that landed on something else, or a capture that fired before the
+    previous screen went away - and publishing the pair ships the same still
+    twice under two different captions. An all-identical run is just the
+    extreme case of that, which is all this used to catch.
     """
-    if len(shots) < 2:
-        return False
-    digests = set()
-    for path in shots.values():
+    by_digest = collections.OrderedDict()
+    for key, path in shots.items():
         h = hashlib.sha256()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 h.update(chunk)
-        digests.add(h.hexdigest())
-    return len(digests) == 1
+        by_digest.setdefault(h.hexdigest(), []).append(key)
+    return [keys for keys in by_digest.values() if len(keys) > 1]
 
 
 def write_guide(resolved, shots, out_dir):
@@ -1588,7 +1594,8 @@ def main():
     parser.add_argument(
         "--require-varied",
         action="store_true",
-        help="fail (instead of just warning) when every captured screenshot is byte-identical",
+        help="deprecated no-op: ANY two byte-identical captures now fail the "
+        "run, whether or not the whole run matches",
     )
     args = parser.parse_args()
     apply_device_preset(args.device)
@@ -1604,13 +1611,21 @@ def main():
     shots = find_shots(args.shots, resolved["steps"])
     if not shots:
         fail(f"no captured screenshots found in {args.shots}")
-    if shots_all_identical(shots):
-        warn(
-            f"ALL {len(shots)} captured screenshots are byte-identical — the capture "
-            f"almost certainly regressed to placeholder frames"
+    duplicates = duplicate_shot_groups(shots)
+    if duplicates:
+        detail = "; ".join(" == ".join(keys) for keys in duplicates)
+        if len(duplicates) == 1 and len(duplicates[0]) == len(shots):
+            fail(
+                f"ALL {len(shots)} captured screenshots are byte-identical "
+                f"({detail}) - the capture almost certainly regressed to "
+                f"placeholder frames"
+            )
+        fail(
+            f"duplicate screenshots: {len(duplicates)} group(s) of steps "
+            f"captured byte-identical frames ({detail}) - a step did not "
+            f"reach its own screen, so this run would publish the same still "
+            f"under two different captions"
         )
-        if args.require_varied:
-            fail("--require-varied: refusing to assemble from identical screenshots")
 
     if args.guide:
         write_guide(resolved, shots, args.out)

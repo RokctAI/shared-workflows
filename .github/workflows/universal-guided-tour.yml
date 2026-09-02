@@ -387,6 +387,15 @@ jobs:
           adb shell settings put system user_rotation 0 || true
           adb shell wm size "$WM_SIZE" || true
           adb shell wm density "$WM_DENSITY" || true
+          # Forcing `wm size`/`wm density` re-enters immersive mode, and the
+          # first time an app goes full screen Android throws up its own
+          # ImmersiveModeConfirmation window ("Viewing full screen / To exit,
+          # swipe down from the top / Got it"). Captures take the whole
+          # framebuffer, so that dialog is burned over the app in the stills
+          # (Window{... ImmersiveModeConfirmation} in the logcat dump; it is
+          # neither an ANR nor a crash, so the ANR watcher correctly ignores
+          # it). Marking it pre-confirmed keeps it out of frame entirely.
+          adb shell settings put secure immersive_mode_confirmations confirmed || true
 
           # The manager main page and the driver home page both call
           # PushPermissionService.request() on mount, and on API 33+ that

@@ -381,6 +381,11 @@ often lack libx264; CI installs full ffmpeg via apt and uses the defaults
 done in Pillow and fed to ffmpeg as a concatenated-JPEG stream, so no
 ffmpeg filters are required.
 
-`assemble.py --require-varied` turns the "every captured screenshot is
-byte-identical" warning (a sure sign the capture regressed to placeholder
-frames) into a hard failure; without the flag assembly stays best-effort.
+`assemble.py` fails the run when ANY two captured screenshots are
+byte-identical, naming both step keys. Two steps showing the same pixels
+means one of them never reached its own screen, and the guide, video and
+store listing would otherwise publish the same still twice under two
+different captions; an all-identical run (the capture regressed to
+placeholder frames) is reported as the extreme case of the same fault.
+`--require-varied` used to opt into failing on the all-identical case only;
+it is now an accepted no-op, kept so existing callers keep working.
