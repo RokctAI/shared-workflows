@@ -394,22 +394,44 @@ jobs:
           # app's own request() call under test (it simply returns authorized)
           # while taking the dialog out of the frame.
           #
-          # Deliberately NOT `adb install -g`: a blanket grant would also hand
-          # the app ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION, and the tour
-          # genuinely exercises Geolocator.requestPermission() flows - that
-          # would silently change which branch they take and mask a real
-          # permission regression. Grant one permission, change one thing.
+          # ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION are pre-granted the
+          # same way, for the same reason. The driver home page asks for a
+          # position the moment it mounts; the emulator grants nothing, so
+          # Android refused the call outright (no GrantPermissionsActivity
+          # and no ACCESS_*_LOCATION request anywhere in tour_logcat.txt) and
+          # the driver tour died on driver_home instead of walking it. This
+          # is what lets the scripted demo reach that screen at all.
+          #
+          # It is NOT what makes a real denial survivable - that is the app's
+          # job, and zones' delivery_sdk 1.17.4 does it: a refused fix now
+          # leaves the page rendering, shows the driver one friendly line and
+          # sends the detail to telemetry. #482's worry that a pre-grant would
+          # mask a permission regression is answered there, by unit tests over
+          # every denial state, rather than by a tour that has to be denied to
+          # prove anything.
+          #
+          # Still deliberately NOT `adb install -g`: a blanket grant would
+          # hand the app every permission the fleet's tours might one day want
+          # to exercise, silently changing which branch they take. Grant the
+          # named permissions, one at a time, and nothing else.
           #
           # `pm grant` needs the package installed and nothing installs it
           # before `flutter test` does, hence the explicit install here; the
           # same-signature upgrade install `flutter test` performs afterwards
           # preserves runtime grants.
+          #
+          # A shell whose AndroidManifest does not declare one of these (the
+          # customer/manager tours and location) makes `pm grant` fail for
+          # that permission alone; each is judged on its own and never stops
+          # the others, exactly as failure-tolerant as the single grant was.
+          TOUR_PERMS="android.permission.POST_NOTIFICATIONS android.permission.ACCESS_FINE_LOCATION android.permission.ACCESS_COARSE_LOCATION"
+          TOUR_PERMS_LABEL="POST_NOTIFICATIONS/ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION"
           TOUR_APK="build/app/outputs/flutter-apk/app-debug.apk"
           TOUR_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           if [ ! -f "$TOUR_APK" ]; then
-            echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS ($TOUR_APK not found) - screenshots may contain the permission dialog"
+            echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL ($TOUR_APK not found) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
           elif ! adb install -r "$TOUR_APK"; then
-            echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS (adb install -r $TOUR_APK failed) - screenshots may contain the permission dialog"
+            echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL (adb install -r $TOUR_APK failed) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
           else
             # The applicationId is NOT the gradle `namespace` (com.app.demo) -
             # it comes from dartDefines.<ROLE>_ANDROID_PACKAGE_NAME in
@@ -427,16 +449,24 @@ jobs:
               fi
             fi
             if [ -z "$TOUR_PKG" ]; then
-              echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS (could not read the package name out of $TOUR_APK - no usable aapt2/aapt under $TOUR_SDK/build-tools) - screenshots may contain the permission dialog"
+              echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL (could not read the package name out of $TOUR_APK - no usable aapt2/aapt under $TOUR_SDK/build-tools) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
             else
-              # adb shell does not always propagate the guest exit code, so
-              # judge `pm grant` by its output: silence is success.
-              GRANT_ERR=$(adb shell pm grant "$TOUR_PKG" android.permission.POST_NOTIFICATIONS 2>&1 | tr -d '\r')
-              if [ -z "$GRANT_ERR" ]; then
-                echo "[tour-permission] granted POST_NOTIFICATIONS to $TOUR_PKG"
-              else
-                echo "[tour-permission] WARNING: failed to grant POST_NOTIFICATIONS to $TOUR_PKG ($GRANT_ERR) - screenshots may contain the permission dialog"
-              fi
+              for TOUR_PERM in $TOUR_PERMS; do
+                case "$TOUR_PERM" in
+                  *POST_NOTIFICATIONS)
+                    TOUR_PERM_WHY="screenshots may contain the permission dialog" ;;
+                  *)
+                    TOUR_PERM_WHY="the driver tour may not reach driver_home" ;;
+                esac
+                # adb shell does not always propagate the guest exit code, so
+                # judge `pm grant` by its output: silence is success.
+                GRANT_ERR=$(adb shell pm grant "$TOUR_PKG" "$TOUR_PERM" 2>&1 | tr -d '\r')
+                if [ -z "$GRANT_ERR" ]; then
+                  echo "[tour-permission] granted ${TOUR_PERM##*.} to $TOUR_PKG"
+                else
+                  echo "[tour-permission] WARNING: failed to grant ${TOUR_PERM##*.} to $TOUR_PKG ($GRANT_ERR) - $TOUR_PERM_WHY"
+                fi
+              done
             fi
           fi
 
