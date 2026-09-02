@@ -496,6 +496,85 @@ def wrap_tokens(draw, tokens, font, max_width):
     return lines
 
 
+def caption_fit_error(
+    draw,
+    lines,
+    font,
+    origin_x,
+    top,
+    line_height,
+    max_text_width,
+    limit_bottom,
+    canvas_right,
+    where,
+):
+    """Message describing how a wrapped caption escapes its box, or "".
+
+    The caption block is laid out to a FIXED box and then the phone card
+    is pasted over it, so a block the box cannot hold does not reflow —
+    it is silently covered (too many rows) or runs off the canvas (a row
+    too long). Both shipped to the Play listing before this check
+    existed, so the fit is asserted here rather than left to the eye.
+
+    Two independent ways out of the box:
+
+    * too many rows — ``len(lines) * line_height`` overruns the vertical
+      space, so the last rows land under the phone frame;
+    * a row too long — ``wrap_tokens`` admits an over-wide token when it
+      is alone on its line (a highlight phrase, which never splits), so
+      that row runs past the wrap width into the margin, and far enough
+      past it off the canvas edge, losing its last characters.
+
+    The message names the step, the measured overrun and the budget the
+    caption has to come back inside, so an author can shorten the copy
+    (or the highlight phrase) to a number instead of by guesswork.
+    """
+    ascent, descent = font.getmetrics()
+    ink_height = ascent + descent
+    rows = len(lines)
+    block_bottom = top + (rows - 1) * line_height + ink_height
+    problems = []
+    if block_bottom > limit_bottom:
+        budget_rows = max(1, int((limit_bottom - top - ink_height) // line_height) + 1)
+        problems.append(
+            f"{rows} rows overrun the caption box by {round(block_bottom - limit_bottom)}px "
+            f"(it holds {budget_rows}) — the last row renders under the phone frame. "
+            f"Shorten the caption to {budget_rows} wrapped rows or fewer."
+        )
+    limit_right = origin_x + max_text_width
+    space_w = draw.textlength(" ", font=font)
+    for index, line in enumerate(lines):
+        x = origin_x
+        for position, (word, is_highlighted, glued) in enumerate(line):
+            if position and not glued:
+                x += space_w
+            x += draw.textlength(word, font=font) + (2 * CHIP_PAD_X if is_highlighted else 0)
+        if x <= limit_right:
+            continue
+        phrase = next((w for w, hl, _ in line if hl), "")
+        culprit = (
+            f"the highlight phrase {phrase!r} does not fit one row and a highlight "
+            f"never splits across rows — shorten the phrase"
+            if phrase
+            else f"the word {line[0][0]!r} is longer than one whole row"
+        )
+        # Past the wrap width the row is only breaking the margin; past
+        # the canvas edge its last characters are gone from the render.
+        lost = round(x - canvas_right)
+        damage = (
+            f"and {lost}px off the canvas edge, so its last characters are cut off"
+            if lost > 0
+            else "into the caption margin"
+        )
+        problems.append(
+            f"row {index + 1} runs {round(x - limit_right)}px past the "
+            f"{round(max_text_width)}px wrap width {damage}: {culprit}."
+        )
+    if not problems:
+        return ""
+    return f"caption for {where}: " + " ".join(problems)
+
+
 def draw_caption_lines(draw, lines, font, origin_x, top, line_height, ink, chip_fill, chip_ink):
     """Draw wrapped (word, is_highlight, glued) token lines with their chips.
 
@@ -583,7 +662,14 @@ def beat_frames(backdrop, caption, card, x, y_at, step_frames):
 
 
 def caption_overlay(
-    text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, position="top", phone_edge=None
+    text,
+    font_path="",
+    highlight="",
+    accent=ACCENT,
+    bg=CARD_BG,
+    position="top",
+    phone_edge=None,
+    step_key="",
 ):
     """Static caption block, rendered once per step (RGBA).
 
@@ -602,6 +688,12 @@ def caption_overlay(
     edge at rest: when given, the block hugs it (CAPTION_PHONE_GAP away,
     clamped CAPTION_MIN_EDGE from the canvas edge) instead of hanging at
     the fixed canvas margin.
+
+    The block is laid out into a fixed box and the phone card is pasted
+    over it afterwards, so a caption the box cannot hold is silently
+    clipped rather than reflowed. ``caption_fit_error`` asserts the fit
+    and the run fails with the measured overrun — see its docstring.
+    ``step_key`` only names the offending step in that message.
     """
     from PIL import Image, ImageDraw
 
@@ -624,6 +716,27 @@ def caption_overlay(
         top = HEIGHT - CAPTION_BOTTOM - block_height
         if phone_edge is not None:
             top = min(HEIGHT - CAPTION_MIN_EDGE - block_height, phone_edge + CAPTION_PHONE_GAP)
+    # The caption hangs off the phone's near edge, so THAT edge is the
+    # box's far wall when the phone is what it is anchored to; without a
+    # phone reference the canvas margin is.
+    if position == "top" and phone_edge is not None:
+        limit_bottom = phone_edge
+    else:
+        limit_bottom = HEIGHT - CAPTION_MIN_EDGE
+    problem = caption_fit_error(
+        draw,
+        lines,
+        font,
+        margin,
+        top,
+        line_height,
+        max_text_width,
+        limit_bottom,
+        WIDTH,
+        f"step '{step_key}'" if step_key else "a step",
+    )
+    if problem:
+        fail(problem)
     ink = tuple(ink_for(bg)) + (255,)
     chip_fill, chip_ink = chip_colors(accent, bg)
     draw_caption_lines(
@@ -632,7 +745,7 @@ def caption_overlay(
     return overlay
 
 
-def caption_column(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG):
+def caption_column(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG, step_key=""):
     """Left-column caption block for one wide-reel beat (RGBA, WIDE_WxWIDE_H).
 
     Same type treatment as the portrait beats (bold 64px lines, one
@@ -651,6 +764,25 @@ def caption_column(text, font_path="", highlight="", accent=ACCENT, bg=CARD_BG):
     lines = wrap_tokens(draw, highlight_tokens(normalized, highlight), font, max_text_width)
     line_height = 84
     top = max(WIDE_CAPTION_MARGIN, (WIDE_H - line_height * len(lines)) // 2)
+    problem = caption_fit_error(
+        draw,
+        lines,
+        font,
+        WIDE_CAPTION_MARGIN,
+        top,
+        line_height,
+        max_text_width,
+        WIDE_H - WIDE_CAPTION_MARGIN,
+        WIDE_W,
+        f"step '{step_key}' in the wide reel" if step_key else "a step in the wide reel",
+    )
+    if problem:
+        # A warning, not a failure: the reel's caption column is a much
+        # narrower box (half a landscape canvas) than the portrait one,
+        # and an overrun there crowds the phone rather than losing
+        # characters off a canvas edge that is 1920px away. The listing
+        # stills are the published screenshots, so those still fail.
+        warn(problem)
     ink = tuple(ink_for(bg)) + (255,)
     chip_fill, chip_ink = chip_colors(accent, bg)
     draw_caption_lines(
@@ -929,6 +1061,7 @@ def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
             highlight=step.get("highlight") or "",
             accent=accent,
             bg=brand_bg,
+            step_key=step["key"],
         )
     )
     x = WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2
@@ -1304,6 +1437,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             bg=brand_bg,
             position="bottom" if anchor == "top" else "top",
             phone_edge=phone_edge,
+            step_key=step["key"],
         )
         return backdrop, caption, card, x, y_at
 

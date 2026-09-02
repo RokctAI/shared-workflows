@@ -264,6 +264,27 @@ across a line wrap — when it does not fit the current line it drops whole
 to the next row. The markers are stripped everywhere else, so the guide
 stays plain text.
 
+### How long a caption may be
+
+The caption block is drawn into a fixed box and the phone card is pasted
+over it afterwards, so a caption the box cannot hold is not reflowed — it
+is clipped. The assembler measures the fit and FAILS the run rather than
+publishing a clipped still, naming the step and the overrun. Two budgets,
+both on the phone leg (1080x1920, DejaVu Sans Bold 64px, 84px rows) —
+the tablet leg's larger canvas is never the binding one:
+
+- **at most 7 wrapped rows.** In practice ~170 characters, but rows are
+  what is measured, since word lengths decide where the wraps land.
+- **each row at most 936px wide.** Ordinary words wrap on their own; the
+  one thing that cannot is the `*highlight*` phrase, which never splits.
+  Keep it to a genuine key phrase (roughly 22 characters or fewer) rather
+  than a whole clause — a phrase too wide for one row runs off the canvas
+  and loses its last letters.
+
+The wide reel's caption column is narrower still (800px, half a landscape
+canvas). An overrun there crowds the phone rather than losing characters,
+so it warns instead of failing.
+
 `video.chapter_frame_anchor` maps chapter names (fragment names, plus
 `app` for pre-chapter plans) to how that chapter's phone frame meets the
 canvas edge: `bottom` (default — phone anchored to the bottom edge, lower
