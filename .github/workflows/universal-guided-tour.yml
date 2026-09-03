@@ -639,8 +639,34 @@ jobs:
               sudo coredumpctl list --no-pager 2>&1 | tail -n 10 || true
               echo "--- coredumpctl info (most recent qemu core: signal, cmdline, stack) ---"
               sudo coredumpctl info --no-pager -1 qemu-system-x86 2>&1 | head -n 200 || true
-              echo "--- journal coredump fields (most recent qemu core) ---"
-              sudo journalctl -o verbose --no-pager -n 1 _COMM=systemd-coredump COREDUMP_COMM=qemu-system-x86 2>&1 | grep -E 'COREDUMP_SIGNAL|COREDUMP_SIGNAL_NAME|COREDUMP_TIMESTAMP|COREDUMP_EXE|MESSAGE=' | head -n 40 || true
+              # Run 33766830185: coredumpctl info gave a single unsymbolized
+              # frame (`#0 0x0000562536e989f1 n/a`) because the emulator and
+              # its GLES translator libs are stripped, and the journal-field
+              # grep printed nothing. Dump the core (~1.2 GB, /tmp has room)
+              # and let gdb walk every thread: module+offset frames are enough
+              # to place the fault in a translator lib. The executable path
+              # comes from the `Executable:` line of coredumpctl info - the
+              # columns of `coredumpctl list` shift between systemd versions.
+              echo "--- gdb backtrace of the most recent qemu core (stripped binary: expect module+offset frames) ---"
+              if command -v gdb >/dev/null 2>&1; then
+                CORE_TMP="$(mktemp /tmp/qemu-core.XXXXXX)"
+                if sudo coredumpctl dump --no-pager -o "$CORE_TMP" qemu-system-x86 >/dev/null 2>&1; then
+                  QEMU_EXE="$(sudo coredumpctl info --no-pager -1 qemu-system-x86 2>/dev/null | sed -n 's/^ *Executable: //p' | head -n 1)"
+                  echo "core: $CORE_TMP ($(du -h "$CORE_TMP" 2>/dev/null | cut -f1)), executable: ${QEMU_EXE:-<unknown, letting gdb read it from the core>}"
+                  if [ -n "$QEMU_EXE" ] && [ -r "$QEMU_EXE" ]; then
+                    sudo timeout 300 gdb -q -batch -ex 'set pagination off' -ex 'bt 40' -ex 'info sharedlibrary' -ex 'thread apply all bt 12' "$QEMU_EXE" "$CORE_TMP" 2>&1 | head -n 400 || true
+                  else
+                    sudo timeout 300 gdb -q -batch -ex 'set pagination off' -ex 'bt 40' -ex 'info sharedlibrary' -ex 'thread apply all bt 12' -c "$CORE_TMP" 2>&1 | head -n 400 || true
+                  fi
+                else
+                  echo "coredumpctl dump: no qemu core available"
+                fi
+                sudo rm -f "$CORE_TMP" 2>/dev/null || rm -f "$CORE_TMP" || true
+              else
+                echo "gdb: not installed"
+              fi
+              echo "--- emulator translator libs (map gdb's module+offset frames against these) ---"
+              ls -la "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/emulator/lib64" 2>/dev/null | head -n 40 || true
               echo "=== end ==="
             } >> "$HOST_DIAG" 2>&1 || true
             # The emulator's own crash database, if it wrote one.
@@ -1192,9 +1218,19 @@ jobs:
           # 3072M, not 4096M - see the first tablet leg.
           ram-size: 3072M
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          # -gpu guest, not swiftshader_indirect: on paas_manager run
+          # 33766830185 both tablet attempts died with SIGSEGV in
+          # qemu-system-x86_64-headless (2 s after the pos_cart still, then
+          # after pos_scan on the retry) with 12 GB free and systemd-oomd
+          # inactive, and the core's modules were the host GLES translator
+          # (libGLES_CM.so, libEGL.so, libGLESv2.so). The first attempt keeps
+          # swiftshader_indirect so it still produces the gdb backtrace; this
+          # retry renders inside the guest to test whether bypassing the host
+          # GL translator avoids the crash. The keep-better logic in
+          # run_tour.sh keeps whichever attempt captured more stills.
+          emulator-options: -no-window -gpu guest -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash ./run_tour.sh
+          script: echo "[tour-retry] tablet retry uses -gpu guest" && bash ./run_tour.sh
 
       # continue-on-error so an assembly bug cannot stop the phone assets
       # from committing below — the Tablet Leg Status gate turns a failure
