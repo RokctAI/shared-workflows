@@ -523,6 +523,47 @@ jobs:
           fi
           echo "flutter test exit code: $TEST_EXIT"
 
+          # Host-side evidence for a leg whose emulator died under it. On
+          # paas_manager runs 33734114092 and 33738362844 the tablet leg's
+          # qemu process vanished ~2 minutes after the app install on every
+          # attempt (port 5554 refused, `adb: device offline`, flutter test
+          # exit 79) and nothing in the job's artifacts could say why: the
+          # emulator announces "Storing crashdata in:
+          # /tmp/android-runner/emu-crash-*.db" but that db, the host's
+          # memory and the kernel log were never captured. Collected only
+          # when the leg looks broken (non-zero exit, or the device gone),
+          # APPENDED so a retry cannot erase the first attempt's evidence
+          # (unlike "$OUT" and "$OUT.anr", which a retry must start clean),
+          # and never allowed to fail the leg - it is evidence, not a gate.
+          # The small, high-value items come first so the 40-line head the
+          # status steps print into the job log carries them.
+          ADB_STATE=$(timeout 20 adb -s emulator-5554 get-state 2>/dev/null | tr -d '\r' || true)
+          if [ "$TEST_EXIT" -ne 0 ] || [ "${ADB_STATE:-}" != "device" ]; then
+            HOST_DIAG="$OUT.host-diag.txt"
+            echo "::warning::Collecting host diagnostics into $HOST_DIAG (flutter test exit $TEST_EXIT, adb state '${ADB_STATE:-none}')."
+            {
+              echo "=== host diagnostics for $OUT: $(date -u) ==="
+              echo "flutter test exit: $TEST_EXIT"
+              echo "adb -s emulator-5554 get-state: ${ADB_STATE:-<no answer>}"
+              echo "--- free -m ---"
+              free -m || true
+              echo "--- df -h /tmp ---"
+              df -h /tmp || true
+              echo "--- qemu processes ---"
+              ps -o pid,rss,etime,args -C qemu-system-x86_64-headless || echo "(no qemu-system-x86_64-headless process running)"
+              echo "--- ls -la /tmp/android-runner/ ---"
+              ls -la /tmp/android-runner/ 2>/dev/null || echo "(no /tmp/android-runner)"
+              echo "--- dmesg (last 150 lines, filtered) ---"
+              sudo dmesg --time-format iso 2>/dev/null | tail -n 150 | grep -iE 'killed process|out of memory|oom|qemu|segfault|emulator' || echo "(nothing matched)"
+              echo "=== end ==="
+            } >> "$HOST_DIAG" 2>&1 || true
+            # The emulator's own crash database, if it wrote one.
+            for EMU_CRASH in /tmp/android-runner/emu-crash-*.db; do
+              [ -e "$EMU_CRASH" ] || continue
+              mkdir -p "$OUT.emu-crash" && cp -r "$EMU_CRASH" "$OUT.emu-crash/" || true
+            done
+          fi
+
           # flutter test has exited, so no further markers are coming. Give
           # the watcher a short grace window for trailing logcat lines, then
           # signal it to wrap up (it handles SIGTERM by writing its manifest
@@ -634,6 +675,17 @@ jobs:
           # honest verdict on the run. One file per leg (the tablet leg
           # overrides TOUR_OUT), rewritten by a retry so the last attempt
           # is the one judged.
+          #
+          # The same verdict also goes out as STEP OUTPUTS (partial,
+          # test_exit, count) so the retry steps can fire on a partial leg.
+          # Because of the exit-0 above, the retry conditions
+          # `steps.<leg>.outcome == 'failure'` never fired on paas_manager
+          # runs 33734114092 / 33738362844: the tablet leg died at 6 of 19
+          # with `flutter test` exit 79, reported success, got no retry, and
+          # was then failed by the completeness gate. $GITHUB_OUTPUT is
+          # inherited from the emulator-runner step this script runs under,
+          # so a line written here lands on that step's outputs; guarded so
+          # the script still runs outside Actions.
           {
             echo "TOUR_LEG_OUT=$OUT"
             echo "TOUR_LEG_EXPECTED=${EXPECTED_SHOTS:-0}"
@@ -644,6 +696,17 @@ jobs:
             echo "TOUR_LEG_FOREGROUND=${FG_COUNT:-0}"
             echo "TOUR_LEG_FOREGROUND_STEPS=${FG_STEPS:-}"
           } > "$OUT.status"
+          PARTIAL_LEG=false
+          if [ "$TEST_EXIT" -ne 0 ] || [ "$COUNT" -lt "${EXPECTED_SHOTS:-0}" ]; then
+            PARTIAL_LEG=true
+          fi
+          if [ -n "${GITHUB_OUTPUT:-}" ]; then
+            {
+              echo "partial=$PARTIAL_LEG"
+              echo "test_exit=$TEST_EXIT"
+              echo "count=$COUNT"
+            } >> "$GITHUB_OUTPUT"
+          fi
           if [ "$COUNT" -eq 0 ]; then
             echo "::error::Guided tour captured zero screenshots."
             exit 1
@@ -700,10 +763,19 @@ jobs:
           disable-animations: true
           script: bash ./run_tour.sh
 
+      # Also on a PARTIAL first attempt (run_tour.sh's own verdict, see the
+      # step-output comment in the script): the leg exits 0 with whatever
+      # stills it got, so `outcome` alone would leave a 6-of-19 leg without
+      # its retry. run_tour.sh starts with `rm -rf "$OUT"`, so the retry
+      # never merges with the partial set.
       - name: Reset Emulator State Before Retry
-        if: steps.tour.outcome == 'failure'
+        if: steps.tour.outcome == 'failure' || steps.tour.outputs.partial == 'true'
+        env:
+          TOUR_OUTCOME: ${{ steps.tour.outcome }}
+          TOUR_PARTIAL: ${{ steps.tour.outputs.partial }}
+          TOUR_TEST_EXIT: ${{ steps.tour.outputs.test_exit }}
         run: |
-          echo "First tour attempt failed — killing stale emulator/adb before retry."
+          echo "First tour attempt did not complete (outcome: $TOUR_OUTCOME, partial: ${TOUR_PARTIAL:-false}, flutter test exit: ${TOUR_TEST_EXIT:-?}) — killing stale emulator/adb before retry."
           adb emu kill || true
           pkill -f "qemu-system" || true
           adb kill-server || true
@@ -711,7 +783,7 @@ jobs:
 
       - name: Run Emulator and Tour (Retry)
         id: tour-retry
-        if: steps.tour.outcome == 'failure'
+        if: steps.tour.outcome == 'failure' || steps.tour.outputs.partial == 'true'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
@@ -747,7 +819,24 @@ jobs:
         env:
           TOUR_OUTCOME: ${{ steps.tour.outcome }}
           TOUR_RETRY_OUTCOME: ${{ steps.tour-retry.outcome }}
+          TOUR_PARTIAL_FIRST: ${{ steps.tour.outputs.partial }}
+          TOUR_TEST_EXIT_FIRST: ${{ steps.tour.outputs.test_exit }}
         run: |
+          # Host diagnostics straight into the job log, so nobody has to
+          # download the artifact to see why an emulator died (written by
+          # run_tour.sh only when a leg looked broken).
+          if [ -f tour_screenshots.host-diag.txt ]; then
+            echo "--- tour_screenshots.host-diag.txt (first 40 lines; the full file and any tour_screenshots.emu-crash/ are in the guided-tour-results artifact) ---"
+            head -n 40 tour_screenshots.host-diag.txt
+            echo "--- end of host diagnostics ---"
+          fi
+          # A green emulator step is not a verdict (see below): name a first
+          # attempt that run_tour.sh reported PARTIAL as such, so the retry
+          # it triggered is not read as a retry of a "success".
+          FIRST_ATTEMPT="$TOUR_OUTCOME"
+          if [ "$TOUR_PARTIAL_FIRST" = "true" ]; then
+            FIRST_ATTEMPT="partial (flutter test exit ${TOUR_TEST_EXIT_FIRST:-?})"
+          fi
           if [ "$TOUR_OUTCOME" = "success" ] || [ "$TOUR_RETRY_OUTCOME" = "success" ]; then
             # A green emulator step is NOT a complete tour. run_tour.sh
             # exits 0 whenever at least ONE still was captured, on purpose,
@@ -805,7 +894,7 @@ jobs:
               echo "partial-reason=$PARTIAL" >> "$GITHUB_OUTPUT"
               echo "::error::Tour did NOT complete: $PARTIAL. Whatever was captured is still assembled and committed below; the job is failed afterwards by the Tour Completeness gate."
             else
-              echo "✅ Tour succeeded (first attempt: $TOUR_OUTCOME, retry: $TOUR_RETRY_OUTCOME)."
+              echo "✅ Tour succeeded (first attempt: $FIRST_ATTEMPT, retry: $TOUR_RETRY_OUTCOME)."
             fi
           elif [ "$TOUR_OUTCOME" != "failure" ] && [ "$TOUR_RETRY_OUTCOME" != "failure" ]; then
             echo "partial=true" >> "$GITHUB_OUTPUT"
@@ -813,7 +902,7 @@ jobs:
             echo "::error::Tour never ran (first: ${TOUR_OUTCOME:-not run}, retry: ${TOUR_RETRY_OUTCOME:-not run}) - an earlier step failed before the emulator leg. Fix the upstream failure logged above; the tour itself was not attempted."
             exit 1
           else
-            echo "❌ Tour failed on both attempts (first: $TOUR_OUTCOME, retry: $TOUR_RETRY_OUTCOME)."
+            echo "❌ Tour failed on both attempts (first: $FIRST_ATTEMPT, retry: $TOUR_RETRY_OUTCOME)."
             exit 1
           fi
 
@@ -919,10 +1008,17 @@ jobs:
           disable-animations: true
           script: bash ./run_tour.sh
 
+      # Same partial-leg trigger as the phone retry above: on paas_manager
+      # runs 33734114092 and 33738362844 this leg died at 6 of 19 (flutter
+      # test exit 79) with a green outcome, so this retry never ran.
       - name: Reset Emulator State Before Tablet Retry
-        if: inputs.tablet == true && steps.tour-tablet.outcome == 'failure'
+        if: inputs.tablet == true && (steps.tour-tablet.outcome == 'failure' || steps.tour-tablet.outputs.partial == 'true')
+        env:
+          TABLET_OUTCOME: ${{ steps.tour-tablet.outcome }}
+          TABLET_PARTIAL: ${{ steps.tour-tablet.outputs.partial }}
+          TABLET_TEST_EXIT: ${{ steps.tour-tablet.outputs.test_exit }}
         run: |
-          echo "First tablet attempt failed — killing stale emulator/adb before retry."
+          echo "First tablet attempt did not complete (outcome: $TABLET_OUTCOME, partial: ${TABLET_PARTIAL:-false}, flutter test exit: ${TABLET_TEST_EXIT:-?}) — killing stale emulator/adb before retry."
           adb emu kill || true
           pkill -f "qemu-system" || true
           adb kill-server || true
@@ -930,7 +1026,7 @@ jobs:
 
       - name: Run Emulator and Tour (Tablet Retry)
         id: tour-tablet-retry
-        if: inputs.tablet == true && steps.tour-tablet.outcome == 'failure'
+        if: inputs.tablet == true && (steps.tour-tablet.outcome == 'failure' || steps.tour-tablet.outputs.partial == 'true')
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
@@ -1140,9 +1236,34 @@ jobs:
       # video failures stay a warning, same as the phone video.
       - name: Tablet Leg Status
         if: inputs.tablet == true
+        env:
+          TABLET_PARTIAL_FIRST: ${{ steps.tour-tablet.outputs.partial }}
+          TABLET_TEST_EXIT_FIRST: ${{ steps.tour-tablet.outputs.test_exit }}
+          TABLET_PARTIAL_RETRY: ${{ steps.tour-tablet-retry.outputs.partial }}
+          TABLET_TEST_EXIT_RETRY: ${{ steps.tour-tablet-retry.outputs.test_exit }}
         run: |
+          # Host diagnostics straight into the job log (same as the phone
+          # leg's Tour Status): written by run_tour.sh only when the leg
+          # looked broken, which is exactly the tablet leg on paas_manager
+          # runs 33734114092 and 33738362844.
+          if [ -f tour_screenshots_tablet.host-diag.txt ]; then
+            echo "--- tour_screenshots_tablet.host-diag.txt (first 40 lines; the full file and any tour_screenshots_tablet.emu-crash/ are in the guided-tour-results artifact) ---"
+            head -n 40 tour_screenshots_tablet.host-diag.txt
+            echo "--- end of host diagnostics ---"
+          fi
+          # Name a PARTIAL attempt as such rather than as the emulator
+          # step's green outcome (run_tour.sh exits 0 with whatever stills
+          # it got); the completeness gate below is still what judges it.
+          FIRST_ATTEMPT="${{ steps.tour-tablet.outcome }}"
+          if [ "$TABLET_PARTIAL_FIRST" = "true" ]; then
+            FIRST_ATTEMPT="partial (flutter test exit ${TABLET_TEST_EXIT_FIRST:-?})"
+          fi
+          RETRY_ATTEMPT="${{ steps.tour-tablet-retry.outcome }}"
+          if [ "$TABLET_PARTIAL_RETRY" = "true" ]; then
+            RETRY_ATTEMPT="partial (flutter test exit ${TABLET_TEST_EXIT_RETRY:-?})"
+          fi
           if [ "${{ steps.tour-tablet.outcome }}" != "success" ] && [ "${{ steps.tour-tablet-retry.outcome }}" != "success" ]; then
-            echo "::error::Tablet tour failed on both attempts (first: ${{ steps.tour-tablet.outcome }}, retry: ${{ steps.tour-tablet-retry.outcome }})."
+            echo "::error::Tablet tour failed on both attempts (first: $FIRST_ATTEMPT, retry: $RETRY_ATTEMPT)."
             exit 1
           fi
           if [ "${{ steps.tablet-assemble.outcome }}" != "success" ]; then
@@ -1152,7 +1273,13 @@ jobs:
           if [ "${{ steps.tablet-video.outcome }}" != "success" ]; then
             echo "::warning::Tablet video assembly failed - tablet screenshots and stills are unaffected."
           fi
-          echo "✅ Tablet leg succeeded (tour: ${{ steps.tour-tablet.outcome }}, retry: ${{ steps.tour-tablet-retry.outcome }})."
+          if [ "$TABLET_PARTIAL_FIRST" = "true" ] && [ "${{ steps.tour-tablet-retry.outcome }}" != "success" ]; then
+            echo "::warning::Tablet leg ran (tour: $FIRST_ATTEMPT, retry: $RETRY_ATTEMPT) - the retry did not succeed, so the Tour Completeness Gate below judges the partial capture."
+          elif [ "$TABLET_PARTIAL_RETRY" = "true" ]; then
+            echo "::warning::Tablet leg ran (tour: $FIRST_ATTEMPT, retry: $RETRY_ATTEMPT) - the retry was partial too, so the Tour Completeness Gate below judges it."
+          else
+            echo "✅ Tablet leg succeeded (tour: $FIRST_ATTEMPT, retry: $RETRY_ATTEMPT)."
+          fi
 
       # The phone leg's honest failure signal, deliberately AFTER the commit
       # step for the same reason as the tablet gate above: run_tour.sh keeps
@@ -1236,8 +1363,12 @@ jobs:
             tour_test_output.log
             tour_screenshots.status
             tour_screenshots.anr
+            tour_screenshots.host-diag.txt
+            tour_screenshots.emu-crash/
             tour_logcat_tablet.txt
             tour_test_output_tablet.log
             tour_screenshots_tablet.status
             tour_screenshots_tablet.anr
+            tour_screenshots_tablet.host-diag.txt
+            tour_screenshots_tablet.emu-crash/
           if-no-files-found: warn
