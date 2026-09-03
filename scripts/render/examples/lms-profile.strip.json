@@ -1,0 +1,110 @@
+{
+  "title": "Profile host - lms student",
+  "kicker": "profile-host migration - real render",
+  "lede": "Not hand-drawn. Every frame below is the actual GenericProfilePage + LmsProfileSections widget tree, rendered headlessly to PNG by the render harness at 390 logical px / dpr 3, with the numbered points placed automatically from each widget's measured rect.",
+  "fonts": "system",
+  "chips_default": true,
+  "frames": [
+    {
+      "section": "Shipped - what main renders today",
+      "caption": "lms student - light",
+      "status": "SHIPPED",
+      "png": "profile_light.png",
+      "rects": "profile_light.json",
+      "note": "core main aba527c + agent main f7d743c"
+    },
+    {
+      "section": "Shipped - what main renders today",
+      "caption": "lms student - dark (app default)",
+      "status": "SHIPPED",
+      "png": "profile_dark.png",
+      "rects": "profile_dark.json",
+      "note": "core main aba527c + agent main f7d743c"
+    },
+    {
+      "section": "Proposed - unified header unit",
+      "caption": "lms student - light",
+      "status": "PROPOSED",
+      "png": "profile_light_draft.png",
+      "rects": "profile_light_draft.json",
+      "note": "core#110 + agent#200 heads (960d632 / 41bd80b)"
+    },
+    {
+      "section": "Proposed - unified header unit",
+      "caption": "lms student - dark (app default)",
+      "status": "PROPOSED",
+      "png": "profile_dark_draft.png",
+      "rects": "profile_dark_draft.json",
+      "note": "core#110 + agent#200 heads (960d632 / 41bd80b)"
+    }
+  ],
+  "labels": {
+    "Identity header — base_sdk host (name, contact, role, edit/logout)": "identity header - base_sdk host",
+    "lms.student.header_stats — grade badge + attendance / avg score": "stats card - grade badge, attendance, avg score",
+    "Header badge slot — grade badge (draft unit)": "grade badge - header badge slot",
+    "Header stats slot — attendance / avg score (draft unit)": "stat row - header stats slot",
+    "Header plan slot — My plan row (draft unit)": "My plan - header plan slot",
+    "lms.student.calendar_export — add lessons to calendar (switch)": "calendar export row (switch)",
+    "lms.student.attendance_detail — expandable breakdown": "attendance - expandable breakdown",
+    "lms.student.arcs_detail — performance per topic": "performance per topic - expandable",
+    "base.footer — app name, version, online dot, usage badge": "base.footer - name, version, online, usage"
+  },
+  "numbering": {
+    "map": {
+      "Identity header — base_sdk host (name, contact, role, edit/logout)": 1,
+      "lms.student.header_stats — grade badge + attendance / avg score": 2,
+      "Setting row — School": 3,
+      "Setting row — Accountability partner": 4,
+      "Setting row — Subjects": 5,
+      "lms.student.calendar_export — add lessons to calendar (switch)": 6,
+      "Setting row — Homework help": 7,
+      "Setting row — Downloads": 8,
+      "Setting row — Streak & league": 9,
+      "Setting row — Term report": 10,
+      "Setting row — My plan": 11,
+      "Setting row — Billing history": 12,
+      "lms.student.attendance_detail — expandable breakdown": 13,
+      "lms.student.arcs_detail — performance per topic": 14,
+      "Setting row — Appearance": 15,
+      "base.footer — app name, version, online dot, usage badge": 16,
+      "Header badge slot — grade badge (draft unit)": 17,
+      "Header stats slot — attendance / avg score (draft unit)": 18,
+      "Header plan slot — My plan row (draft unit)": 19
+    },
+    "retired": {
+      "23": "unified header card - hand-drawn review page numbering, retired when frames became real renders",
+      "25": "section rows (drawn as one block) - now numbered per row, 3-12",
+      "26": "expandable cards (drawn as one block) - now numbered per card, 13-14",
+      "99": "theme toggle - hand-drawn review page numbering",
+      "100": "sign-out control - hand-drawn review page numbering",
+      "101": "edit pencil - hand-drawn review page numbering",
+      "152": "plan row - hand-drawn review page numbering, now 19",
+      "173": "page title - hand-drawn review page numbering"
+    }
+  },
+  "notes": [
+    {
+      "kicker": "note - how these renders were produced",
+      "body": [
+        "A widget-test harness; zero app code touched. It pumps the real GenericProfilePage with LmsProfileSections.registerStudentSections(...) registered, renders it at 390 logical px (dpr 3) at the page's full content height, and captures the RepaintBoundary to PNG.",
+        "The data is the SDKs' own demo data, not fixtures written for this page. The test runs with --dart-define=IS_DEMO=true and calls the SDKs' DI registrations, so LmsSdkDependencies installs DemoLmsRepository and SeededTutorCatalog and AuthSdkDependencies installs MockAuthRepository - the same demo fixtures a demo build of the app serves.",
+        "Real, not simulated: Inter/Montserrat loaded as real font files through the google_fonts test path, the real MaterialIcons and Remix icon fonts, and AppStyle light/dark tokens resolved by the real setBrightness seam. Layout, spacing, typography, colour, registry order and visibility gates are all the shipped code path."
+      ]
+    },
+    {
+      "kicker": "exception - device history the demo mode cannot supply",
+      "body": [
+        "The profile's attendance percentage and library come from stores a device accumulates through use: ProfileStore's attendance ledger is written by the schedule as lessons are attended, and DemoLmsRepository.recordAttendanceEvent is a deliberate no-op. A widget test never walks that journey, so those stores start empty.",
+        "This page therefore seeds the attendance ledger and library through the app's REAL store API (harness marker 3/8). The percentages, averages and expandable summaries on the frames are still computed by the app's own notifiers from those records - nothing on the frame is a typed-in number. Every other value comes from demo mode."
+      ]
+    },
+    {
+      "kicker": "found by rendering (a drawing could not have caught these)",
+      "items": [
+        "The footer's backend probe fails headlessly, so it renders the real Offline state - and one usage string surfaces an untranslated key (DaysInAppThisYear).",
+        "The demo persona's email ellipsises at this width - real overflow behaviour, invisible in a drawing.",
+        "The gap above the footer is the real lms.nav_clearance spacer (94px) for the floating nav pill, not padding."
+      ]
+    }
+  ]
+}

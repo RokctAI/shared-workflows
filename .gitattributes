@@ -15,3 +15,6 @@
 .github/.rc-cleanup-done export-ignore
 .rokct/ export-ignore
 *.py text eol=lf
+*.dart text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

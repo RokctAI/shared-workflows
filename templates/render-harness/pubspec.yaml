@@ -1,0 +1,69 @@
+# TEMPLATE (templates/render-harness/ in RokctAI/shared-workflows): copy to
+# the THROWAWAY harness package as pubspec.yaml and edit the TODO lines.
+#
+# This package is NEVER committed to an app or SDK repo. It lives beside the
+# read-only clones it points at:
+#
+#   <scratch>/
+#     core/            # clone of RokctAI/core        (read-only)
+#     agent/           # clone of RokctAI/agent       (read-only)
+#     flutter-sdk/     # the Flutter SDK for this run
+#     render-harness/  # THIS package
+#       pubspec.yaml
+#       fonts/         # real .ttf files (see scripts/render/README.md)
+#       test/render_screen_test.dart
+#       out/           # PNG + rect JSON the composer consumes
+#
+# The dependency set must mirror the composed app's, because the harness pumps
+# the app's real widgets: every direct import in the screen's tree needs a
+# dependency here, and every SDK the app overrides needs the same override.
+
+name: render_harness
+description: Throwaway harness that renders a real screen to PNG for review.
+publish_to: "none"
+version: 0.0.1
+
+environment:
+  # Dart SDK constraint - NOT the Flutter version. base_sdk's own constraint
+  # decides which Flutter release this resolves against; read it there rather
+  # than guessing (a "3.13" seen in a pubspec is the DART sdk, not Flutter).
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # TODO(harness) - the SDK that owns the screen, by path into the clone.
+  # lms_sdk:
+  #   path: ../agent/lms/dart
+
+  # TODO(harness) - every package the screen's widget tree imports directly.
+  # Mirror the composed app's versions; a resolver bump here can change the
+  # render, which defeats the point.
+  # flutter_riverpod: ^2.5.1
+  # flutter_screenutil: ^5.9.0
+  # shared_preferences: ^2.5.5
+  # google_fonts: ^6.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  assets:
+    # google_fonts' test path reads FONT FILES FROM ASSETS, not the network.
+    # Keep this directory even when it only holds the licence-required files.
+    - assets/google_fonts/
+
+dependency_overrides:
+  # TODO(harness) - mirror the app shell's dependency_overrides exactly. The
+  # host SDK is always overridden by path so the harness compiles the same
+  # base_sdk the app composes.
+  # base_sdk:
+  #   path: ../core/base/dart
+  #
+  # Pin google_fonts to an exact version: the test path's asset naming has
+  # changed between majors, and a floating resolve silently reverts the render
+  # to the fallback font.
+  # google_fonts: 6.3.3

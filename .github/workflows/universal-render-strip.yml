@@ -1,0 +1,378 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+
+# Universal Render Strip
+#
+# Renders REAL app screens headlessly and publishes a review strip.
+#
+# Why this exists:
+#   A design review frame should be a render of real code with DEMO data, not
+#   a hand-drawn picture of what the code is believed to do. This workflow
+#   composes the caller's SDK modules exactly the way universal-flutter-build
+#   does, runs the repo's render widget test (which writes a PNG plus a
+#   measured element-rect JSON per variant), composes those into ONE
+#   self-contained scrollable HTML page, and uploads it as a build artifact.
+#   Format and conventions: scripts/render/README.md in this repo.
+#
+# The render test uses the SDKs' own demo/seed fixtures (IS_DEMO=true) and
+# should not be wired to a live client or backend.
+#
+# It never commits or pushes: it composes in place purely to render, so it is
+# safe on PRs and arbitrary branches.
+#
+# Callable from any consuming repo:
+#   jobs:
+#     render:
+#       uses: RokctAI/shared-workflows/.github/workflows/universal-render-strip.yml@main
+#       secrets: inherit
+
+name: Universal Render Strip
+
+permissions: write-all
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PIP_BREAK_SYSTEM_PACKAGES: 1
+
+on:
+  workflow_call:
+    inputs:
+      render-test:
+        required: false
+        type: string
+        default: 'test/render/render_screen_test.dart'
+        description: >-
+          The render widget test to run. The job SKIPS CLEANLY when this file
+          does not exist, so the workflow can be distributed to every repo and
+          only does something where a render test has been committed.
+      strip-config:
+        required: false
+        type: string
+        default: 'test/render/strip.json'
+        description: "Strip config consumed by scripts/render/compose_strip.py."
+      render-out-dir:
+        required: false
+        type: string
+        default: 'out'
+        description: >-
+          Directory the render test writes its PNG + rect JSON into, relative
+          to working-directory (the template writes to ./out).
+      render-suffix:
+        required: false
+        type: string
+        default: ''
+        description: >-
+          Value of RENDER_SUFFIX for this run, so outputs from two checkouts
+          (e.g. '' for main and '_draft' for a PR head) can be told apart.
+      dart-defines:
+        required: false
+        type: string
+        default: 'IS_DEMO=true'
+        description: >-
+          Space-separated KEY=VALUE pairs passed to `flutter test` as
+          --dart-define. IS_DEMO=true is the default because it is what makes
+          the SDKs register their OWN demo fixtures (DemoLmsRepository,
+          MockAuthRepository, ...) instead of their real HTTP repositories -
+          without it the render is of an empty, broken screen.
+      output-file:
+        required: false
+        type: string
+        default: 'render-strip.html'
+        description: "Filename of the composed page inside the artifact."
+      artifact-name:
+        required: false
+        type: string
+        default: 'render-strip'
+        description: "Name of the uploaded artifact."
+      retention-days:
+        required: false
+        type: number
+        default: 30
+        description: "How long to keep the uploaded artifact."
+      upload-renders:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          Also upload the raw PNGs and rect JSON beside the page. Off by
+          default: the page already embeds every render as a data URI.
+      flutter-channel:
+        required: false
+        type: string
+        default: 'stable'
+        description: "Flutter channel (stable, beta, master)."
+      flutter-version:
+        required: false
+        type: string
+        # Pinned for the same reason as universal-flutter-build/analyze:
+        # Flutter 3.47.0 + analyzer <8 (freezed 2.x) hangs build_runner.
+        default: '3.44.9'
+        description: "Pin an exact Flutter version. Empty = latest on channel."
+      java-version:
+        required: false
+        type: string
+        default: '17'
+        description: "JDK version (Android tooling / gradle-based codegen)."
+      working-directory:
+        required: false
+        type: string
+        default: '.'
+        description: "Path to the Flutter project root (where pubspec.yaml lives)."
+      tools-ref:
+        required: false
+        type: string
+        default: 'main'
+        description: "Ref of RokctAI/shared-workflows to take the composer from."
+      run-compose:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Run the initiate + SDK-module compose pipeline before rendering.
+          This is the whole point - the render must be of the composed code a
+          real build sees. Set false only for plain leaf apps.
+      run-build-runner:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Regenerate generated code (build_runner) so stale *.g.dart cannot
+          render a screen nobody ships.
+    secrets:
+      MONOREPO_PAT:
+        required: false
+      COUNTER_API_KEY:
+        required: false
+
+jobs:
+  render:
+    name: 🖼️ Render Strip
+    runs-on: ubuntu-latest
+    permissions: write-all
+    # Compose + pub get + build_runner + a headless render pass. No emulator,
+    # so this is far cheaper than the tour, but the compose step dominates.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+    steps:
+      - name: Track Usage
+        continue-on-error: true
+        env:
+          API_KEY: ${{ secrets.COUNTER_API_KEY }}
+        if: env.API_KEY != ''
+        run: |
+          curl -X GET "https://api.counterapi.dev/v2/rokctai/usage/up" \
+            -H "Authorization: Bearer $API_KEY" || true
+
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Check For Render Test
+        id: check
+        run: |
+          TEST_PATH="${{ inputs.working-directory }}/${{ inputs.render-test }}"
+          TEST_PATH="${TEST_PATH#./}"
+          if [ -f "$TEST_PATH" ]; then
+            echo "has_render=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Render test found at $TEST_PATH."
+          else
+            echo "has_render=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️ No render test at $TEST_PATH. Skipping the render strip."
+          fi
+
+      - name: Checkout Render Tooling (shared-workflows)
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          ref: ${{ inputs.tools-ref }}
+          path: .render-tools
+
+      # Same private-repo mechanism the build/analyze workflows use: the
+      # org-wide MONOREPO_PAT, inherited by the caller with `secrets: inherit`.
+      # No per-repo Actions secret is ever created for this.
+      - name: Fetch and Merge Private Repository
+        if: steps.check.outputs.has_render == 'true'
+        run: |
+          if [ -f ".private_repo" ]; then
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
+            if [ -n "$REPO_NAME" ]; then
+              echo "Private repository configured: $REPO_NAME"
+              TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
+              URL="https://x-access-token:${TOKEN}@github.com/${REPO_NAME}.git"
+              if git clone --depth 1 "$URL" .private-temp; then
+                echo "Excluding private files from git tracking..."
+                mkdir -p .git/info
+                (cd .private-temp && find . -type f) | sed 's|^\./||' >> .git/info/exclude
+                echo "Merging private files..."
+                rm -rf .private-temp/.git .private-temp/.github
+                rsync -a .private-temp/ ./
+                rm -rf .private-temp
+              else
+                echo "::warning::Failed to clone private repository $REPO_NAME."
+              fi
+            fi
+          fi
+
+      - name: Initiate Protocol
+        if: steps.check.outputs.has_render == 'true' && inputs.run-compose == true
+        run: |
+          if [ -f ".rokct/initiate.py" ]; then
+            echo "🚀 Running local initiate.py..."
+            python .rokct/initiate.py
+          else
+            echo "🌐 Fetching web initiate.py from remote protocol..."
+            curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/profiles/web/initiate.py -o initiate_temp.py
+            python initiate_temp.py
+            rm initiate_temp.py
+          fi
+
+      # The composer resolves the private SDK modules; it reads MONOREPO_PAT
+      # from the job env set above.
+      - name: Compose Flutter SDK Modules (If Shell App)
+        if: steps.check.outputs.has_render == 'true' && inputs.run-compose == true
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
+            if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+              python .rokct/skills/.rok/flutter/scripts/compose.py
+            elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+              python .rokct/skills/flutter/scripts/compose.py
+            else
+              echo "🌐 Fetching remote composer wrapper..."
+              curl -sSL https://raw.githubusercontent.com/RokctAI/The-Rokct-Protocol/main/core/skills/.rok/flutter/scripts/compose.py -o compose_temp.py
+              python compose_temp.py
+              rm compose_temp.py
+            fi
+            echo "ℹ️ Composed in place for rendering only — nothing is committed."
+          else
+            echo "ℹ️ Not a shell app (no composer.json). Rendering lib/ as-is."
+          fi
+
+      - name: Setup Java
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Setup Flutter
+        if: steps.check.outputs.has_render == 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Setup Python
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+
+      - name: Get Dependencies
+        if: steps.check.outputs.has_render == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: flutter pub get
+
+      - name: Regenerate Generated Code (build_runner)
+        if: steps.check.outputs.has_render == 'true' && inputs.run-build-runner == true
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -o pipefail
+          if grep -qE '^\s*build_runner\s*:' pubspec.yaml || (flutter pub deps --style=compact 2>/dev/null | grep -q 'build_runner'); then
+            echo "🛠️  Regenerating generated code with build_runner..."
+            # --force-jit for the same reason as universal-flutter-analyze:
+            # build_runner >=2.15 AOT-compiles builders and refuses to run when
+            # a resolved package ships a native-asset build hook. Older
+            # versions reject the flag, so fall back when the FLAG is what was
+            # refused.
+            if dart run build_runner build --force-jit --delete-conflicting-outputs 2>&1 | tee buildrunner_log.txt; then
+              echo "✅ Code generation succeeded."
+            elif grep -q 'Could not find an option named' buildrunner_log.txt; then
+              echo "build_runner does not recognize --force-jit (older version); retrying with plain build"
+              dart run build_runner build --delete-conflicting-outputs
+            else
+              exit 1
+            fi
+          else
+            echo "ℹ️ build_runner not a dependency. Skipping code generation."
+          fi
+
+      # The render itself. `flutter test` is headless - no emulator, no
+      # display - which is why this job is cheap enough to run on demand.
+      - name: Render Screens
+        if: steps.check.outputs.has_render == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          RENDER_SUFFIX: ${{ inputs.render-suffix }}
+        run: |
+          set -o pipefail
+          DEFINES=()
+          for pair in ${{ inputs.dart-defines }}; do
+            DEFINES+=(--dart-define="$pair")
+          done
+          flutter test "${DEFINES[@]}" "${{ inputs.render-test }}" 2>&1 | tee render_log.txt
+          COUNT=$(find "${{ inputs.render-out-dir }}" -name '*.png' 2>/dev/null | wc -l)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::The render test produced no PNGs in ${{ inputs.render-out-dir }}."
+            exit 1
+          fi
+          echo "✅ Rendered $COUNT frame(s)."
+
+      - name: Compose Review Strip
+        if: steps.check.outputs.has_render == 'true'
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          CONFIG="${{ inputs.strip-config }}"
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::Strip config not found at $CONFIG (see scripts/render/README.md for its shape)."
+            exit 1
+          fi
+          # $GITHUB_WORKSPACE is the caller's checkout root; the tooling was
+          # checked out beside it at .render-tools.
+          python "$GITHUB_WORKSPACE/.render-tools/scripts/render/compose_strip.py" \
+            --config "$CONFIG" \
+            --base-dir "${{ inputs.render-out-dir }}" \
+            --out "${{ inputs.output-file }}"
+
+      - name: Upload Review Strip
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/${{ inputs.output-file }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error
+
+      - name: Upload Raw Renders
+        if: steps.check.outputs.has_render == 'true' && inputs.upload-renders == true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ${{ inputs.artifact-name }}-renders
+          path: ${{ inputs.working-directory }}/${{ inputs.render-out-dir }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: warn
+
+      - name: Build Job Summary
+        if: always()
+        run: |
+          {
+            echo "## 🖼️ Render Strip"
+            echo ""
+            if [ "${{ steps.check.outputs.has_render }}" != "true" ]; then
+              echo "Skipped: no render test at \`${{ inputs.render-test }}\`."
+              exit 0
+            fi
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Render test | \`${{ inputs.render-test }}\` |"
+            echo "| Strip config | \`${{ inputs.strip-config }}\` |"
+            echo "| Artifact | \`${{ inputs.artifact-name }}\` |"
+            echo ""
+            echo "Download the artifact and open the HTML file - it is"
+            echo "self-contained, so it needs no network."
+          } >> "$GITHUB_STEP_SUMMARY"
