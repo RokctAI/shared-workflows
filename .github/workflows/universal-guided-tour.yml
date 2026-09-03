@@ -475,6 +475,161 @@ jobs:
           # it). Marking it pre-confirmed keeps it out of frame entirely.
           adb shell settings put secure immersive_mode_confirmations confirmed || true
 
+          TOUR_APK="build/app/outputs/flutter-apk/app-debug.apk"
+          TOUR_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          # Read by the pre-tour ANR clear right below (which must never
+          # force-stop the app under test), by the grant loop further down
+          # AND handed to the capture watcher (--package), whose foreground
+          # guard keeps a still only while this package owns the focused
+          # window. Declared out here so a shell whose APK or aapt could not
+          # be read leaves it empty instead of tripping `set -u`.
+          #
+          # The applicationId is NOT the gradle `namespace` (com.app.demo) -
+          # it comes from dartDefines.<ROLE>_ANDROID_PACKAGE_NAME in
+          # .env/production.env and differs per shell, so read it off the
+          # APK that is about to be installed rather than guessing.
+          TOUR_PKG=""
+          if [ -f "$TOUR_APK" ]; then
+            TOUR_AAPT2=$(find "$TOUR_SDK/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$TOUR_AAPT2" ]; then
+              TOUR_PKG=$("$TOUR_AAPT2" dump packagename "$TOUR_APK" 2>/dev/null | tr -d '\r' | head -n 1)
+            fi
+            if [ -z "$TOUR_PKG" ]; then
+              TOUR_AAPT=$(find "$TOUR_SDK/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
+              if [ -n "$TOUR_AAPT" ]; then
+                TOUR_PKG=$("$TOUR_AAPT" dump badging "$TOUR_APK" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)
+              fi
+            fi
+          fi
+
+          # ANR guard, shared primitives. `dumpsys window` is the primitive
+          # because it lists what is actually IN THE WINDOW STACK, which is
+          # exactly what a framebuffer capture burns in. AppNotRespondingDialog
+          # titles its window "Application Not Responding: <process>" and
+          # AppErrorDialog "Application Error: <process>", and nothing else
+          # prints those strings, so a match is positive evidence rather than
+          # a heuristic. The narrow `windows` sub-command first, the bare dump
+          # as the fallback. Same detector and same BACK dismissal as
+          # capture_screenshots.py's per-step anr_guard, used by the pre-tour
+          # clear right below and by the end-of-leg check at the bottom.
+          tour_window_dump() {
+            # Writes the window stack to "$1"; true when something was read.
+            rm -f "$1"
+            adb shell dumpsys window windows > "$1" 2>/dev/null || true
+            if [ ! -s "$1" ]; then
+              adb shell dumpsys window > "$1" 2>/dev/null || true
+            fi
+            [ -s "$1" ]
+          }
+          tour_anr_window() {
+            # Prints the ANR/crash dialog title found in the dump "$1", or nothing.
+            tr -d '\r' < "$1" | grep -m1 -oE "Application (Not Responding|Error): ?[^ }]*" || true
+          }
+          tour_focus_owner() {
+            # Prints the owner (package/component) of mCurrentFocus in the
+            # dump "$1", or nothing when the focus is null or unreadable.
+            tr -d '\r' < "$1" | grep -m1 -oE 'mCurrentFocus=Window\{[^}]*\}' | sed -nE 's/.*[[:space:]]([^[:space:]}]+)\}$/\1/p' || true
+          }
+          tour_anr_dismiss() {
+            # BACK goes to the dialog, whose BACK action is "wait" - it does
+            # not kill the process (same dismissal the per-step guard uses).
+            adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+            sleep 2
+          }
+
+          # ANR guard, pre-tour half. On paas_manager runs 33799655546 and
+          # 33757931973 the tablet retry (fresh AVD, force-avd-creation) had
+          # the launcher wedge on its very first boot: 26 s after "Boot
+          # completed" and two minutes BEFORE the app was installed, logcat
+          # showed "ANR in com.google.android.apps.nexuslauncher ... Input
+          # dispatching timed out (Application does not have a focused
+          # window)". That dialog sat in the window stack for the whole tour;
+          # the per-step guard dismissed it and retried once per still, it
+          # came straight back each time, so every still was refused and the
+          # leg finished with 0 of 26 although `flutter test` exited 0. The
+          # wedge is a host artefact of the first boot, not the app, so it is
+          # cleared HERE, before the app is launched: dismiss the dialog,
+          # force-stop the wedged package (the launcher is relaunched via its
+          # HOME intent) and wait until the stack is clean AND something owns
+          # input focus. Up to 3 rounds. The per-step guard and the
+          # end-of-leg refusal stay exactly as they are; and this never
+          # force-stops the app under test (its package is known from the
+          # APK by now), so an ANR of the app itself is left for the per-step
+          # guard to judge. Never allowed to fail the leg.
+          PRE_ANR_DUMP="$OUT.windows.pre.tmp"
+          PRE_ANR_WINDOW=""
+          PRE_ANR_READ=""
+          PRE_ANR_ATTEMPTS=0
+          if tour_window_dump "$PRE_ANR_DUMP"; then
+            PRE_ANR_READ=1
+            PRE_ANR_WINDOW=$(tour_anr_window "$PRE_ANR_DUMP")
+          fi
+          while [ -n "$PRE_ANR_WINDOW" ] && [ "$PRE_ANR_ATTEMPTS" -lt 3 ]; do
+            PRE_ANR_ATTEMPTS=$((PRE_ANR_ATTEMPTS + 1))
+            # "Application Not Responding: com.foo:remote" -> com.foo
+            PRE_ANR_PKG=$(printf '%s' "$PRE_ANR_WINDOW" | sed -E 's/^Application (Not Responding|Error): *//; s/:.*$//')
+            echo "[tour-anr] pre-tour: ANR dialog for ${PRE_ANR_PKG:-<unknown package>} present before the tour started (fresh-boot host artefact) - clearing it (attempt $PRE_ANR_ATTEMPTS of 3, '$PRE_ANR_WINDOW')"
+            tour_anr_dismiss
+            if [ -z "$PRE_ANR_PKG" ]; then
+              echo "[tour-anr] pre-tour: no package name in '$PRE_ANR_WINDOW' - dismissed only, nothing to force-stop"
+            elif [ -n "$TOUR_PKG" ] && [ "$PRE_ANR_PKG" = "$TOUR_PKG" ]; then
+              echo "[tour-anr] pre-tour: the ANR belongs to the app under test ($TOUR_PKG) - dismissed only, NOT force-stopping it; the per-step guard judges the app's own ANRs"
+            else
+              adb shell am force-stop "$PRE_ANR_PKG" >/dev/null 2>&1 || true
+              case "$PRE_ANR_PKG" in
+                *launcher*)
+                  echo "[tour-anr] pre-tour: force-stopped the launcher ($PRE_ANR_PKG) - relaunching it via the HOME intent"
+                  adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1 || true ;;
+                *)
+                  echo "[tour-anr] pre-tour: force-stopped $PRE_ANR_PKG" ;;
+              esac
+            fi
+            # Wait for the stack to be clean AND for a window to own input
+            # focus (mCurrentFocus non-null) - the wedge above is precisely a
+            # launcher with no focused window. Up to 60 s, 3 s apart.
+            PRE_ANR_WAITED=0
+            while [ "$PRE_ANR_WAITED" -lt 60 ]; do
+              sleep 3
+              PRE_ANR_WAITED=$((PRE_ANR_WAITED + 3))
+              if tour_window_dump "$PRE_ANR_DUMP"; then
+                PRE_ANR_WINDOW=$(tour_anr_window "$PRE_ANR_DUMP")
+                if [ -z "$PRE_ANR_WINDOW" ] && [ -n "$(tour_focus_owner "$PRE_ANR_DUMP")" ]; then
+                  break
+                fi
+              fi
+            done
+          done
+          if [ -n "$PRE_ANR_WINDOW" ]; then
+            echo "::warning::[tour-anr] pre-tour: ANR dialog ($PRE_ANR_WINDOW) still present after 3 attempts - continuing, the per-step guard will refuse contaminated stills"
+          elif [ "$PRE_ANR_ATTEMPTS" -gt 0 ]; then
+            echo "[tour-anr] pre-tour: ANR dialog cleared after $PRE_ANR_ATTEMPTS attempt(s)"
+          elif [ -n "$PRE_ANR_READ" ]; then
+            echo "[tour-anr] pre-tour: no ANR dialog present"
+          else
+            echo "::warning::[tour-anr] pre-tour: could not read the window stack before the tour started (dumpsys window returned nothing usable) - continuing, the per-step guard will refuse contaminated stills"
+          fi
+          # Before the first still: give the launcher up to 60 s to own a
+          # focused window, so the "Application does not have a focused
+          # window" wedge is less likely to appear once the app launches.
+          PRE_FOCUS=""
+          PRE_FOCUS_WAITED=0
+          while :; do
+            if tour_window_dump "$PRE_ANR_DUMP"; then
+              PRE_FOCUS=$(tour_focus_owner "$PRE_ANR_DUMP")
+            fi
+            if [ -n "$PRE_FOCUS" ] || [ "$PRE_FOCUS_WAITED" -ge 60 ]; then
+              break
+            fi
+            sleep 3
+            PRE_FOCUS_WAITED=$((PRE_FOCUS_WAITED + 3))
+          done
+          rm -f "$PRE_ANR_DUMP"
+          if [ -n "$PRE_FOCUS" ]; then
+            echo "[tour-anr] pre-tour: focused window before the first still: $PRE_FOCUS (after ${PRE_FOCUS_WAITED}s)"
+          else
+            echo "::warning::[tour-anr] pre-tour: no focused window after ${PRE_FOCUS_WAITED}s (mCurrentFocus=null) - continuing, the per-step guard will refuse contaminated stills"
+          fi
+
           # The manager main page and the driver home page both call
           # PushPermissionService.request() on mount, and on API 33+ that
           # raises the system POST_NOTIFICATIONS dialog. Captures use
@@ -516,33 +671,11 @@ jobs:
           # the others, exactly as failure-tolerant as the single grant was.
           TOUR_PERMS="android.permission.POST_NOTIFICATIONS android.permission.ACCESS_FINE_LOCATION android.permission.ACCESS_COARSE_LOCATION"
           TOUR_PERMS_LABEL="POST_NOTIFICATIONS/ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION"
-          TOUR_APK="build/app/outputs/flutter-apk/app-debug.apk"
-          TOUR_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          # Read below by the grant loop AND handed to the capture watcher
-          # (--package), whose foreground guard keeps a still only while this
-          # package owns the focused window. Declared out here so a shell
-          # whose APK or aapt could not be read leaves it empty instead of
-          # tripping `set -u`.
-          TOUR_PKG=""
           if [ ! -f "$TOUR_APK" ]; then
             echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL ($TOUR_APK not found) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
           elif ! adb install -r "$TOUR_APK"; then
             echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL (adb install -r $TOUR_APK failed) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
           else
-            # The applicationId is NOT the gradle `namespace` (com.app.demo) -
-            # it comes from dartDefines.<ROLE>_ANDROID_PACKAGE_NAME in
-            # .env/production.env and differs per shell, so read it back off
-            # the APK that was just installed rather than guessing.
-            TOUR_AAPT2=$(find "$TOUR_SDK/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
-            if [ -n "$TOUR_AAPT2" ]; then
-              TOUR_PKG=$("$TOUR_AAPT2" dump packagename "$TOUR_APK" 2>/dev/null | tr -d '\r' | head -n 1)
-            fi
-            if [ -z "$TOUR_PKG" ]; then
-              TOUR_AAPT=$(find "$TOUR_SDK/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
-              if [ -n "$TOUR_AAPT" ]; then
-                TOUR_PKG=$("$TOUR_AAPT" dump badging "$TOUR_APK" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)
-              fi
-            fi
             if [ -z "$TOUR_PKG" ]; then
               echo "[tour-permission] WARNING: failed to grant $TOUR_PERMS_LABEL (could not read the package name out of $TOUR_APK - no usable aapt2/aapt under $TOUR_SDK/build-tools) - screenshots may contain the permission dialog and the driver tour may not reach driver_home"
             else
@@ -690,11 +823,63 @@ jobs:
                 if [ "$DUMP_EXIT" -eq 0 ] && sudo test -s "$CORE_TMP"; then
                   QEMU_EXE="$(sudo coredumpctl info --no-pager -1 qemu-system-x86 2>/dev/null | sed -n 's/^ *Executable: //p' | head -n 1)"
                   echo "core: $CORE_TMP ($(sudo du -h "$CORE_TMP" 2>/dev/null | cut -f1)), executable: ${QEMU_EXE:-<unknown, letting gdb read it from the core>}"
+                  # Run 33799655546: the old `bt 40; info sharedlibrary; thread
+                  # apply all bt 12 | head -n 400` printed threads 106 down to
+                  # 91 and cut off Thread 1 - the crashing one - and its `bt`
+                  # was all `??` frames because the PC (0x0000560843fee9f1)
+                  # sat outside every mapped module, most likely SwiftShader
+                  # JIT code in a `memfd:SwiftShader.Memory` mapping. So the
+                  # crashing thread comes FIRST and is never truncated: its
+                  # PC, registers, a disassembly at the PC and its backtrace,
+                  # then the module list, then the mapping that CONTAINS the
+                  # PC (filtered from `info proc mappings`), and only then
+                  # every thread, capped at 2500 lines. Sections are marked
+                  # with gdb `echo` so the filter below can tell them apart;
+                  # a failing -ex (unreadable PC) does not stop the next one.
+                  GDB_CMDS=(-ex 'set pagination off'
+                    -ex 'echo === crashing thread ===\n' -ex 'thread 1' -ex 'p/x $pc' -ex 'info registers rip rsp rbp' -ex 'x/16i $pc' -ex 'bt 40'
+                    -ex 'echo === shared libraries ===\n' -ex 'info sharedlibrary'
+                    -ex 'echo === mappings ===\n' -ex 'info proc mappings'
+                    -ex 'echo === all threads ===\n' -ex 'thread apply all bt 12')
+                  GDB_OUT="$OUT.gdb.tmp"
                   if [ -n "$QEMU_EXE" ] && [ -r "$QEMU_EXE" ]; then
-                    sudo timeout 300 gdb -q -batch -ex 'set pagination off' -ex 'bt 40' -ex 'info sharedlibrary' -ex 'thread apply all bt 12' "$QEMU_EXE" "$CORE_TMP" 2>&1 | head -n 400 || true
+                    sudo timeout 300 gdb -q -batch "${GDB_CMDS[@]}" "$QEMU_EXE" "$CORE_TMP" > "$GDB_OUT" 2>&1 || true
                   else
-                    sudo timeout 300 gdb -q -batch -ex 'set pagination off' -ex 'bt 40' -ex 'info sharedlibrary' -ex 'thread apply all bt 12' -c "$CORE_TMP" 2>&1 | head -n 400 || true
+                    sudo timeout 300 gdb -q -batch "${GDB_CMDS[@]}" -c "$CORE_TMP" > "$GDB_OUT" 2>&1 || true
                   fi
+                  # `p/x $pc` prints "$1 = 0x...". The mapping filter compares
+                  # addresses as zero-padded hex strings so it runs the same
+                  # under mawk (no strtonum) and gawk.
+                  GDB_PC=$(sed -n 's/^\$1 = \(0x[0-9a-fA-F]*\)$/\1/p' "$GDB_OUT" | head -n 1)
+                  echo "crashing thread pc: ${GDB_PC:-<not parsed>}"
+                  awk -v pc="$GDB_PC" -v cap=2500 '
+                    function hex(s) { sub(/^0x/, "", s); s = tolower(s); while (length(s) < 16) s = "0" s; return s }
+                    function flushmaps(  i) {
+                      if (hit == 0) {
+                        if (pc == "") print "(could not parse $pc from the p/x output - first 40 mappings instead)"
+                        else print "(no mapping contains pc " pc " - anonymous JIT memory is not in the core NT_FILE note; first 40 mappings instead)"
+                        for (i = 0; i < nbuf; i++) print buf[i]
+                      } else print "(" hit " mapping(s) contain pc " pc ")"
+                    }
+                    BEGIN { if (pc != "") pcn = hex(pc) }
+                    /^=== mappings ===$/ { sec = "maps"; print; next }
+                    /^=== all threads ===$/ { if (sec == "maps") flushmaps(); sec = "threads"; n = 0; print; next }
+                    sec == "maps" {
+                      if ($1 !~ /^0x/) { print; next }
+                      if (pc != "" && hex($1) <= pcn && pcn < hex($2)) { print; hit++; next }
+                      if (nbuf < 40) buf[nbuf++] = $0
+                      next
+                    }
+                    sec == "threads" {
+                      n++
+                      if (n <= cap) print
+                      else if (n == cap + 1) print "(thread apply all output truncated at " cap " lines)"
+                      next
+                    }
+                    { print }
+                    END { if (sec == "maps") flushmaps() }
+                  ' "$GDB_OUT" 2>&1 || true
+                  rm -f "$GDB_OUT"
                 else
                   echo "coredumpctl dump failed (exit $DUMP_EXIT) or produced an empty core (see stderr above)"
                 fi
@@ -787,26 +972,15 @@ jobs:
           elif [ ! -f "$OUT.anr" ]; then
             echo "::warning::[tour-anr] WARNING: no $OUT.anr was written - the per-capture ANR check did not report, so only the end-of-leg check below applies."
           fi
-          # dumpsys window is the primitive because it lists what is actually
-          # IN THE WINDOW STACK, which is exactly what a framebuffer capture
-          # burns in. AppNotRespondingDialog titles its window "Application Not
-          # Responding: <process>" and AppErrorDialog "Application Error:
-          # <process>", and nothing else prints those strings, so a match is
-          # positive evidence rather than a heuristic. The narrow `windows`
-          # sub-command first, the bare dump as the fallback; an unreadable
-          # dump is reported as a WARNING and never discards stills that were
-          # fine.
+          # Same detector as the pre-tour clear and the per-step guard (see
+          # tour_window_dump / tour_anr_window above): the window stack is
+          # what a framebuffer capture burns in; an unreadable dump is
+          # reported as a WARNING and never discards stills that were fine.
           ANR_DUMP="$OUT.windows.tmp"
-          rm -f "$ANR_DUMP"
-          adb shell dumpsys window windows > "$ANR_DUMP" 2>/dev/null || true
-          if [ ! -s "$ANR_DUMP" ]; then
-            adb shell dumpsys window > "$ANR_DUMP" 2>/dev/null || true
-          fi
           ANR_WINDOW=""
-          if [ -s "$ANR_DUMP" ]; then
+          if tour_window_dump "$ANR_DUMP"; then
             ANR_VERIFIED=1
-            ANR_WINDOW=$(tr -d '\r' < "$ANR_DUMP" \
-              | grep -m1 -oE "Application (Not Responding|Error): ?[^ }]*" || true)
+            ANR_WINDOW=$(tour_anr_window "$ANR_DUMP")
           fi
           rm -f "$ANR_DUMP"
           if [ -n "$ANR_WINDOW" ]; then
