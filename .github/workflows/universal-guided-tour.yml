@@ -1246,10 +1246,10 @@ jobs:
           EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
           TOUR_OUT: tour_screenshots_tablet
           # Informational only on this step: the AVD below already boots as
-          # 1080x1920 @ 120 in portrait and TOUR_SKIP_DISPLAY_OVERRIDE keeps
+          # 1600x2560 @ 320 in portrait and TOUR_SKIP_DISPLAY_OVERRIDE keeps
           # run_tour.sh from re-applying `wm size` / `wm density` on top.
-          TOUR_WM_SIZE: 1080x1920
-          TOUR_WM_DENSITY: "120"
+          TOUR_WM_SIZE: 1600x2560
+          TOUR_WM_DENSITY: "320"
           TOUR_SKIP_DISPLAY_OVERRIDE: "1"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
@@ -1263,31 +1263,38 @@ jobs:
           # 3072M, not 4096M - see the first tablet leg.
           ram-size: 3072M
           force-avd-creation: true
-          # Tablet layout at phone pixel count, no post-boot display
-          # override. On paas_manager run 33781378641 both tablet attempts
-          # died with SIGSEGV in qemu-system-x86_64-headless 5 s after the
-          # pos_scan still, at the same page offset (...9f1) in the PIE main
-          # binary, under TWO renderers (swiftshader_indirect, then the
-          # lavapipe/swangle fallback the image substitutes for -gpu guest),
-          # so the renderer is not the variable. On run 33788543637 this
-          # retry booted NATIVELY portrait at 1600x2560 @ 240 (config.ini
-          # rewritten below, `Setting display: 0 configuration to:
-          # 1600x2560, dpi: 240x240` in the emulator log, override skipped)
-          # and STILL segfaulted 4 s after 05-pos_scan at the same ...9f1
-          # page offset (PCs 0x000055854ccf09f1 / 0x000055eee71209f1), so
-          # the post-boot `wm size` / `wm density` override is exonerated
-          # too. What remains tablet-only is the 1600x2560 surface (2.2x the
-          # phone leg's pixels) and the three-plane tablet layout the POS
-          # page draws at >= 840dp. This retry separates the two: the AVD
-          # boots 1080x1920 @ 120 - the phone leg's exact framebuffer - but
-          # 120 dpi makes that 1440x2560 dp, so the app still takes the
-          # tablet layout (past the 840dp breakpoint, wider than the 1066dp
-          # of attempt 1). Survives: the surface size is the trigger. Dies
-          # identically: it is what the tablet layout draws. The keep-better
-          # logic in run_tour.sh keeps whichever attempt captured more
-          # stills; assemble.py's tablet preset scales any still to fit its
-          # 1600x2560 canvas, so a 1080x1920 set still assembles (a 9:16
-          # frame on the tablet canvas, 4% upscaled) for this diagnostic.
+          # The pre-2026-09-02 geometry, natively portrait, no post-boot
+          # display override. On paas_manager run 33781378641 both tablet
+          # attempts died with SIGSEGV in qemu-system-x86_64-headless 5 s
+          # after the pos_scan still, at the same page offset (...9f1) in
+          # the PIE main binary, under TWO renderers (swiftshader_indirect,
+          # then the lavapipe/swangle fallback the image substitutes for
+          # -gpu guest), so the renderer is not the variable. On run
+          # 33788543637 this retry booted NATIVELY portrait at 1600x2560 @
+          # 240 (`Setting display: 0 configuration to: 1600x2560, dpi:
+          # 240x240`, override skipped) and STILL segfaulted 4 s after
+          # 05-pos_scan at the same ...9f1 page offset (PCs
+          # 0x000055854ccf09f1 / 0x000055eee71209f1), so the post-boot
+          # `wm size` / `wm density` override is exonerated too.
+          #
+          # What DID change when the deaths began: the tablet leg last
+          # passed at density 320 (1600 / (320/160) = 800dp wide, the
+          # "medium" layout: rail plus a compact orders list). Commit
+          # d9c27ac (#484, 2026-09-02) moved the tablet density 320 -> 240
+          # (800 -> 1066dp), which selects the >= 840dp "expanded" layout,
+          # and every tablet emulator death since has been at 1066dp. At
+          # >= 840dp the app preloads an offstage seven-column orders
+          # kanban board (OrdersHomePage's expanded branch, with per-second
+          # timers) that never existed in the passing runs. This retry
+          # therefore boots the known-good 1600x2560 @ 320 (800x1280 dp)
+          # natively, everything else equal, to test whether the expanded
+          # layout is what the emulator cannot survive. Survives: the
+          # expanded layout is the trigger (and the stills are the medium
+          # layout the leg shipped before #484). Dies identically: the
+          # layout is exonerated as well. The pixel size is unchanged, so
+          # assemble.py's tablet preset (1600x2560) fits as before; the
+          # keep-better logic in run_tour.sh keeps whichever attempt
+          # captured more stills.
           #
           # The action runs each line of this input as its own `sh -c` after
           # creating the AVD and before launching the emulator, hence one
@@ -1295,7 +1302,7 @@ jobs:
           # installer ($HOME/.android/avd).
           pre-emulator-launch-script: >-
             CFG="${ANDROID_AVD_HOME:-$HOME/.android/avd}/tour_tablet_api34.avd/config.ini";
-            for KV in hw.lcd.width=1080 hw.lcd.height=1920 hw.lcd.density=120 hw.initialOrientation=portrait skin.name=1080x1920 skin.path=_no_skin; do
+            for KV in hw.lcd.width=1600 hw.lcd.height=2560 hw.lcd.density=320 hw.initialOrientation=portrait skin.name=1600x2560 skin.path=_no_skin; do
             K="${KV%%=*}";
             if grep -q "^${K}[[:space:]]*=" "$CFG"; then sed -i "s|^${K}[[:space:]]*=.*|${KV}|" "$CFG"; else echo "$KV" >> "$CFG"; fi;
             done;
@@ -1307,7 +1314,7 @@ jobs:
           # rendering.Falling back to 'lavapipe' mode.") and crashed identically.
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: 'echo "[tour-retry] tablet retry: tablet layout at phone pixel count, 1080x1920@120 (1440x2560 dp), no post-boot display override, -gpu swiftshader_indirect" && bash ./run_tour.sh'
+          script: 'echo "[tour-retry] tablet retry: native portrait 1600x2560@320 (800x1280 dp, the pre-2026-09-02 geometry), no post-boot display override, -gpu swiftshader_indirect" && bash ./run_tour.sh'
 
       # continue-on-error so an assembly bug cannot stop the phone assets
       # from committing below — the Tablet Leg Status gate turns a failure
