@@ -347,6 +347,29 @@ jobs:
           fi
           flutter build apk "${BUILD_ARGS[@]}"
 
+      # The debug build leaves a Gradle daemon (and a Kotlin compile daemon)
+      # resident, idling on their multi-GB heaps for hours by default. The
+      # emulator legs then add a 3-4GB guest plus SwiftShader rendering on
+      # the same 16GB runner. On paas_manager run 33750918166 the tablet
+      # leg's qemu vanished ~2 minutes after the app install on BOTH
+      # attempts with the host's swap at 1861/3071 and then 2829/3071 MB
+      # used, no qemu process left, no kernel OOM line and no emulator
+      # minidump - the profile of a userspace (systemd-oomd) kill under
+      # memory pressure rather than a crash. Hand the memory back before the
+      # first leg; the emulator reset steps below repeat this before every
+      # later leg, because `flutter test` respawns the daemon to build the
+      # test APK. Evidence, not a gate: nothing here may fail the job.
+      - name: Stop Gradle Daemons Before the Emulator Legs
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ -x android/gradlew ]; then
+            (cd android && ./gradlew --stop) || true
+          fi
+          pkill -f 'GradleDaemon|KotlinCompileDaemon' || true
+          sleep 2
+          free -m
+
       # reactivecircus/android-emulator-runner executes each line of its
       # `script:` input as a SEPARATE `sh -c` command, so the whole tour flow
       # lives in one script file handed over as a single line (same pattern
@@ -369,12 +392,50 @@ jobs:
           WM_DENSITY="${TOUR_WM_DENSITY:-400}"
           LOGCAT_DUMP="${TOUR_LOGCAT:-tour_logcat.txt}"
           TEST_LOG="${TOUR_TEST_LOG:-tour_test_output.log}"
+          # A retry must start from an EMPTY "$OUT" (never merge with the
+          # previous attempt's set) - but it must not throw that set away
+          # either. On paas_manager run 33750918166 the tablet retry's
+          # emulator was starved from boot (launcher ANR, 0 of 19) and the
+          # plain `rm -rf "$OUT"` here erased the 7 stills the first attempt
+          # had captured, so nothing was assembled or committed. "$OUT.status"
+          # is written by every completed attempt, so its presence is what
+          # says "this is a retry": park the previous attempt's stills and
+          # sidecars as "$OUT.prev*" and let the end of this script keep
+          # whichever attempt captured more (see the [tour-retry] block).
+          # The ANR sidecar lives NEXT to the output dir, so it is parked
+          # too - a retry can never inherit the previous attempt's verdict.
+          rm -rf "$OUT.prev" "$OUT.prev.status" "$OUT.prev.anr"
+          if [ -f "$OUT.status" ] && [ -d "$OUT" ]; then
+            echo "[tour-retry] previous attempt found for $OUT - parking it as $OUT.prev until this attempt is counted"
+            mv "$OUT" "$OUT.prev" || rm -rf "$OUT"
+            mv "$OUT.status" "$OUT.prev.status" || rm -f "$OUT.status"
+            if [ -f "$OUT.anr" ]; then
+              mv "$OUT.anr" "$OUT.prev.anr" || rm -f "$OUT.anr"
+            fi
+          fi
           rm -rf "$OUT"
           mkdir -p "$OUT"
-          # The ANR sidecar is written by the capture watcher NEXT to the
-          # output dir, so `rm -rf "$OUT"` does not clear it - drop it here so
-          # a retry leg can never inherit the previous attempt's verdict.
           rm -f "$OUT.anr"
+
+          # Host-side baseline for this leg, taken before the app install so
+          # the death diagnostics further down (same file, appended) can be
+          # read against what the host looked like when the emulator was
+          # still healthy: memory and swap, whether systemd-oomd is armed and
+          # what it watches, and which processes hold the memory (a Gradle
+          # or Kotlin daemon left over from the build shows up here).
+          # Never allowed to fail the leg.
+          {
+            echo "=== baseline for $OUT: $(date -u) ==="
+            echo "--- free -m ---"
+            free -m || true
+            echo "--- systemctl is-active systemd-oomd ---"
+            systemctl is-active systemd-oomd 2>&1 || true
+            echo "--- oomctl (first 20 lines) ---"
+            oomctl 2>&1 | head -n 20 || true
+            echo "--- top processes by RSS (KB) ---"
+            ps -eo pid,rss,etimes,comm --sort=-rss 2>&1 | head -n 12 || true
+            echo "=== end baseline ==="
+          } >> "$OUT.host-diag.txt" 2>&1 || true
 
           adb wait-for-device
           # Portrait canvas for the stills/video: 1080x1920 9:16 at density
@@ -555,6 +616,22 @@ jobs:
               ls -la /tmp/android-runner/ 2>/dev/null || echo "(no /tmp/android-runner)"
               echo "--- dmesg (last 150 lines, filtered) ---"
               sudo dmesg --time-format iso 2>/dev/null | tail -n 150 | grep -iE 'killed process|out of memory|oom|qemu|segfault|emulator' || echo "(nothing matched)"
+              # Unfiltered, stderr included, exit code printed: on run
+              # 33750918166 the filtered dmesg above "matched nothing", which
+              # cannot tell a quiet kernel from a `sudo dmesg` that was
+              # refused. The journal is where a userspace killer
+              # (systemd-oomd) leaves its trace - the kernel log never shows
+              # one. Bulkiest dumps last so the head the status steps print
+              # keeps the summary lines above.
+              echo "--- dmesg (last 60 lines, unfiltered) ---"
+              sudo dmesg --time-format iso 2>&1 | tail -n 60
+              echo "dmesg exit: ${PIPESTATUS[0]}"
+              echo "--- journalctl -k (last 80 lines) ---"
+              journalctl -k -n 80 --no-pager 2>&1 | tail -n 80 || true
+              echo "--- journalctl -u systemd-oomd (last 40 lines) ---"
+              journalctl -u systemd-oomd -n 40 --no-pager 2>&1 || true
+              echo "--- journalctl last 10 min, oom/killed/qemu/emulator/memory pressure (last 40 matches) ---"
+              journalctl --since '-10 min' --no-pager 2>&1 | grep -iE 'oom|killed|qemu|emulator|memory pressure' | tail -n 40 || echo "(nothing matched)"
               echo "=== end ==="
             } >> "$HOST_DIAG" 2>&1 || true
             # The emulator's own crash database, if it wrote one.
@@ -577,6 +654,37 @@ jobs:
           wait "$CAP_PID" || true
           COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
           echo "Captured $COUNT screenshots (expected ${EXPECTED_SHOTS:-0})"
+
+          # [tour-retry] Keep the better attempt. A retry parked the previous
+          # attempt as "$OUT.prev" at the top of this script; if that set has
+          # MORE published stills than this one (same count as above, so
+          # `.png.rejected` frames never count for either side), put it back
+          # - stills AND its ANR sidecar, so the ANR/foreground verdict and
+          # the "$OUT.status" written below are judged on the stills that are
+          # actually kept. TEST_EXIT stays THIS attempt's `flutter test` exit
+          # code on purpose: the retry is the attempt that was just run, and
+          # a non-zero exit there is what keeps the leg honestly PARTIAL for
+          # the completeness gate; only count/partial follow the kept set.
+          # Never merged: it is one set or the other.
+          if [ -d "$OUT.prev" ]; then
+            PREV_COUNT=$(ls "$OUT.prev"/*.png 2>/dev/null | wc -l | tr -d ' ')
+            if [ "${PREV_COUNT:-0}" -gt "$COUNT" ]; then
+              echo "::warning::[tour-retry] retry captured $COUNT < first attempt $PREV_COUNT — keeping the first attempt's stills"
+              rm -rf "$OUT"
+              mv "$OUT.prev" "$OUT"
+              rm -f "$OUT.anr"
+              if [ -f "$OUT.prev.anr" ]; then
+                mv "$OUT.prev.anr" "$OUT.anr"
+              fi
+              COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
+              echo "Kept $COUNT screenshots from the first attempt (expected ${EXPECTED_SHOTS:-0})"
+            else
+              echo "[tour-retry] retry captured $COUNT >= first attempt ${PREV_COUNT:-0} - keeping this attempt's stills"
+            fi
+          fi
+          # "$OUT.status" is rewritten below from whichever set was kept, so
+          # the parked copy is never needed again.
+          rm -rf "$OUT.prev" "$OUT.prev.status" "$OUT.prev.anr"
 
           # ANR guard, leg-level half. Captures are whole-framebuffer
           # `adb exec-out screencap -p` while `flutter test` drives the widgets
@@ -673,8 +781,8 @@ jobs:
           # capture so the stills it did get are still assembled and
           # committed - which also means its exit code cannot be the
           # honest verdict on the run. One file per leg (the tablet leg
-          # overrides TOUR_OUT), rewritten by a retry so the last attempt
-          # is the one judged.
+          # overrides TOUR_OUT), rewritten by a retry so the KEPT attempt
+          # (see the [tour-retry] block above) is the one judged.
           #
           # The same verdict also goes out as STEP OUTPUTS (partial,
           # test_exit, count) so the retry steps can fire on a partial leg.
@@ -766,8 +874,9 @@ jobs:
       # Also on a PARTIAL first attempt (run_tour.sh's own verdict, see the
       # step-output comment in the script): the leg exits 0 with whatever
       # stills it got, so `outcome` alone would leave a 6-of-19 leg without
-      # its retry. run_tour.sh starts with `rm -rf "$OUT"`, so the retry
-      # never merges with the partial set.
+      # its retry. run_tour.sh parks the first attempt's stills as
+      # "$OUT.prev" and keeps whichever attempt captured more - never a
+      # merge of the two.
       - name: Reset Emulator State Before Retry
         if: steps.tour.outcome == 'failure' || steps.tour.outputs.partial == 'true'
         env:
@@ -779,7 +888,13 @@ jobs:
           adb emu kill || true
           pkill -f "qemu-system" || true
           adb kill-server || true
+          # `flutter test` respawned the Gradle daemon to build the test APK;
+          # hand its memory back before the next emulator (see the "Stop
+          # Gradle Daemons" step above).
+          if [ -x android/gradlew ]; then (cd android && ./gradlew --stop) || true; fi
+          pkill -f 'GradleDaemon|KotlinCompileDaemon' || true
           sleep 10
+          free -m || true
 
       - name: Run Emulator and Tour (Retry)
         id: tour-retry
@@ -823,11 +938,14 @@ jobs:
           TOUR_TEST_EXIT_FIRST: ${{ steps.tour.outputs.test_exit }}
         run: |
           # Host diagnostics straight into the job log, so nobody has to
-          # download the artifact to see why an emulator died (written by
-          # run_tour.sh only when a leg looked broken).
+          # download the artifact to see why an emulator died: run_tour.sh
+          # writes a short baseline at the start of every leg and the death
+          # diagnostics only when a leg looked broken. 100 lines covers the
+          # baseline plus the summary lines of a death; the journal dumps
+          # that follow are artifact-only.
           if [ -f tour_screenshots.host-diag.txt ]; then
-            echo "--- tour_screenshots.host-diag.txt (first 40 lines; the full file and any tour_screenshots.emu-crash/ are in the guided-tour-results artifact) ---"
-            head -n 40 tour_screenshots.host-diag.txt
+            echo "--- tour_screenshots.host-diag.txt (first 100 lines; the full file and any tour_screenshots.emu-crash/ are in the guided-tour-results artifact) ---"
+            head -n 100 tour_screenshots.host-diag.txt
             echo "--- end of host diagnostics ---"
           fi
           # A green emulator step is not a verdict (see below): name a first
@@ -978,7 +1096,13 @@ jobs:
           adb emu kill || true
           pkill -f "qemu-system" || true
           adb kill-server || true
+          # `flutter test` respawned the Gradle daemon to build the test APK;
+          # hand its memory back before the next emulator (see the "Stop
+          # Gradle Daemons" step above).
+          if [ -x android/gradlew ]; then (cd android && ./gradlew --stop) || true; fi
+          pkill -f 'GradleDaemon|KotlinCompileDaemon' || true
           sleep 10
+          free -m || true
 
       - name: Run Emulator and Tour (Tablet)
         id: tour-tablet
@@ -1000,9 +1124,16 @@ jobs:
           # Its own AVD name: the phone leg's default AVD was created with
           # the `pixel` profile and AVD profiles are fixed at creation.
           avd-name: tour_tablet_api34
-          # Same resource split as the phone leg (see the comment there).
+          # Same core split as the phone leg (see the comment there), but
+          # 3GB of guest RAM rather than 4GB: this leg also renders a
+          # 1600x2560 canvas through SwiftShader on the host, and it is the
+          # leg whose qemu died ~2 minutes after the app install on every
+          # attempt of paas_manager runs 33734114092, 33738362844 and
+          # 33750918166 - the last with the host's swap at 92% and no kernel
+          # OOM line, i.e. host memory pressure, not a guest crash. The
+          # phone leg completes at 4096M and keeps it.
           cores: 3
-          ram-size: 4096M
+          ram-size: 3072M
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
@@ -1022,7 +1153,13 @@ jobs:
           adb emu kill || true
           pkill -f "qemu-system" || true
           adb kill-server || true
+          # `flutter test` respawned the Gradle daemon to build the test APK;
+          # hand its memory back before the next emulator (see the "Stop
+          # Gradle Daemons" step above).
+          if [ -x android/gradlew ]; then (cd android && ./gradlew --stop) || true; fi
+          pkill -f 'GradleDaemon|KotlinCompileDaemon' || true
           sleep 10
+          free -m || true
 
       - name: Run Emulator and Tour (Tablet Retry)
         id: tour-tablet-retry
@@ -1043,7 +1180,8 @@ jobs:
           profile: pixel_tablet
           avd-name: tour_tablet_api34
           cores: 3
-          ram-size: 4096M
+          # 3072M, not 4096M - see the first tablet leg.
+          ram-size: 3072M
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
@@ -1243,12 +1381,13 @@ jobs:
           TABLET_TEST_EXIT_RETRY: ${{ steps.tour-tablet-retry.outputs.test_exit }}
         run: |
           # Host diagnostics straight into the job log (same as the phone
-          # leg's Tour Status): written by run_tour.sh only when the leg
-          # looked broken, which is exactly the tablet leg on paas_manager
-          # runs 33734114092 and 33738362844.
+          # leg's Tour Status): a baseline at the start of every leg, plus
+          # the death diagnostics run_tour.sh writes when the leg looked
+          # broken - which is exactly the tablet leg on paas_manager runs
+          # 33734114092, 33738362844 and 33750918166.
           if [ -f tour_screenshots_tablet.host-diag.txt ]; then
-            echo "--- tour_screenshots_tablet.host-diag.txt (first 40 lines; the full file and any tour_screenshots_tablet.emu-crash/ are in the guided-tour-results artifact) ---"
-            head -n 40 tour_screenshots_tablet.host-diag.txt
+            echo "--- tour_screenshots_tablet.host-diag.txt (first 100 lines; the full file and any tour_screenshots_tablet.emu-crash/ are in the guided-tour-results artifact) ---"
+            head -n 100 tour_screenshots_tablet.host-diag.txt
             echo "--- end of host diagnostics ---"
           fi
           # Name a PARTIAL attempt as such rather than as the emulator
