@@ -447,8 +447,21 @@ jobs:
           # on the phone AVD, which already boots portrait.
           adb shell settings put system accelerometer_rotation 0 || true
           adb shell settings put system user_rotation 0 || true
-          adb shell wm size "$WM_SIZE" || true
-          adb shell wm density "$WM_DENSITY" || true
+          # The tablet retry boots an AVD that is ALREADY 1600x2560 @ 240 in
+          # portrait (see its pre-emulator-launch-script) and sets
+          # TOUR_SKIP_DISPLAY_OVERRIDE=1, so the post-boot override below is
+          # skipped there: on paas_manager run 33781378641 the tablet
+          # emulator segfaulted at the same instruction under two renderers
+          # a few seconds after the pos_scan still, and this override is the
+          # one tablet-only step besides pixel count. Nothing later undoes
+          # the override (no `wm size reset`), so skipping it leaves nothing
+          # else to skip.
+          if [ "${TOUR_SKIP_DISPLAY_OVERRIDE:-}" != "1" ]; then
+            adb shell wm size "$WM_SIZE" || true
+            adb shell wm density "$WM_DENSITY" || true
+          else
+            echo "[tour] display override skipped (native portrait AVD)"
+          fi
           # Forcing `wm size`/`wm density` re-enters immersive mode, and the
           # first time an app goes full screen Android throws up its own
           # ImmersiveModeConfirmation window ("Viewing full screen / To exit,
@@ -648,6 +661,11 @@ jobs:
               # comes from the `Executable:` line of coredumpctl info - the
               # columns of `coredumpctl list` shift between systemd versions.
               echo "--- gdb backtrace of the most recent qemu core (stripped binary: expect module+offset frames) ---"
+              # Run 33781378641: this block never ran - the runner image
+              # ships no gdb ("gdb: not installed" was the whole backtrace).
+              # Install it here, bounded, so the core is walked instead of
+              # skipped; a failed install is reported and the dump continues.
+              if ! command -v gdb >/dev/null 2>&1; then echo "gdb: not installed - installing"; sudo timeout 180 apt-get install -y -qq --no-install-recommends gdb >/dev/null 2>&1 || echo "gdb: apt-get install failed"; fi
               if command -v gdb >/dev/null 2>&1; then
                 CORE_TMP="$(mktemp /tmp/qemu-core.XXXXXX)"
                 if sudo coredumpctl dump --no-pager -o "$CORE_TMP" qemu-system-x86 >/dev/null 2>&1; then
@@ -666,7 +684,11 @@ jobs:
                 echo "gdb: not installed"
               fi
               echo "--- emulator translator libs (map gdb's module+offset frames against these) ---"
-              ls -la "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/emulator/lib64" 2>/dev/null | head -n 40 || true
+              # Recursive: the translator libs named in the core's module list
+              # (libGLESv2.so, libEGL.so, libGLES_CM.so) live one level down,
+              # in lib64/gles_swiftshader, gles_angle and gles_llvmpipe, which
+              # the old flat `ls lib64` never showed.
+              find "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/emulator/lib64" -maxdepth 2 -name '*.so*' -printf '%12s %p\n' 2>/dev/null | sort -k2 | head -n 80 || true
               echo "=== end ==="
             } >> "$HOST_DIAG" 2>&1 || true
             # The emulator's own crash database, if it wrote one.
@@ -1206,6 +1228,9 @@ jobs:
           TOUR_OUT: tour_screenshots_tablet
           TOUR_WM_SIZE: 1600x2560
           TOUR_WM_DENSITY: "240"
+          # The AVD below already boots as 1600x2560 @ 240 in portrait, so
+          # run_tour.sh must NOT re-apply `wm size` / `wm density` on top.
+          TOUR_SKIP_DISPLAY_OVERRIDE: "1"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
         with:
@@ -1218,19 +1243,43 @@ jobs:
           # 3072M, not 4096M - see the first tablet leg.
           ram-size: 3072M
           force-avd-creation: true
-          # -gpu guest, not swiftshader_indirect: on paas_manager run
-          # 33766830185 both tablet attempts died with SIGSEGV in
-          # qemu-system-x86_64-headless (2 s after the pos_cart still, then
-          # after pos_scan on the retry) with 12 GB free and systemd-oomd
-          # inactive, and the core's modules were the host GLES translator
-          # (libGLES_CM.so, libEGL.so, libGLESv2.so). The first attempt keeps
-          # swiftshader_indirect so it still produces the gdb backtrace; this
-          # retry renders inside the guest to test whether bypassing the host
-          # GL translator avoids the crash. The keep-better logic in
-          # run_tour.sh keeps whichever attempt captured more stills.
-          emulator-options: -no-window -gpu guest -no-snapshot -noaudio -no-boot-anim
+          # Native portrait, no post-boot display override: on paas_manager
+          # run 33781378641 both tablet attempts died with SIGSEGV in
+          # qemu-system-x86_64-headless 5 s after the pos_scan still, at the
+          # same page offset (...9f1) in the PIE main binary, under TWO
+          # renderers (swiftshader_indirect, then the lavapipe/swangle
+          # fallback the image substitutes for -gpu guest). The renderer is
+          # therefore not the variable. The one tablet-only thing besides
+          # pixel count is the post-boot `wm size 1600x2560` / `wm density
+          # 240` run_tour.sh applies to a pixel_tablet AVD whose native panel
+          # is 2560x1600 @ 320 - the phone leg has no override and never
+          # crashes. This retry recreates the AVD (force-avd-creation) and
+          # rewrites its config.ini to 1600x2560 @ 240, portrait, BEFORE the
+          # emulator launches, and TOUR_SKIP_DISPLAY_OVERRIDE above keeps
+          # run_tour.sh from applying the override, so the retry tests
+          # whether that override is what the emulator cannot survive. The
+          # keep-better logic in run_tour.sh keeps whichever attempt
+          # captured more stills.
+          #
+          # The action runs each line of this input as its own `sh -c` after
+          # creating the AVD and before launching the emulator, hence one
+          # folded line. ANDROID_AVD_HOME is exported by the action's SDK
+          # installer ($HOME/.android/avd).
+          pre-emulator-launch-script: >-
+            CFG="${ANDROID_AVD_HOME:-$HOME/.android/avd}/tour_tablet_api34.avd/config.ini";
+            for KV in hw.lcd.width=1600 hw.lcd.height=2560 hw.lcd.density=240 hw.initialOrientation=portrait skin.name=1600x2560 skin.path=_no_skin; do
+            K="${KV%%=*}";
+            if grep -q "^${K}[[:space:]]*=" "$CFG"; then sed -i "s|^${K}[[:space:]]*=.*|${KV}|" "$CFG"; else echo "$KV" >> "$CFG"; fi;
+            done;
+            echo "[tour-retry] tablet retry AVD config ($CFG):";
+            grep -E '^(hw\.lcd\.|hw\.initialOrientation|skin\.)' "$CFG"
+          # Back on swiftshader_indirect: `-gpu guest` is refused by this
+          # system image ("WARNING | Your AVD has been configured with an
+          # in-guest renderer, but the system image does not support guest
+          # rendering.Falling back to 'lavapipe' mode.") and crashed identically.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: echo "[tour-retry] tablet retry uses -gpu guest" && bash ./run_tour.sh
+          script: 'echo "[tour-retry] tablet retry: native portrait 1600x2560@240, no post-boot display override, -gpu swiftshader_indirect" && bash ./run_tour.sh'
 
       # continue-on-error so an assembly bug cannot stop the phone assets
       # from committing below — the Tablet Leg Status gate turns a failure
