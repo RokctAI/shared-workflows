@@ -418,3 +418,15 @@ self-contained, so it needs no network.
 
 > ⚠️ On a public repository that artifact is downloadable by anyone. The
 > demo-data rule at the top of this file is what keeps that safe.
+
+---
+
+## 9. Keeping the render in sync with the screen
+
+A project standing rule, extended to cover this tool: a PR that changes a
+demo-visible surface updates the owning SDK's tour fragment and demo seeds in
+the same PR. The render is now on that list. If a PR changes a screen the
+render covers, it updates that screen's render config - and its example, where
+one is committed - in the same PR, exactly as it updates the tour fragment and
+the seeds. A render that lags the code stops being evidence and becomes another
+drawing, which is the one thing this tool exists to avoid.

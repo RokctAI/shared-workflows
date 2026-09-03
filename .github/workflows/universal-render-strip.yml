@@ -309,10 +309,16 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         env:
           RENDER_SUFFIX: ${{ inputs.render-suffix }}
+          # Read through the environment rather than interpolated straight into
+          # the script: the value is a space-separated list, and the loop has to
+          # be splitting a shell variable for that to be legible as a list.
+          DART_DEFINES: ${{ inputs.dart-defines }}
         run: |
           set -o pipefail
           DEFINES=()
-          for pair in ${{ inputs.dart-defines }}; do
+          # Unquoted on purpose - word splitting is what turns the
+          # space-separated input into one --dart-define per pair.
+          for pair in $DART_DEFINES; do
             DEFINES+=(--dart-define="$pair")
           done
           flutter test "${DEFINES[@]}" "${{ inputs.render-test }}" 2>&1 | tee render_log.txt
