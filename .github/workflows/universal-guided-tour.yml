@@ -431,7 +431,7 @@ jobs:
             echo "--- systemctl is-active systemd-oomd ---"
             systemctl is-active systemd-oomd 2>&1 || true
             echo "--- oomctl (first 20 lines) ---"
-            oomctl 2>&1 | head -n 20 || true
+            if command -v oomctl >/dev/null 2>&1; then oomctl 2>&1 | head -n 20; else echo "oomctl: not installed"; fi || true
             echo "--- top processes by RSS (KB) ---"
             ps -eo pid,rss,etimes,comm --sort=-rss 2>&1 | head -n 12 || true
             echo "=== end baseline ==="
@@ -632,6 +632,15 @@ jobs:
               journalctl -u systemd-oomd -n 40 --no-pager 2>&1 || true
               echo "--- journalctl last 10 min, oom/killed/qemu/emulator/memory pressure (last 40 matches) ---"
               journalctl --since '-10 min' --no-pager 2>&1 | grep -iE 'oom|killed|qemu|emulator|memory pressure' | tail -n 40 || echo "(nothing matched)"
+              # Run 33757931973: the tablet leg's qemu dumped core twice with
+              # 13 GB available and systemd-oomd inactive - a crash, not a
+              # memory kill. Name the signal, command line and stack.
+              echo "--- coredumpctl list (last 10) ---"
+              sudo coredumpctl list --no-pager 2>&1 | tail -n 10 || true
+              echo "--- coredumpctl info (most recent qemu core: signal, cmdline, stack) ---"
+              sudo coredumpctl info --no-pager -1 qemu-system-x86 2>&1 | head -n 200 || true
+              echo "--- journal coredump fields (most recent qemu core) ---"
+              sudo journalctl -o verbose --no-pager -n 1 _COMM=systemd-coredump COREDUMP_COMM=qemu-system-x86 2>&1 | grep -E 'COREDUMP_SIGNAL|COREDUMP_SIGNAL_NAME|COREDUMP_TIMESTAMP|COREDUMP_EXE|MESSAGE=' | head -n 40 || true
               echo "=== end ==="
             } >> "$HOST_DIAG" 2>&1 || true
             # The emulator's own crash database, if it wrote one.
