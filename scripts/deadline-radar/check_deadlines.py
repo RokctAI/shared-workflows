@@ -27,8 +27,9 @@ per-repo status per deadline:
 
   OK       - compliant, or non-compliant but more than 60 days from the deadline
   AT RISK  - not compliant and within 60 days of the base deadline
-  BEHIND   - not compliant and past the base deadline (the extension date,
-             where one exists, is the hard edge and is called out in the body)
+  BEHIND   - not compliant and on or past the base deadline (the extension
+             date, where one exists, is the hard edge and is called out in
+             the body)
 
 For every deadline with an AT RISK or BEHIND repo it opens ONE issue in the
 central report repo (RokctAI/platformstack), mirroring the report-build-status
@@ -238,7 +239,7 @@ def status_for(compliant, deadline, today):
     if compliant:
         return "OK"
     base = dt.date.fromisoformat(deadline["deadline"])
-    if today > base:
+    if today >= base:
         return "BEHIND"
     if (base - today).days <= AT_RISK_WINDOW_DAYS:
         return "AT RISK"
@@ -304,7 +305,7 @@ def build_issue_body(deadline, result, today):
     if result["unknown"]:
         lines.append(f"{result['unknown']} repo(s) could not be checked (unreadable or non-numeric config) - "
                      "verify those by hand.")
-    if extension and today > base and today <= extension:
+    if extension and today >= base and today <= extension:
         lines += [
             "",
             f"⚠️ The base deadline has passed. Updates from non-compliant apps are blocked "
