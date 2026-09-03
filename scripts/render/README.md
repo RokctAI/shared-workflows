@@ -188,6 +188,47 @@ service with no `isDemo` implementation at all. Let stubs throw from
 `noSuchMethod` so they name the exact member the screen touches and cannot
 quietly grow.
 
+### 2.6 Why the screen is named, and not derived from the tour fragments
+
+Reasonable question, since the SDKs' guided-tour fragments
+(`<sdk>/dart/templates/tour/<sdk>.tour.yaml`) already list the app's screen
+surface. It was investigated and does not work, for three separate reasons.
+
+**A tour step never names a widget.** The step schema
+(`scripts/tour/merge_fragments.py`, `VALID_ACTIONS = ("wait", "route",
+"dart")`) allows a route PATH, a raw Dart block, or nothing. A path is
+validated only as "starts with `/`" and is navigated on a BOOTED app via
+`context.router.replaceNamed`; a `dart` step drives `tester` and `router`
+against that running app. Neither is constructible in a widget test. Across
+the fleet's fragments the split is roughly half route steps, half Dart
+interaction steps.
+
+**The path-to-widget hop needs composed host glue.** A path joins to the
+SDK's `manifest.json` `routes` entry (`/schedule` ->
+`"page": "ScheduleRoute.page"`), but the route class is not the widget and the
+widget is not name-derivable: `StudentProfileRoute` is
+`StudentProfileRouteView`, which renders base_sdk's `GenericProfilePage`
+inside a `Stack` with the app's floating nav. That view lives in
+`templates/routes/lms_route_pages.dart` - host glue full of `${package}`
+placeholders, installed into the shell at compose time - and the route classes
+themselves are auto_route output that exists only after `build_runner` runs on
+a composed shell. An app shell repo has no `lib/` to read at all.
+
+**Route steps are not independent of each other.** In `lms.tour.yaml` the
+`/schedule` step deliberately lands on the new-school-year gate, and the NEXT
+step taps its confirm button so every later screen renders the rolled-over
+grade. `/schedule` therefore names two different screens depending on whether
+a prior step ran. `auth.tour.yaml` documents the same trap from the other
+side: routing straight to `/register` renders the sheet "as bare pages - not
+the UX a user ever sees", which is exactly what construct-from-route would
+produce. Fragments also skip screens whose routes take parameters, so they are
+not a complete inventory either.
+
+What IS reusable is the ORDER. `merge_fragments.py` tags every step with the
+chapter it came from, and the shell manifest fixes the fragment order. That
+maps cleanly onto this kit's `section` field - but it is four lines of config,
+not worth coupling the renderer to the tour pipeline. Name the screen.
+
 ---
 
 ## 3. Running it
@@ -327,6 +368,12 @@ composes the caller's SDK modules the way `universal-flutter-build` does, runs
 the render test, composes the strip, and uploads the page as a build artifact.
 `flutter test` is headless, so there is no emulator and no display - this is a
 cheap job by fleet standards.
+
+The job only ever READS the repository and uploads an artifact - it never
+commits or pushes. It declares `permissions: write-all` purely to match the
+other `universal-*` workflows: a caller whose own block is narrower than the
+reusable workflow's makes GitHub refuse the run at startup with zero jobs, so
+the fleet keeps one permissions shape everywhere.
 
 **Private SDK access** uses the same mechanism as every other Flutter workflow
 here: the org-wide **`MONOREPO_PAT`** secret, declared optional under
