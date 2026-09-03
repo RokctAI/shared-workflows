@@ -151,6 +151,7 @@ jobs:
           # SDK repos are private; the composer injects this token into its
           # git clone URLs (see sdk_composer.py authenticated_git_url).
           MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
@@ -361,6 +362,8 @@ jobs:
 
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
@@ -1037,6 +1040,7 @@ jobs:
           # SDK repos are private; the composer injects this token into its
           # git clone URLs (see sdk_composer.py authenticated_git_url).
           MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."
@@ -1388,6 +1392,8 @@ jobs:
 
       - name: Compose Flutter SDK Modules (If Shell App)
         shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing before build - this job builds from its own fresh checkout and cannot assume compose-app's git push already landed (e.g. when lib/ is gitignored, nothing was ever pushed)."

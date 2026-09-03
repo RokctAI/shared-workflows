@@ -212,6 +212,7 @@ jobs:
           # SDK repos are private; the composer injects this token into its
           # git clone URLs (see sdk_composer.py authenticated_git_url).
           MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."

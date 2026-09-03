@@ -1127,6 +1127,7 @@ jobs:
           # SDK repos are private; the composer injects this token into its
           # git clone URLs (see sdk_composer.py authenticated_git_url).
           MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+          PYTHONUNBUFFERED: "1"
         run: |
           # Shell apps declare pubspec path dependencies into .rokct/cache/,
           # which only exist after the composer clones the SDK repos pinned in

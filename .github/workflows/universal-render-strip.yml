@@ -234,6 +234,8 @@ jobs:
       # from the job env set above.
       - name: Compose Flutter SDK Modules (If Shell App)
         if: steps.check.outputs.has_render == 'true' && inputs.run-compose == true
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ -f "composer.json" ]; then
             echo "🚀 Shell app detected (composer.json found). Composing Flutter SDK modules..."
