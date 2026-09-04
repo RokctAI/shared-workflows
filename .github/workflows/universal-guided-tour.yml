@@ -961,11 +961,13 @@ jobs:
           # code on purpose: the retry is the attempt that was just run, and
           # a non-zero exit there is what keeps the leg honestly PARTIAL for
           # the completeness gate; only count/partial follow the kept set.
-          # Never merged: it is one set or the other.
+          # Never merged: it is one set or the other. TOUR_GPU is set by a
+          # retry step that runs a different renderer from the first attempt
+          # (the phone retry: -gpu guest); unset means swiftshader_indirect.
           if [ -d "$OUT.prev" ]; then
             PREV_COUNT=$(ls "$OUT.prev"/*.png 2>/dev/null | wc -l | tr -d ' ')
             if [ "${PREV_COUNT:-0}" -gt "$COUNT" ]; then
-              echo "::warning::[tour-retry] retry captured $COUNT < first attempt $PREV_COUNT — keeping the first attempt's stills"
+              echo "::warning::[tour-retry] retry (gpu: ${TOUR_GPU:-swiftshader_indirect}) captured $COUNT < first attempt $PREV_COUNT — keeping the first attempt's stills"
               rm -rf "$OUT"
               mv "$OUT.prev" "$OUT"
               rm -f "$OUT.anr"
@@ -975,7 +977,7 @@ jobs:
               COUNT=$(ls "$OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
               echo "Kept $COUNT screenshots from the first attempt (expected ${EXPECTED_SHOTS:-0})"
             else
-              echo "[tour-retry] retry captured $COUNT >= first attempt ${PREV_COUNT:-0} - keeping this attempt's stills"
+              echo "[tour-retry] retry (gpu: ${TOUR_GPU:-swiftshader_indirect}) captured $COUNT >= first attempt ${PREV_COUNT:-0} - keeping this attempt's stills"
             fi
           fi
           # "$OUT.status" is rewritten below from whichever set was kept, so
@@ -1188,6 +1190,9 @@ jobs:
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         env:
           EXPECTED_SHOTS: ${{ steps.merge.outputs.expected_screenshots }}
+          # Named in run_tour.sh's [tour-retry] keep-better lines so the log
+          # says which renderer produced the kept stills.
+          TOUR_GPU: guest
         with:
           api-level: 34
           target: google_apis
@@ -1199,10 +1204,33 @@ jobs:
           # done by the time the tour runs, so the host can spare the cores.
           cores: 3
           ram-size: 4096M
+          # A fresh AVD, not just a fresh boot: the renderer is part of the
+          # AVD's configuration and the first attempt's AVD was created for
+          # swiftshader_indirect.
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          # -gpu guest, not swiftshader_indirect. The first attempt keeps
+          # swiftshader_indirect (and so keeps producing the gdb backtrace
+          # when it dies); this retry must not repeat it. On supacharge the
+          # phone leg died 8 of 8 times since 2026-09-01 (runs 33498288707,
+          # 33622280808, 33782515852, 33782722246) at the same step, 22
+          # wallet_history: qemu SIGSEGV in the host GLES translator
+          # (host-diag: `systemd-coredump ... qemu-system-x86 ... Signal:
+          # 11`, modules libGLES_CM / libEGL / libGLESv2), then `adb: device
+          # offline`, `flutter test` exit 79, and TOUR_LEG_COUNT=21
+          # TOUR_LEG_TEST_EXIT=79 on the first attempt AND on the retry -
+          # which rendered with the very same translator, so it could only
+          # die the same way. On run 33782722246 the tablet retry under
+          # -gpu guest (#508) rendered that same wallet_history page and
+          # captured 23 of 23. This system image does not do in-guest
+          # rendering and substitutes its lavapipe/swangle path ("Your AVD
+          # has been configured with an in-guest renderer, but the system
+          # image does not support guest rendering. Falling back to
+          # 'lavapipe' mode."), which is the point: a renderer that is not
+          # the one that segfaults. The keep-better logic in run_tour.sh
+          # keeps whichever attempt captured more stills.
+          emulator-options: -no-window -gpu guest -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: bash ./run_tour.sh
+          script: 'echo "[tour-retry] phone retry: fresh AVD, -gpu guest (the image substitutes lavapipe; the first attempt ran -gpu swiftshader_indirect)" && bash ./run_tour.sh'
 
       # always() so this gate reports even when an EARLIER step (compose,
       # build_runner, the debug APK build) already failed the job - which is
