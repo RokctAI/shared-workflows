@@ -527,10 +527,38 @@ jobs:
             # Prints the ANR/crash dialog title found in the dump "$1", or nothing.
             tr -d '\r' < "$1" | grep -m1 -oE "Application (Not Responding|Error): ?[^ }]*" || true
           }
+          tour_focus_line() {
+            # Prints the line naming the window that owns input focus, or
+            # nothing when none does (or the dump could not be read). NOT
+            # read from the dump tour_window_dump wrote: since Android 10
+            # focus is tracked per display, and `mCurrentFocus=` /
+            # `mFocusedApp=` are printed only by DisplayContent.dump
+            # (android14-release DisplayContent.java:3619-3620), which the
+            # bare `dumpsys window` and `dumpsys window displays` reach and
+            # the `windows` sub-command never does. On paas_manager run
+            # 33809212107 (API 34) the `windows` dump therefore carried no
+            # focus line at all and all three legs waited the full 60 s for
+            # nothing. `mFocusedWindow=` is the pre-10 spelling. A null
+            # focus (`mCurrentFocus=null`) matches nothing here, so it falls
+            # through to mFocusedApp on the next line.
+            local re line
+            re='(mCurrentFocus|mFocusedWindow)=Window\{[^}]*\}|mFocusedApp=ActivityRecord\{[^}]*\}'
+            line=$(adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 -oE "$re" || true)
+            if [ -z "$line" ]; then
+              line=$(adb shell dumpsys window displays 2>/dev/null | tr -d '\r' | grep -m1 -oE "$re" || true)
+            fi
+            [ -n "$line" ] && printf '%s\n' "$line"
+            return 0
+          }
           tour_focus_owner() {
-            # Prints the owner (package/component) of mCurrentFocus in the
-            # dump "$1", or nothing when the focus is null or unreadable.
-            tr -d '\r' < "$1" | grep -m1 -oE 'mCurrentFocus=Window\{[^}]*\}' | sed -nE 's/.*[[:space:]]([^[:space:]}]+)\}$/\1/p' || true
+            # Prints the owner (package/component) named by the focus line
+            # "$1" from tour_focus_line, or nothing: the `package/component`
+            # token when there is one, else the last token - so
+            # `Window{hash u0 com.foo/.Bar}` and
+            # `ActivityRecord{hash u0 com.foo/.Bar t12}` both give
+            # com.foo/.Bar, and a system window `Window{hash u0 StatusBar}`
+            # gives StatusBar.
+            printf '%s\n' "$1" | sed -E 's/^[^{]*\{//; s/\}+$//' | awk '{ o = $NF; for (i = 1; i <= NF; i++) if (index($i, "/")) { o = $i; break }; if (o != "") print o }'
           }
           tour_anr_dismiss() {
             # BACK goes to the dialog, whose BACK action is "wait" - it does
@@ -595,7 +623,7 @@ jobs:
               PRE_ANR_WAITED=$((PRE_ANR_WAITED + 3))
               if tour_window_dump "$PRE_ANR_DUMP"; then
                 PRE_ANR_WINDOW=$(tour_anr_window "$PRE_ANR_DUMP")
-                if [ -z "$PRE_ANR_WINDOW" ] && [ -n "$(tour_focus_owner "$PRE_ANR_DUMP")" ]; then
+                if [ -z "$PRE_ANR_WINDOW" ] && [ -n "$(tour_focus_line)" ]; then
                   break
                 fi
               fi
@@ -610,26 +638,31 @@ jobs:
           else
             echo "::warning::[tour-anr] pre-tour: could not read the window stack before the tour started (dumpsys window returned nothing usable) - continuing, the per-step guard will refuse contaminated stills"
           fi
-          # Before the first still: give the launcher up to 60 s to own a
+          # Before the first still: give the launcher up to 20 s to own a
           # focused window, so the "Application does not have a focused
           # window" wedge is less likely to appear once the app launches.
+          # This is a heuristic, not a gate (the per-step guard is the
+          # gate), so it is capped at 20 s, 2 s apart. The matched focus
+          # line is logged verbatim so the run itself shows which key the
+          # image prints.
           PRE_FOCUS=""
+          PRE_FOCUS_LINE=""
           PRE_FOCUS_WAITED=0
           while :; do
-            if tour_window_dump "$PRE_ANR_DUMP"; then
-              PRE_FOCUS=$(tour_focus_owner "$PRE_ANR_DUMP")
-            fi
-            if [ -n "$PRE_FOCUS" ] || [ "$PRE_FOCUS_WAITED" -ge 60 ]; then
+            PRE_FOCUS_LINE=$(tour_focus_line)
+            PRE_FOCUS=$(tour_focus_owner "$PRE_FOCUS_LINE")
+            if [ -n "$PRE_FOCUS" ] || [ "$PRE_FOCUS_WAITED" -ge 20 ]; then
               break
             fi
-            sleep 3
-            PRE_FOCUS_WAITED=$((PRE_FOCUS_WAITED + 3))
+            sleep 2
+            PRE_FOCUS_WAITED=$((PRE_FOCUS_WAITED + 2))
           done
           rm -f "$PRE_ANR_DUMP"
           if [ -n "$PRE_FOCUS" ]; then
+            echo "[tour-anr] pre-tour: focus line: $PRE_FOCUS_LINE"
             echo "[tour-anr] pre-tour: focused window before the first still: $PRE_FOCUS (after ${PRE_FOCUS_WAITED}s)"
           else
-            echo "::warning::[tour-anr] pre-tour: no focused window after ${PRE_FOCUS_WAITED}s (mCurrentFocus=null) - continuing, the per-step guard will refuse contaminated stills"
+            echo "::warning::[tour-anr] pre-tour: no focused window after ${PRE_FOCUS_WAITED}s (no mCurrentFocus/mFocusedWindow/mFocusedApp line in dumpsys window) - continuing, the per-step guard will refuse contaminated stills"
           fi
 
           # The manager main page and the driver home page both call
