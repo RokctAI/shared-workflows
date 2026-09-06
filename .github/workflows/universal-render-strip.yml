@@ -230,8 +230,38 @@ jobs:
             rm initiate_temp.py
           fi
 
+      - name: Setup Java
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: 'zulu'
+          java-version: ${{ inputs.java-version || '17' }}
+
+      - name: Setup Flutter
+        if: steps.check.outputs.has_render == 'true'
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: ${{ inputs.flutter-channel }}
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Setup Python
+        if: steps.check.outputs.has_render == 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+
       # The composer resolves the private SDK modules; it reads MONOREPO_PAT
       # from the job env set above.
+      #
+      # MUST run AFTER the toolchain is installed. The composer regenerates
+      # code inside each composed SDK cache, and that pass is guarded on
+      # `flutter` being on PATH - with no toolchain it logs "`flutter` not
+      # found on PATH; skipping SDK cache codegen" and skips itself, leaving
+      # .rokct/cache/**/*.freezed.dart missing. The later build_runner step
+      # cannot cover for that: it only generates for the ROOT package, not
+      # for the SDKs resolved as path dependencies, so the render then fails
+      # to compile. universal-flutter-build.yml orders it this way already.
       - name: Compose Flutter SDK Modules (If Shell App)
         if: steps.check.outputs.has_render == 'true' && inputs.run-compose == true
         env:
@@ -253,27 +283,6 @@ jobs:
           else
             echo "ℹ️ Not a shell app (no composer.json). Rendering lib/ as-is."
           fi
-
-      - name: Setup Java
-        if: steps.check.outputs.has_render == 'true'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
-        with:
-          distribution: 'zulu'
-          java-version: ${{ inputs.java-version || '17' }}
-
-      - name: Setup Flutter
-        if: steps.check.outputs.has_render == 'true'
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: ${{ inputs.flutter-channel }}
-          flutter-version: ${{ inputs.flutter-version }}
-          cache: true
-
-      - name: Setup Python
-        if: steps.check.outputs.has_render == 'true'
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.11'
 
       - name: Get Dependencies
         if: steps.check.outputs.has_render == 'true'
