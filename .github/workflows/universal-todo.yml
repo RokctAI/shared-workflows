@@ -4,6 +4,17 @@ permissions: write-all
 
 on:
   workflow_call:
+    inputs:
+      ignore:
+        description: >-
+          Comma-delimited regular expressions matching files that should be
+          skipped when scanning for TODOs. Each pattern is anchored at the
+          start of the repository-relative file path. Defaults to skipping the
+          `templates/` tree, whose TODO markers are intentional fill-in
+          placeholders for whoever copies the scaffold, not work items.
+        required: false
+        type: string
+        default: '^templates/'
     secrets:
       GH_TOKEN:
         required: false
@@ -37,6 +48,7 @@ jobs:
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@3bd536e14a2cbceeab1fadef96bea5f725ed4270
         with:
+          IGNORE: ${{ inputs.ignore }}
           CLOSE_ISSUES: "true"
           AUTO_ASSIGN: "true"
           INSERT_ISSUE_URLS: "true"
