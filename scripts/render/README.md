@@ -28,6 +28,7 @@ Two halves, used together:
 | Render harness | [`templates/render-harness/`](../../templates/render-harness/) | A Dart widget test you copy into a throwaway package. Pumps a real screen at phone size with real fonts, writes `out/<name>.png` and `out/<name>.json`. |
 | Strip composer | [`compose_strip.py`](compose_strip.py) | Reads those PNGs + rect JSONs plus a small config, writes ONE self-contained HTML page. |
 | CI runner | [`run_strip.sh`](run_strip.sh) | Runs both halves against an already-composed tree. One implementation, called by both workflows below. |
+| Placement export | `compose_strip.py --emit-svg` | One SVG per frame, annotated and clean, for dropping a screen into a user guide or a deck - see [§10](#10-svg-per-frame-for-a-guide-or-a-deck). |
 | CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional manual button. Composes the SDKs on a runner, renders, uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
 | CI gate | [`universal-guided-tour.yml`](../../.github/workflows/universal-guided-tour.yml) | Automatic. Renders the strip BEFORE the tour's emulator legs and fails the run if it does not render - see [§8.1](#81-the-guided-tour-runs-it-automatically-first). |
 
@@ -442,9 +443,10 @@ Three consequences worth knowing:
   tour is distributed everywhere) skips it silently and tours exactly as
   before: nothing rendered, nothing uploaded, nothing committed. Not an empty
   file, not a placeholder.
-* **The page is committed.** It is written to
-  `<output-dir>/render-strip.html` (`marketing/tour/render-strip.html` by
-  default), so the tour's existing output commit ships it in the SAME commit
+* **The page is committed**, and so are the per-frame SVGs ([§10](#10-svg-per-frame-for-a-guide-or-a-deck)).
+  The page goes to `<output-dir>/render-strip.html` and the SVGs to
+  `<output-dir>/svg/` (`marketing/tour/` by
+  default), so the tour's existing output commit ships them in the SAME commit
   as the screenshots and the feature guide, with the same `[skip ci]`
   convention and the same rebase handling. There is no second commit-back
   path. `readme_sections.py` then links it from the README's
@@ -458,7 +460,88 @@ it. The manual `workflow_dispatch` button is untouched.
 
 ---
 
-## 9. Keeping the render in sync with the screen
+## 9. One number, one chip
+
+A screen rendered in **both** light and dark used to chip every element on
+both frames: numbers 1-11 appeared twice and the page read as if it had 22
+points. It does not any more.
+
+* Each number is chipped **once**, on the first frame it appears on - its
+  *primary* frame.
+* A later frame chips **only the elements that actually changed there**.
+* Everything else on that frame is still in the markup, marked `rep`, hidden
+  by CSS. The **repeats** checkbox in the mode bar shows the full set again -
+  the same mechanism as the **chips** checkbox beside it. `"repeats_default":
+  true` in the config makes that the starting state.
+
+### What counts as "changed"
+
+A light/dark pair differs *everywhere* in raw pixel terms, so a per-pixel
+diff would flag all of it and say nothing. The discriminator is the
+element's **internal contrast** - the standard deviation of luminance inside
+its measured rect - because that is invariant to the thing a correct dark
+theme does and sensitive to the thing a dark-mode bug does:
+
+| What happened to the element | Contrast | Flagged? |
+|---|---|---|
+| Tonal inversion (`v -> 255-v`), i.e. the theme working | unchanged | no |
+| Ink left the same colour as the surface behind it | collapses to ~0 | **yes** |
+| Element moved or resized past 2 logical px | (geometry check) | **yes** |
+
+The threshold is a **35% relative change** in contrast
+(`CHIP_CHANGE_THRESHOLD`), deliberately tolerant so a re-tinted accent does
+not read as a break. When the PNG cannot be decoded the composer says
+"cannot tell" and leaves the repeat hidden rather than flagging noise - the
+toggle always recovers it.
+
+This is the paas_driver courier profile exactly: in dark, the courier's
+name and phone, `Balance` / `R0.00`, the delivered-order count and every row
+icon are white ink on a card that never flipped. A dark frame that chips
+precisely those points says so at a glance.
+
+Numbering is untouched by any of this. Roles decide what is *drawn*; a
+number is still bound to a key for the life of the page and
+`--emit-numbering` round-trips exactly as before.
+
+---
+
+## 10. SVG per frame, for a guide or a deck
+
+The page is the review format. It is the wrong shape for *placement* - one
+long scroll cannot be dropped into a slide. So `--emit-svg DIR` writes, per
+frame, two standalone files:
+
+```text
+DIR/<variant>.annotated.svg    chips + numbered legend
+DIR/<variant>.clean.svg        the screen, no annotation
+```
+
+`<variant>` is the harness sidecar's own `variant` name (falling back to the
+PNG's stem), slugified - `profile_light` becomes `profile-light.svg`. The
+names are predictable on purpose: a document references them without
+guessing.
+
+**They are genuine vector wrappers, not a flattened picture of the page.**
+The screenshot is the only raster in the file - Flutter rasterises, there is
+no vector of the screen to recover - and it is *embedded* as a data URI, so
+the file travels alone with no external reference. Everything else is real
+vector: chips are `<circle>` + `<text>`, the legend and the caption are
+`<text>`. They stay sharp at any size on a slide and stay selectable in a
+design app.
+
+The two variants are the page's own two modes rather than a second idea of
+what annotation is: `clean` omits exactly what the page's `.present` class
+hides. Repeats are dropped from the annotated SVG rather than hidden - an
+SVG has no checkbox, and the export should say what the page says by
+default.
+
+Both CI lanes write them: the tour commits them to
+`marketing/tour/svg/` beside the page, and the manual lane ships them inside
+the `render-strip` artifact.
+
+---
+
+## 11. Keeping the render in sync with the screen
 
 A project standing rule, extended to cover this tool: a PR that changes a
 demo-visible surface updates the owning SDK's tour fragment and demo seeds in

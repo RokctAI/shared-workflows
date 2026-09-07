@@ -77,6 +77,14 @@ on:
         type: string
         default: 'render-strip.html'
         description: "Filename of the composed page inside the artifact."
+      svg-dir:
+        required: false
+        type: string
+        default: 'render-svg'
+        description: >-
+          Directory for the per-frame SVG exports - one annotated and one
+          clean file per frame, for dropping a screen into a user guide or a
+          deck. Empty turns the export off.
       artifact-name:
         required: false
         type: string
@@ -336,6 +344,7 @@ jobs:
           STRIP_CONFIG: ${{ inputs.strip-config }}
           RENDER_OUT_DIR: ${{ inputs.render-out-dir }}
           RENDER_OUTPUT_FILE: ${{ inputs.output-file }}
+          RENDER_SVG_DIR: ${{ inputs.svg-dir }}
           RENDER_SUFFIX: ${{ inputs.render-suffix }}
           DART_DEFINES: ${{ inputs.dart-defines }}
         run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
@@ -345,7 +354,14 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ inputs.artifact-name }}
-          path: ${{ inputs.working-directory }}/${{ inputs.output-file }}
+          # The page and the per-frame SVGs travel together: one download
+          # gives both the review format and the placement format.
+          # An empty svg-dir must contribute an EMPTY line (which
+          # upload-artifact drops), never a bare "<working-directory>/" -
+          # that would sweep the whole checkout into the artifact.
+          path: |
+            ${{ inputs.working-directory }}/${{ inputs.output-file }}
+            ${{ inputs.svg-dir && format('{0}/{1}', inputs.working-directory, inputs.svg-dir) || '' }}
           retention-days: ${{ inputs.retention-days }}
           if-no-files-found: error
 
