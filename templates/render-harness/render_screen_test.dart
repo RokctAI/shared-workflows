@@ -165,10 +165,61 @@ void registerScreen() {
 
 /// TODO(harness) 6/8 - the widget under test.
 ///
-/// Return the REAL screen widget, wrapped in whatever the app wraps it in
-/// (ProviderScope with the demo overrides, ScreenUtilInit with the app's
-/// design size, MaterialApp with the app's theme). Do not substitute a
-/// simplified scaffold: the wrapping is part of what is being reviewed.
+/// Return the REAL screen widget, wrapped in whatever the app wraps it in:
+/// ProviderScope with the demo overrides, ScreenUtilInit with the app's
+/// design size, MaterialApp with the app's `theme` AND `darkTheme`. Do not
+/// substitute a simplified scaffold - the wrapping is part of what is being
+/// reviewed.
+///
+/// THIS IS THE MARKER THAT MAKES A RENDER LIE.
+///
+/// Everything else in this file fails loudly. A screen that does not compile
+/// stops the run; an element that does not match throws with a reason; a
+/// harness that writes no PNG fails the gate. An INCOMPLETE WRAPPER fails
+/// SILENTLY - it produces a clean, plausible, entirely convincing PNG of a
+/// screen no user will ever see, and nothing downstream can tell. The whole
+/// point of this kit is that a review frame is evidence rather than a
+/// drawing; a wrong wrapper turns it back into a drawing that happens to
+/// have been rendered.
+///
+/// It has now happened twice, both times in the wrapper and nowhere else:
+///
+///   1. `darkTheme:` OMITTED. A MaterialApp given a single `theme:` switched
+///      on the `dark` flag renders both frames from one ThemeData, so the
+///      "dark" frame was never the app's dark theme - it was the light
+///      theme with a brightness flag flipped. Wire `theme:` + `darkTheme:` +
+///      `themeMode:` and let the app choose, exactly as main.dart does. The
+///      snippet below is that shape; the earlier one-ThemeData shape is the
+///      bug, so do not copy it back in from an older harness.
+///
+///   2. A MODAL RENDERED DETACHED. paas_manager's login is a MODAL presented
+///      over a real splash background page. The harness handed the modal
+///      straight to `home:`, so the splash behind it never existed, and the
+///      strip showed a login screen floating on nothing - a screen that does
+///      not occur anywhere in the product. The render was sharp, the
+///      numbering was correct, and it was still wrong.
+///
+/// So: IF THE SCREEN IS A MODAL, A BOTTOM SHEET OR A DIALOG, RENDER IT OVER
+/// ITS HOST. `home:` is the HOST page, and the modal is opened over it
+/// before anything is measured.
+///
+/// OPEN IT BY DRIVING THE APP'S OWN TRIGGER - tap the button the user taps -
+/// not by presenting the modal yourself and not by pushing its route by
+/// hand. The barrier, the sheet shape, the height constraint, the insets and
+/// the safe-area handling all come from the app's own call site; a stand-in
+/// gets them wrong in exactly the way that is hardest to notice, and a
+/// hand-pushed route stops noticing when the real call site drifts.
+///
+/// paas_manager's harness is the pattern to copy - see the `openSheet`
+/// sketch below and section 2.6 of scripts/render/README.md. Where no
+/// trigger is reachable (a modal only ever opened by a push notification or
+/// a deep link), fall back to presenting it over the host from a post-frame
+/// callback with the app's OWN presenter - the `_HostThenModal` sketch,
+/// also below.
+///
+/// The tour lane learned this first and wrote it down: `auth.tour.yaml`
+/// warns that routing straight to `/register` renders the sheet "as bare
+/// pages - not the UX a user ever sees". Same trap, same answer.
 Widget buildScreen({required bool dark}) {
   // return ProviderScope(
   //   overrides: [profileProvider.overrideWith((ref) => _DemoNotifier())],
@@ -176,16 +227,105 @@ Widget buildScreen({required bool dark}) {
   //     designSize: const Size(375, 812),
   //     builder: (context, child) => MaterialApp(
   //       debugShowCheckedModeBanner: false,
+  //       // BOTH themes, chosen by themeMode - never one ThemeData switched
+  //       // on `dark`. See fault 1 above.
   //       theme: ThemeData(
-  //         brightness: dark ? Brightness.dark : Brightness.light,
   //         useMaterial3: false,
+  //         brightness: Brightness.light,
+  //         scaffoldBackgroundColor: AppStyle.surfaceLightRaw,
   //       ),
+  //       darkTheme: ThemeData(
+  //         useMaterial3: false,
+  //         brightness: Brightness.dark,
+  //         scaffoldBackgroundColor: AppStyle.surfaceDarkRaw,
+  //       ),
+  //       themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+  //
+  //       // A screen that IS a page: hand it over directly.
   //       home: const YourRealScreen(),
+  //
+  //       // A screen that is a MODAL / SHEET / DIALOG: hand over its HOST
+  //       // and open the modal over it from the render body with
+  //       // `openSheet(tester)`. See fault 2 above and the sketches below.
+  //       // home: const LoginPage(),
   //     ),
   //   ),
   // );
   throw UnimplementedError('TODO(harness) 6/8: return the real screen widget');
 }
+
+// WHEN THE SCREEN UNDER TEST IS A MODAL, a bottom sheet or a dialog.
+//
+// PREFERRED - drive the app's own trigger. Call this from the render body
+// immediately after the first `_drain`, before pass 1 measures:
+//
+//     await _drain(tester);
+//     await openSheet(tester);   // the modal is now over its host
+//
+// Both `expect`s are load-bearing: they turn a silent wrapper fault into a
+// loud one. If the trigger disappears or stops opening the sheet, the render
+// fails with a reason instead of quietly producing a frame of the host page
+// on its own.
+//
+// /// Opens the sheet the way the APP opens it - by tapping the real button,
+// /// which calls the app's own showCustomModalBottomSheet. Driving the
+// /// button rather than pushing a route by hand is the point: the sheet's
+// /// constraints, its shape and its scrim all come from the app's call site,
+// /// so none of them can drift from what ships without this test noticing.
+// Future<void> openSheet(WidgetTester tester) async {
+//   final trigger = find.widgetWithText(
+//     CustomButton,
+//     AppHelpers.getTranslation(TrKeys.login),
+//   );
+//   expect(
+//     trigger,
+//     findsWidgets,
+//     reason:
+//         'no Login button on the host page - the sheet cannot be opened '
+//         'the way the app opens it',
+//   );
+//   await tester.tap(trigger.first, warnIfMissed: false);
+//   await _drain(tester, rounds: 4);
+//   expect(
+//     find.byType(LoginScreen),
+//     findsOneWidget,
+//     reason: 'tapping the trigger did not put the sheet on screen',
+//   );
+// }
+//
+// FALLBACK - only where no trigger is reachable (a modal opened solely by a
+// push notification, a deep link, or a path the demo fixtures cannot reach).
+// Present it over the host from a post-frame callback, with the app's OWN
+// presenter. Same shape as paas_driver's shipping `_CourierJourney`.
+//
+// class _HostThenModal extends StatefulWidget {
+//   const _HostThenModal({required this.host});
+//
+//   final Widget host;
+//
+//   @override
+//   State<_HostThenModal> createState() => _HostThenModalState();
+// }
+//
+// class _HostThenModalState extends State<_HostThenModal> {
+//   @override
+//   void initState() {
+//     super.initState();
+//     WidgetsBinding.instance.addPostFrameCallback((_) {
+//       if (!mounted) return;
+//       // The app's OWN presenter - showModalBottomSheet, showDialog, or the
+//       // helper the app wraps them in. Never a substitute.
+//       showDialog<void>(
+//         context: context,
+//         barrierDismissible: false,
+//         builder: (_) => const LoginModal(),
+//       );
+//     });
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) => widget.host;
+// }
 
 /// TODO(harness) 7/8 - the elements the review points at.
 ///

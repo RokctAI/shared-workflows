@@ -191,7 +191,153 @@ service with no `isDemo` implementation at all. Let stubs throw from
 `noSuchMethod` so they name the exact member the screen touches and cannot
 quietly grow.
 
-### 2.6 Why the screen is named, and not derived from the tour fragments
+### 2.6 Wrapping fidelity - where a render lies
+
+Everything else in this kit fails loudly. A screen that does not compile
+stops the run, an element that does not match throws with a reason, a
+harness that writes no PNG fails the tour's gate. **An incomplete wrapper
+fails silently.** It produces a clean, plausible, entirely convincing PNG of
+a screen no user will ever see, and nothing downstream can tell the
+difference - not the composer, not the numbering, not the reviewer.
+
+That is the one failure this kit cannot absorb, because the whole premise is
+that a review frame is *evidence* rather than a drawing. A wrong wrapper
+turns it back into a drawing that happens to have been rendered.
+
+It has now happened twice, both times in `TODO(harness) 6/8` and nowhere
+else.
+
+**1. `darkTheme:` omitted.** A `MaterialApp` given a single `theme:`
+switched on the `dark` flag renders both frames from one `ThemeData`. The
+"dark" frame was never the app's dark theme - it was the light theme with a
+brightness flag flipped. Wire all three and let the app choose, exactly as
+`main.dart` does:
+
+```dart
+theme: ThemeData(brightness: Brightness.light, /* the app's real light */),
+darkTheme: ThemeData(brightness: Brightness.dark, /* the app's real dark */),
+themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+```
+
+**2. A modal rendered detached.** paas_manager's login is a **modal
+presented over a real splash background page**. The harness handed the modal
+straight to `home:`, so the splash behind it never existed and the strip
+showed a login floating on nothing - a screen that does not occur anywhere
+in the product. The render was sharp, the numbering was correct, and it was
+still wrong.
+
+#### So: render a modal over its host
+
+If the screen under test is a modal, a bottom sheet or a dialog, `home:` is
+the **host page**, and the modal is opened over it before anything is
+measured.
+
+**Open it by driving the app's own trigger.** Not by presenting the modal
+yourself, and not by pushing its route by hand. The barrier, the sheet
+shape, the height constraint, the insets and the safe-area handling all come
+from the app's own call site; a stand-in gets them wrong in exactly the way
+that is hardest to notice, and a hand-pushed route stops noticing when the
+real call site drifts.
+
+This is what paas_manager's harness does, and it is the pattern to copy:
+
+```dart
+/// Opens the sign-in sheet the way the app opens it: by tapping LoginPage's
+/// Login button, which calls `AppHelpers.showCustomModalBottomSheet` with
+/// `const LoginScreen()`.
+Future<void> openSheet(WidgetTester tester) async {
+  final loginButton = find.widgetWithText(
+    CustomButton,
+    AppHelpers.getTranslation(TrKeys.login),
+  );
+  expect(
+    loginButton,
+    findsWidgets,
+    reason: 'no Login button on LoginPage - the sheet cannot be opened the '
+        'way the app opens it',
+  );
+  await tester.tap(loginButton.first, warnIfMissed: false);
+  await _drain(tester, rounds: 4);
+  expect(
+    find.byType(LoginScreen),
+    findsOneWidget,
+    reason: 'tapping Login did not put the sign-in sheet on screen',
+  );
+}
+```
+
+Both `expect`s matter. They are what turn a silent wrapper fault into a loud
+one: if the trigger disappears or stops opening the sheet, the render fails
+with a reason instead of quietly producing a frame of the host page alone.
+
+Call it in the render body immediately after the first `_drain`, before pass
+1 measures:
+
+```dart
+await tester.pumpWidget(
+  RepaintBoundary(key: boundaryKey, child: buildScreen(dark: dark)),
+);
+await _drain(tester);
+await openSheet(tester);      // <- the modal is now over its host
+```
+
+> **Note.** That last line is currently a hand-edit inside the region the
+> template tells you to leave alone. The template has no seam between the
+> first drain and pass-1 measurement, so every shell with a modal has to add
+> it by hand. If that turns out to be more than a one-off, the fix is a
+> no-op `afterFirstPump` hook in the template rather than each harness
+> editing the proven mechanism.
+
+**When there is no reachable trigger** - the modal is only ever opened by a
+push notification, a deep link, or a code path the demo fixtures cannot
+reach - present it yourself from a post-frame callback over the host, using
+the app's own presenter:
+
+```dart
+home: const _HostThenModal(host: SplashPage()),
+
+// ...
+
+class _HostThenModal extends StatefulWidget {
+  const _HostThenModal({required this.host});
+
+  final Widget host;
+
+  @override
+  State<_HostThenModal> createState() => _HostThenModalState();
+}
+
+class _HostThenModalState extends State<_HostThenModal> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // The app's OWN presenter - showModalBottomSheet, showDialog, or the
+      // helper the app wraps them in. Never a substitute.
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const LoginModal(),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.host;
+}
+```
+
+The post-frame shape is not new either: paas_driver's `_CourierJourney`
+already uses it to fire the home page's statistics fetch before the profile
+renders. Prefer the trigger; fall back to this.
+
+The tour lane learned all of this first and wrote it down. `auth.tour.yaml`
+warns that routing straight to `/register` renders the sheet *"as bare pages
+- not the UX a user ever sees"* - the same trap, reached from the other
+side, with the same answer.
+
+### 2.7 Why the screen is named, and not derived from the tour fragments
 
 Reasonable question, since the SDKs' guided-tour fragments
 (`<sdk>/dart/templates/tour/<sdk>.tour.yaml`) already list the app's screen
