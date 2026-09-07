@@ -147,6 +147,41 @@ Also register, or lose them:
 - **The default family** (usually Roboto) - anything with a bare `TextStyle`
   and no family falls back to it.
 
+#### Block glyphs that are not a missing weight
+
+Every weight loads, the frame is otherwise correct, and one or two labels are
+still solid rectangles - a floating Back pill, an avatar's initials. The reflex
+is to curl another face in; for these it is wasted effort. Diagnose first:
+
+- **Width probe.** In the test, lay the text out with `TextPainter` (or read
+  the `RenderParagraph` size) and compare against a real face. An Ahem block
+  advances exactly one em, so `Back` at 20px measures 80.0pt in the block
+  font and 43.9pt in Roboto. A one-em-per-glyph width means the *family* was
+  never registered, not the weight.
+- **Ask which family the text resolves to.** Walk `DefaultTextStyle.of` at
+  the widget, or read the SVG source.
+
+Three facts that produce the block:
+
+- A widget floating in the route `Stack` with **no `Material` ancestor**
+  inherits WidgetsApp's fallback `DefaultTextStyle`, whose family is
+  `monospace`. Inside a `Material` the theme's `Typography` supplies Roboto,
+  which is why a SnackBar in the same frame is always fine.
+- An inline SVG `<text font-family="Helvetica, Arial, sans-serif">` goes
+  through vector_graphics_compiler, which passes the attribute through
+  **whole** - the CSS stack becomes one family name, not a fallback list.
+- Registering faces under `Ahem` or `FlutterTest` does **not** displace the
+  engine's block default.
+
+The fix is an alias, not a download: in `loadRealFonts()` register
+`monospace`, `Helvetica`, `Arial`, `sans-serif` and the literal
+`Helvetica, Arial, sans-serif` onto Roboto, which already ships in the
+Flutter SDK cache (`bin/cache/artifacts/material_fonts/Roboto-*.ttf`), so no
+new binary is committed. The template carries the loop. Rule: a floating
+widget outside `Material`, or an SVG `<text>`, needs a family alias in the
+harness. Metrics differ (Roboto is proportional where a device's `monospace`
+is not) but the word is readable, which is what the review needs.
+
 ### 2.5 Demo data comes from the SDKs, not from the harness
 
 **Do not hand-write fixtures.** Every SDK already owns its demo data and

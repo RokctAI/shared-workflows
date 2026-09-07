@@ -388,9 +388,43 @@ Future<void> loadRealFonts() async {
   await load('Inter',
       weights.values.map((file) => '$root/fonts/$file').toList());
 
-  // Bare TextStyles with no family fall back to the platform default.
-  await load('Roboto', ['$root/fonts/Roboto-400.ttf',
-    '$root/fonts/Roboto-500.ttf', '$root/fonts/Roboto-700.ttf']);
+  // Bare TextStyles with no family fall back to the platform default. The
+  // same three weights also ship inside the Flutter SDK cache as
+  // `$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/Roboto-{Regular,Medium,
+  // Bold}.ttf`, so a shell can point here instead of committing a copy.
+  final roboto = <String>[
+    '$root/fonts/Roboto-400.ttf',
+    '$root/fonts/Roboto-500.ttf',
+    '$root/fonts/Roboto-700.ttf',
+  ];
+  await load('Roboto', roboto);
+
+  // THE BLOCK-GLYPH ALIASES. A block glyph on an otherwise correct frame is
+  // usually NOT a missing weight: it is text asking for a family the engine
+  // never had registered. Two known sources, both proven with a width probe
+  // (an Ahem block advances exactly one em, so "Back" at 20px lays out 80.0pt
+  // wide in the block font against 43.9pt in Roboto):
+  //
+  //   * a widget floating in the route Stack with NO Material ancestor (a
+  //     back pill, a floating nav) inherits WidgetsApp's fallback
+  //     DefaultTextStyle, whose family is 'monospace' - inside a Material the
+  //     theme's Typography supplies 'Roboto', which is why SnackBars are fine;
+  //   * an inline SVG <text font-family="Helvetica, Arial, sans-serif">:
+  //     vector_graphics_compiler passes the attribute through WHOLE, so the
+  //     CSS stack becomes ONE family name, not a fallback list.
+  //
+  // Registering faces under 'Ahem' / 'FlutterTest' does not displace the
+  // engine's block default; aliasing the asked-for names onto a real face is
+  // what a device does. The last entry is deliberately the whole CSS stack.
+  for (final alias in <String>[
+    'monospace',
+    'Helvetica',
+    'Arial',
+    'sans-serif',
+    'Helvetica, Arial, sans-serif',
+  ]) {
+    await load(alias, roboto);
+  }
 
   // Icon fonts: MaterialIcons ships inside the Flutter SDK cache; package
   // icon fonts (Remix, Cupertino, ...) live in the pub cache and are
