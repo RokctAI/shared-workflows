@@ -96,6 +96,14 @@ markdownlint rules (80-column lines, no inline HTML). Note the chosen
 trade-off: editing the store listing alone refreshes the README on the
 next tour run (or a manual `workflow_dispatch`), not immediately.
 
+Only one tour runs per (repo, ref) at a time: the `tour` job carries a
+`concurrency` group (`guided-tour-<repo>-<ref>`, `cancel-in-progress`),
+so a newer push to `main` cancels a tour still running for an older
+commit instead of letting both race to commit their outputs (the older
+run's strip is stale by definition). The commit-back rebases with
+`-X theirs`, so if a stray older commit does land first, the fresh
+capture wins any conflicting PNG/MP4/SVG rather than being dropped.
+
 ## The tablet leg
 
 After the phone leg, the workflow reruns the SAME tour serially on a
