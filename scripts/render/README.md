@@ -27,7 +27,9 @@ Two halves, used together:
 |---|---|---|
 | Render harness | [`templates/render-harness/`](../../templates/render-harness/) | A Dart widget test you copy into a throwaway package. Pumps a real screen at phone size with real fonts, writes `out/<name>.png` and `out/<name>.json`. |
 | Strip composer | [`compose_strip.py`](compose_strip.py) | Reads those PNGs + rect JSONs plus a small config, writes ONE self-contained HTML page. |
-| CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional. Runs both halves on a runner and uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
+| CI runner | [`run_strip.sh`](run_strip.sh) | Runs both halves against an already-composed tree. One implementation, called by both workflows below. |
+| CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional manual button. Composes the SDKs on a runner, renders, uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
+| CI gate | [`universal-guided-tour.yml`](../../.github/workflows/universal-guided-tour.yml) | Automatic. Renders the strip BEFORE the tour's emulator legs and fails the run if it does not render - see [§8.1](#81-the-guided-tour-runs-it-automatically-first). |
 
 The halves are decoupled on purpose: the composer only needs the sidecar
 format, so a non-Flutter surface that can emit the same JSON composes into
@@ -418,6 +420,41 @@ self-contained, so it needs no network.
 
 > ⚠️ On a public repository that artifact is downloadable by anyone. The
 > demo-data rule at the top of this file is what keeps that safe.
+
+### 8.1 The guided tour runs it automatically, first
+
+The button above is not the only trigger, and it is no longer the usual one.
+[`universal-guided-tour.yml`](../../.github/workflows/universal-guided-tour.yml)
+renders the strip as a **step inside its own job**, after the SDK compose /
+`pub get` / `build_runner` work and **before** the APK build and both emulator
+legs, and **fails the run when the render fails**. That is the whole point: a
+compile break or a screen that will not lay out costs one minute instead of
+forty, and no emulator time is burned on a tree that was never going to
+render.
+
+Three consequences worth knowing:
+
+* **It is a step, not a job.** A separate job would land on a fresh VM and
+  re-run the whole SDK compose - several minutes - purely to render. As a step
+  it reuses the tree the tour already composed and adds about a minute.
+* **It skips cleanly.** The step needs BOTH `test/render/render_screen_test.dart`
+  and `test/render/strip.json`. A repo with neither (most of the fleet - the
+  tour is distributed everywhere) skips it silently and tours exactly as
+  before: nothing rendered, nothing uploaded, nothing committed. Not an empty
+  file, not a placeholder.
+* **The page is committed.** It is written to
+  `<output-dir>/render-strip.html` (`marketing/tour/render-strip.html` by
+  default), so the tour's existing output commit ships it in the SAME commit
+  as the screenshots and the feature guide, with the same `[skip ci]`
+  convention and the same rebase handling. There is no second commit-back
+  path. `readme_sections.py` then links it from the README's
+  `@generated-render-strip` block.
+  GitHub serves a committed `.html` as source, so that link opens the markup,
+  not the rendered page - open the file from a checkout to read it.
+
+Both lanes run the same code: [`run_strip.sh`](run_strip.sh) is the render +
+compose pair, and the two workflows differ only in the environment they hand
+it. The manual `workflow_dispatch` button is untouched.
 
 ---
 

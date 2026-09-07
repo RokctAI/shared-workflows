@@ -315,46 +315,30 @@ jobs:
 
       # The render itself. `flutter test` is headless - no emulator, no
       # display - which is why this job is cheap enough to run on demand.
-      - name: Render Screens
+      #
+      # The render + compose pair lives in scripts/render/run_strip.sh rather
+      # than in this YAML because universal-guided-tour.yml runs the SAME two
+      # halves as its pre-emulator gate. One script, two callers: the manual
+      # button and the automatic gate cannot drift apart.
+      #
+      # Every value reaches the script through the environment, never
+      # interpolated into a shell line: dart-defines in particular is a
+      # space-separated list, and splitting a shell variable is the only
+      # legible way to turn it into one --dart-define per pair.
+      - name: Render Screens and Compose Review Strip
         if: steps.check.outputs.has_render == 'true'
         working-directory: ${{ inputs.working-directory }}
         env:
-          RENDER_SUFFIX: ${{ inputs.render-suffix }}
-          # Read through the environment rather than interpolated straight into
-          # the script: the value is a space-separated list, and the loop has to
-          # be splitting a shell variable for that to be legible as a list.
-          DART_DEFINES: ${{ inputs.dart-defines }}
-        run: |
-          set -o pipefail
-          DEFINES=()
-          # Unquoted on purpose - word splitting is what turns the
-          # space-separated input into one --dart-define per pair.
-          for pair in $DART_DEFINES; do
-            DEFINES+=(--dart-define="$pair")
-          done
-          flutter test "${DEFINES[@]}" "${{ inputs.render-test }}" 2>&1 | tee render_log.txt
-          COUNT=$(find "${{ inputs.render-out-dir }}" -name '*.png' 2>/dev/null | wc -l)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::error::The render test produced no PNGs in ${{ inputs.render-out-dir }}."
-            exit 1
-          fi
-          echo "✅ Rendered $COUNT frame(s)."
-
-      - name: Compose Review Strip
-        if: steps.check.outputs.has_render == 'true'
-        working-directory: ${{ inputs.working-directory }}
-        run: |
-          CONFIG="${{ inputs.strip-config }}"
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error::Strip config not found at $CONFIG (see scripts/render/README.md for its shape)."
-            exit 1
-          fi
           # $GITHUB_WORKSPACE is the caller's checkout root; the tooling was
           # checked out beside it at .render-tools.
-          python "$GITHUB_WORKSPACE/.render-tools/scripts/render/compose_strip.py" \
-            --config "$CONFIG" \
-            --base-dir "${{ inputs.render-out-dir }}" \
-            --out "${{ inputs.output-file }}"
+          RENDER_TOOLS_DIR: ${{ github.workspace }}/.render-tools
+          RENDER_TEST: ${{ inputs.render-test }}
+          STRIP_CONFIG: ${{ inputs.strip-config }}
+          RENDER_OUT_DIR: ${{ inputs.render-out-dir }}
+          RENDER_OUTPUT_FILE: ${{ inputs.output-file }}
+          RENDER_SUFFIX: ${{ inputs.render-suffix }}
+          DART_DEFINES: ${{ inputs.dart-defines }}
+        run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
 
       - name: Upload Review Strip
         if: steps.check.outputs.has_render == 'true'

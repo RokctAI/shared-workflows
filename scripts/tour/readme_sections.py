@@ -45,8 +45,18 @@ block):
     captions - see MANIFEST FORMAT below. Everything not excluded is
     included, so new tour steps appear in the README automatically.
 
-Blocks whose source is missing entirely (no listing file / no stills) are
-skipped: an existing marker block is left untouched and none is created.
+``@generated-render-strip-start/end``
+    A one-paragraph pointer to ``marketing/tour/render-strip.html``, the
+    self-contained design-review page the tour renders (headlessly, before
+    the emulator legs) and commits alongside the stills. Written only when
+    that file exists, so a repo with no ``test/render`` harness never grows
+    the block. It is a plain relative link to a committed file: GitHub
+    serves .html as source, so the wording says to download it rather than
+    promising a rendered page.
+
+Blocks whose source is missing entirely (no listing file / no stills / no
+render strip) are skipped: an existing marker block is left untouched and
+none is created.
 Output is deterministic and idempotent (LF endings, every generated line
 <= 80 columns so default markdownlint MD013 passes; no inline HTML beyond
 the marker comments, so MD033 passes too). If the markers are absent they
@@ -79,12 +89,15 @@ DESC_START = "<!-- @generated-store-description-start -->"
 DESC_END = "<!-- @generated-store-description-end -->"
 GALLERY_START = "<!-- @generated-tour-gallery-start -->"
 GALLERY_END = "<!-- @generated-tour-gallery-end -->"
+RENDER_START = "<!-- @generated-render-strip-start -->"
+RENDER_END = "<!-- @generated-render-strip-end -->"
 
 LISTING = Path("marketing/store/listing/en-US/full_description.txt")
 STORE_DIR = Path("marketing/tour/store")
 SCREENSHOTS_DIR = Path("marketing/tour/screenshots")
 MANIFEST = Path("marketing/tour/readme_gallery.yml")
 FEATURE_GUIDE = Path("marketing/tour/feature-guide.md")
+RENDER_STRIP = Path("marketing/tour/render-strip.html")
 
 STILL_RE = re.compile(r"^\d+[-_].+\.png$")
 COLUMNS = 3
@@ -311,6 +324,36 @@ def build_gallery_block(repo_root):
 
 
 # ---------------------------------------------------------------------------
+# Render-strip block.
+# ---------------------------------------------------------------------------
+
+def build_render_strip_block(repo_root):
+    """Return the render-strip block's inner lines, or None to skip.
+
+    None (not an empty list) when the page is absent, so a repo without a
+    ``test/render`` harness never gets an empty block written into its
+    README - see ``apply_block``'s caller in ``main``.
+    """
+    if not (repo_root / RENDER_STRIP).is_file():
+        return None
+    link = RENDER_STRIP.as_posix()
+    # The link sits on its own line: it is 53 columns on its own, and every
+    # generated line has to stay inside WIDTH (main() enforces it).
+    return [
+        "## Design review strip",
+        "",
+        f"[{RENDER_STRIP.name}]({link})",
+        "is one self-contained page of this app's real screens - rendered",
+        "headlessly from the code in this commit, before the tour's emulator",
+        "legs ran, with every point numbered from the widget's own measured",
+        "rectangle.",
+        "",
+        "GitHub serves a committed .html file as source, so open it from a",
+        "local checkout (or download the raw file) to read the page.",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Marker-block surgery.
 # ---------------------------------------------------------------------------
 
@@ -367,6 +410,7 @@ def main(argv=None):
 
     description = build_description_block(repo_root)
     gallery = build_gallery_block(repo_root)
+    render_strip = build_render_strip_block(repo_root)
 
     desc_end_index = None
     if description is None:
@@ -378,15 +422,28 @@ def main(argv=None):
         state = "populated" if description else "empty (listing has no copy yet)"
         print(f"Store-description block {state}.")
 
+    # The render-strip block follows the gallery, or the description when
+    # there are no stills, or floats to the default anchor when neither
+    # block was written.
+    anchor_index = desc_end_index
     if gallery is None:
         print("No tour stills - gallery block skipped.")
     else:
-        lines, _ = apply_block(
+        lines, anchor_index = apply_block(
             lines, GALLERY_START, GALLERY_END, gallery, insert_after=desc_end_index
         )
         print(f"Tour-gallery block refreshed ({max(len(gallery) - 1, 0)} lines).")
 
-    for line in (description or []) + (gallery or []):
+    if render_strip is None:
+        print(f"No {RENDER_STRIP} - render-strip block skipped.")
+    else:
+        lines, _ = apply_block(
+            lines, RENDER_START, RENDER_END, render_strip,
+            insert_after=anchor_index,
+        )
+        print("Render-strip block refreshed.")
+
+    for line in (description or []) + (gallery or []) + (render_strip or []):
         if len(line) > WIDTH and not re.match(r"\[s\w+\]: ", line):
             raise SystemExit(
                 f"generated README line exceeds {WIDTH} columns: {line!r}"
