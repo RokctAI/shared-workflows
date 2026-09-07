@@ -389,7 +389,8 @@ jobs:
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
-    if: inputs.one_time_cleanup_cutoff_date != ''
+    # Deletes RC releases/tags: never from a pull_request run.
+    if: github.event_name != 'pull_request' && inputs.one_time_cleanup_cutoff_date != ''
     env:
       IS_SELF: ''
     steps:
@@ -618,7 +619,8 @@ jobs:
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
-    if: inputs.backfill_ai_notes_cutoff_version != ''
+    # Rewrites published release notes: never from a pull_request run.
+    if: github.event_name != 'pull_request' && inputs.backfill_ai_notes_cutoff_version != ''
     steps:
       - name: System Essentials
         if: inputs.project_type == 'frappe'
@@ -997,7 +999,11 @@ jobs:
     needs: [checks, build-windows]
     # Standard GHA behavior: runs if all needs are success or skipped.
     # We use always() to ensure it runs even if build-windows was skipped (which it often is)
-    if: always() && needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
+    # Never on pull_request: this job tags, publishes releases and (weekly
+    # strategy) pushes version-bump branches. A PR run builds the merge ref
+    # and must stay read-only, whether the caller is universal-pipeline.yml
+    # or a repo calling this workflow directly.
+    if: always() && github.event_name != 'pull_request' && needs.checks.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
