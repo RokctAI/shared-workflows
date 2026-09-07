@@ -142,6 +142,19 @@ jobs:
   tour:
     name: 🎬 Guided Tour
     runs-on: ubuntu-latest
+    # One tour per (repo, ref) at a time, newest wins. Two tours on the same
+    # ref both commit back to it: on paas_driver the #117 push run (34125622584)
+    # committed its strip at 13:45Z while the #118 push run (34126294904) was
+    # still on the emulator; #118's commit-back then rebased onto that commit
+    # and hit add/add on every PNG/MP4/SVG, so the CORRECT run's outputs were
+    # dropped and main kept the stale strip. A newer push to the ref makes the
+    # older run's outputs stale by definition, so cancel it instead of letting
+    # both race for the commit. Job-level, inside the reusable workflow: a
+    # `concurrency` here applies to every caller without any shell edit
+    # (github.repository / github.ref resolve to the CALLER's values).
+    concurrency:
+      group: guided-tour-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: true
     # Compose + build_runner + debug build + emulator tour is a long ride —
     # and the tablet leg reruns the tour on a second emulator; cap it so a
     # wedged emulator cannot squat a runner for hours.
@@ -1848,10 +1861,19 @@ jobs:
           # 33474911777). The composer rewrites .rokct/cache from scratch on
           # every run, so an untracked file in there is disposable - drop
           # those, strictly inside that directory, and try the rebase again.
+          #
+          # `-X theirs`: during a rebase "theirs" is the commit being replayed,
+          # i.e. THIS run's output commit. It only ever touches <output-dir>
+          # and the README's generated marker blocks, and any copy of those
+          # already on the ref was captured by an older run, so on a
+          # conflicting hunk (binary add/add included) the fresh capture is
+          # the right side to keep; non-conflicting changes from the ref are
+          # kept as usual. The concurrency group on this job makes such a
+          # race unlikely, this keeps a stray one from discarding the tour.
           rebased=""
           for attempt in 1 2; do
             git fetch origin "$GITHUB_REF"
-            if git rebase FETCH_HEAD; then
+            if git rebase -X theirs FETCH_HEAD; then
               echo "✅ Rebased the tour output commit onto $GITHUB_REF (attempt $attempt)."
               rebased=1
               break
