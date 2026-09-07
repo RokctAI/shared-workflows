@@ -416,10 +416,15 @@ jobs:
     secrets: inherit
 
   # 4. RELEASE
+  # Never on pull_request: a PR run builds the merge ref, and the release
+  # workflow's 'immediate' strategy would otherwise tag and publish it
+  # (supacharge-web run 34115620745 cut v1.2.9 with lint red). PR runs are
+  # for the read-only gates above; releases stay push/dispatch/schedule-only.
   release:
     needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter, observability-compliance]
     if: |
       always() && 
+      github.event_name != 'pull_request' &&
       needs.detect-changes.outputs.trivial != 'true' &&
       (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') &&
       (github.ref_name == 'develop' || (
