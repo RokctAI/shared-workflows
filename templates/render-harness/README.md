@@ -64,8 +64,23 @@ Locally, the throwaway package with path deps is still the fastest loop.
 
 ## Things that are easy to get wrong
 
-- **Rendering both themes.** Keep the dark *and* light `testWidgets` blocks.
-  Theme bugs only ever appear in the variant nobody rendered.
+The list is ordered by how badly it bites. The first two are the only faults
+that fail SILENTLY - everything below them fails loudly enough to notice.
+
+- **An incomplete wrapper (marker 6).** This is the one that makes a render
+  lie: it produces a clean, convincing PNG of a screen no user will ever
+  see, and nothing downstream can tell. If the screen is a **modal, a bottom
+  sheet or a dialog, render it OVER ITS HOST** - `home:` is the host page and
+  the modal is presented over it from a post-frame callback. paas_manager's
+  login is a modal over a real splash background; handing the modal straight
+  to `home:` produced a login floating on nothing. See §2.6 of
+  [`scripts/render/README.md`](../../scripts/render/README.md) for the
+  worked wrapper.
+- **Rendering both themes.** Keep the dark *and* light `testWidgets` blocks -
+  theme bugs only ever appear in the variant nobody rendered - and wire the
+  `MaterialApp` with `theme:` **and** `darkTheme:` **and** `themeMode:`. A
+  single `theme:` switched on the `dark` flag renders both frames from one
+  `ThemeData`, so the "dark" frame is not the app's dark theme at all.
 - **`pumpAndSettle` on real async.** Widget-test fake-async never runs the
   real event loop, so a screen awaiting a real Future settles as empty. Use
   the template's `_drain`, which alternates `runAsync` with `pump`.

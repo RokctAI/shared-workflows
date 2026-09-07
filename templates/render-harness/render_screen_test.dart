@@ -165,10 +165,52 @@ void registerScreen() {
 
 /// TODO(harness) 6/8 - the widget under test.
 ///
-/// Return the REAL screen widget, wrapped in whatever the app wraps it in
-/// (ProviderScope with the demo overrides, ScreenUtilInit with the app's
-/// design size, MaterialApp with the app's theme). Do not substitute a
-/// simplified scaffold: the wrapping is part of what is being reviewed.
+/// Return the REAL screen widget, wrapped in whatever the app wraps it in:
+/// ProviderScope with the demo overrides, ScreenUtilInit with the app's
+/// design size, MaterialApp with the app's `theme` AND `darkTheme`. Do not
+/// substitute a simplified scaffold - the wrapping is part of what is being
+/// reviewed.
+///
+/// THIS IS THE MARKER THAT MAKES A RENDER LIE.
+///
+/// Everything else in this file fails loudly. A screen that does not compile
+/// stops the run; an element that does not match throws with a reason; a
+/// harness that writes no PNG fails the gate. An INCOMPLETE WRAPPER fails
+/// SILENTLY - it produces a clean, plausible, entirely convincing PNG of a
+/// screen no user will ever see, and nothing downstream can tell. The whole
+/// point of this kit is that a review frame is evidence rather than a
+/// drawing; a wrong wrapper turns it back into a drawing that happens to
+/// have been rendered.
+///
+/// It has now happened twice, both times in the wrapper and nowhere else:
+///
+///   1. `darkTheme:` OMITTED. A MaterialApp given a single `theme:` switched
+///      on the `dark` flag renders both frames from one ThemeData, so the
+///      "dark" frame was never the app's dark theme - it was the light
+///      theme with a brightness flag flipped. Wire `theme:` + `darkTheme:` +
+///      `themeMode:` and let the app choose, exactly as main.dart does. The
+///      snippet below is that shape; the earlier one-ThemeData shape is the
+///      bug, so do not copy it back in from an older harness.
+///
+///   2. A MODAL RENDERED DETACHED. paas_manager's login is a MODAL presented
+///      over a real splash background page. The harness handed the modal
+///      straight to `home:`, so the splash behind it never existed, and the
+///      strip showed a login screen floating on nothing - a screen that does
+///      not occur anywhere in the product. The render was sharp, the
+///      numbering was correct, and it was still wrong.
+///
+/// So: IF THE SCREEN IS A MODAL, A BOTTOM SHEET OR A DIALOG, RENDER IT OVER
+/// ITS HOST. `home:` is the HOST page; the modal is presented over it from a
+/// post-frame callback, and `_drain` (below, unchanged) settles the route
+/// transition before pass 1 measures anything. Present it with the app's OWN
+/// presenter - the `showDialog`, `showModalBottomSheet` or route the app
+/// really uses - never a substitute: the barrier colour, the sheet shape,
+/// the insets and the safe-area handling are all part of what is being
+/// reviewed.
+///
+/// The tour lane learned this first and wrote it down: `auth.tour.yaml`
+/// warns that routing straight to `/register` renders the sheet "as bare
+/// pages - not the UX a user ever sees". Same trap, same answer.
 Widget buildScreen({required bool dark}) {
   // return ProviderScope(
   //   overrides: [profileProvider.overrideWith((ref) => _DemoNotifier())],
@@ -176,16 +218,75 @@ Widget buildScreen({required bool dark}) {
   //     designSize: const Size(375, 812),
   //     builder: (context, child) => MaterialApp(
   //       debugShowCheckedModeBanner: false,
+  //       // BOTH themes, chosen by themeMode - never one ThemeData switched
+  //       // on `dark`. See fault 1 above.
   //       theme: ThemeData(
-  //         brightness: dark ? Brightness.dark : Brightness.light,
   //         useMaterial3: false,
+  //         brightness: Brightness.light,
+  //         scaffoldBackgroundColor: AppStyle.surfaceLightRaw,
   //       ),
+  //       darkTheme: ThemeData(
+  //         useMaterial3: false,
+  //         brightness: Brightness.dark,
+  //         scaffoldBackgroundColor: AppStyle.surfaceDarkRaw,
+  //       ),
+  //       themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+  //
+  //       // A screen that IS a page: hand it over directly.
   //       home: const YourRealScreen(),
+  //
+  //       // A screen that is a MODAL / SHEET / DIALOG: hand over its HOST
+  //       // and present the modal over it. See fault 2 above and the
+  //       // _HostThenModal helper below.
+  //       // home: const _HostThenModal(host: SplashPage()),
   //     ),
   //   ),
   // );
   throw UnimplementedError('TODO(harness) 6/8: return the real screen widget');
 }
+
+// Copy this in WHEN THE SCREEN UNDER TEST IS A MODAL, a bottom sheet or a
+// dialog, and uncomment the `_HostThenModal` line in buildScreen above.
+//
+// The host page builds first and stays behind; the modal is presented over
+// it from a post-frame callback, which is the same shape paas_driver's
+// `_CourierJourney` uses to fire the home page's fetch before the profile
+// renders. `_drain` then settles the transition before pass 1 measures, so
+// no extra pump is needed here.
+//
+// Present with the app's OWN call. The commented showDialog below is a
+// placeholder for whatever main.dart / the route table really does - if the
+// app pushes a full route, push that route; if it opens a bottom sheet,
+// call showModalBottomSheet with the app's own shape and barrier. The
+// presentation is part of the screen.
+//
+// class _HostThenModal extends StatefulWidget {
+//   const _HostThenModal({required this.host});
+//
+//   final Widget host;
+//
+//   @override
+//   State<_HostThenModal> createState() => _HostThenModalState();
+// }
+//
+// class _HostThenModalState extends State<_HostThenModal> {
+//   @override
+//   void initState() {
+//     super.initState();
+//     WidgetsBinding.instance.addPostFrameCallback((_) {
+//       if (!mounted) return;
+//       // The app's own presenter - replace with the real one.
+//       showDialog<void>(
+//         context: context,
+//         barrierDismissible: false,
+//         builder: (_) => const LoginModal(),
+//       );
+//     });
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) => widget.host;
+// }
 
 /// TODO(harness) 7/8 - the elements the review points at.
 ///

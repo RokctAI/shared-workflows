@@ -191,7 +191,97 @@ service with no `isDemo` implementation at all. Let stubs throw from
 `noSuchMethod` so they name the exact member the screen touches and cannot
 quietly grow.
 
-### 2.6 Why the screen is named, and not derived from the tour fragments
+### 2.6 Wrapping fidelity - where a render lies
+
+Everything else in this kit fails loudly. A screen that does not compile
+stops the run, an element that does not match throws with a reason, a
+harness that writes no PNG fails the tour's gate. **An incomplete wrapper
+fails silently.** It produces a clean, plausible, entirely convincing PNG of
+a screen no user will ever see, and nothing downstream can tell the
+difference - not the composer, not the numbering, not the reviewer.
+
+That is the one failure this kit cannot absorb, because the whole premise is
+that a review frame is *evidence* rather than a drawing. A wrong wrapper
+turns it back into a drawing that happens to have been rendered.
+
+It has now happened twice, both times in `TODO(harness) 6/8` and nowhere
+else.
+
+**1. `darkTheme:` omitted.** A `MaterialApp` given a single `theme:`
+switched on the `dark` flag renders both frames from one `ThemeData`. The
+"dark" frame was never the app's dark theme - it was the light theme with a
+brightness flag flipped. Wire all three and let the app choose, exactly as
+`main.dart` does:
+
+```dart
+theme: ThemeData(brightness: Brightness.light, /* the app's real light */),
+darkTheme: ThemeData(brightness: Brightness.dark, /* the app's real dark */),
+themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+```
+
+**2. A modal rendered detached.** paas_manager's login is a **modal
+presented over a real splash background page**. The harness handed the modal
+straight to `home:`, so the splash behind it never existed and the strip
+showed a login floating on nothing - a screen that does not occur anywhere
+in the product. The render was sharp, the numbering was correct, and it was
+still wrong.
+
+#### So: render a modal over its host
+
+If the screen under test is a modal, a bottom sheet or a dialog, `home:` is
+the **host page**. The modal is presented over it from a post-frame
+callback, and the harness's existing `_drain` settles the route transition
+before pass 1 measures anything - no extra pump is needed.
+
+```dart
+home: const _HostThenModal(host: SplashPage()),
+
+// ...
+
+class _HostThenModal extends StatefulWidget {
+  const _HostThenModal({required this.host});
+
+  final Widget host;
+
+  @override
+  State<_HostThenModal> createState() => _HostThenModalState();
+}
+
+class _HostThenModalState extends State<_HostThenModal> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // The app's OWN presenter - replace with the real one.
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const LoginModal(),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.host;
+}
+```
+
+The post-frame shape is not new: paas_driver's `_CourierJourney` already
+uses it to fire the home page's statistics fetch before the profile renders.
+
+**Present it with the app's own call.** `showDialog`, `showModalBottomSheet`
+or the route the app really pushes - never a substitute. The barrier colour,
+the sheet shape, the insets and the safe-area handling are all part of what
+is being reviewed, and a stand-in gets them wrong in exactly the way that is
+hardest to notice.
+
+The tour lane learned this first and wrote it down. `auth.tour.yaml` warns
+that routing straight to `/register` renders the sheet *"as bare pages - not
+the UX a user ever sees"* - the same trap, reached from the other side, with
+the same answer.
+
+### 2.7 Why the screen is named, and not derived from the tour fragments
 
 Reasonable question, since the SDKs' guided-tour fragments
 (`<sdk>/dart/templates/tour/<sdk>.tour.yaml`) already list the app's screen
