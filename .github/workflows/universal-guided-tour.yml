@@ -18,7 +18,9 @@ name: Universal Guided Tour
 # one-minute red instead of a forty-minute one. A repo with no
 # test/render harness skips that step entirely and tours exactly as before.
 # The composed page is written inside <output-dir>, so the tour's existing
-# output commit ships it with the screenshots and the feature guide.
+# output commit ships it with the screenshots and the feature guide - along
+# with one SVG per rendered frame (annotated and clean) under
+# <output-dir>/svg, for dropping a screen into a user guide or a deck.
 #
 # After the phone leg, a second SERIAL emulator leg (input `tablet`, on by
 # default) reruns the same tour on a 10-inch tablet AVD and commits tablet
@@ -121,6 +123,15 @@ on:
           Filename of the composed page, written INSIDE output-dir so the
           tour's existing commit-back pathspec ships it with the
           screenshots and the feature guide.
+      render-svg-dir:
+        required: false
+        type: string
+        default: 'svg'
+        description: >-
+          Directory for the per-frame SVG exports, relative to output-dir.
+          One annotated and one clean file per frame, for dropping a screen
+          into a user guide or a deck; committed by the same pathspec as the
+          page. Empty turns the export off.
     secrets:
       MONOREPO_PAT:
         required: false
@@ -398,6 +409,7 @@ jobs:
           STRIP_CONFIG: ${{ inputs.strip-config }}
           RENDER_OUT_DIR: ${{ inputs.render-out-dir }}
           RENDER_OUTPUT_FILE: ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+          RENDER_SVG_DIR: ${{ inputs.render-svg-dir && format('{0}/{1}', inputs.output-dir, inputs.render-svg-dir) || '' }}
           DART_DEFINES: ${{ inputs.render-dart-defines }}
         run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
 
@@ -409,7 +421,14 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: render-strip
-          path: ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+          # Page + per-frame SVGs in one download; both are also committed
+          # by the tour's existing output commit below.
+          # An empty render-svg-dir must contribute an EMPTY line (which
+          # upload-artifact drops), never a bare "<output-dir>/" - that
+          # would pull the whole tour output into this artifact.
+          path: |
+            ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+            ${{ inputs.render-svg-dir && format('{0}/{1}', inputs.output-dir, inputs.render-svg-dir) || '' }}
           retention-days: 30
           if-no-files-found: error
 

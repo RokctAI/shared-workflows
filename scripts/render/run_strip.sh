@@ -29,6 +29,9 @@
 #   RENDER_OUT_DIR      where the test writes its PNG + rect JSON.
 #   RENDER_OUTPUT_FILE  path of the composed page to write. May name a
 #                       directory that does not exist yet; it is created.
+#   RENDER_SVG_DIR      where to write the per-frame SVG exports (one
+#                       annotated + one clean file per frame, for dropping
+#                       into a user guide or a deck). Empty disables them.
 #   RENDER_SUFFIX       exported for the test, so two checkouts can be told
 #                       apart.
 #   DART_DEFINES        space-separated KEY=VALUE pairs, one --dart-define
@@ -54,6 +57,8 @@ RENDER_TEST="${RENDER_TEST:-test/render/render_screen_test.dart}"
 STRIP_CONFIG="${STRIP_CONFIG:-test/render/strip.json}"
 RENDER_OUT_DIR="${RENDER_OUT_DIR:-out}"
 RENDER_OUTPUT_FILE="${RENDER_OUTPUT_FILE:-render-strip.html}"
+# `-` not `:-`: an explicitly empty value turns the SVG export off.
+RENDER_SVG_DIR="${RENDER_SVG_DIR-svg}"
 # `-` not `:-`: an EXPLICITLY empty DART_DEFINES means "no defines", the
 # same as passing an empty dart-defines input to the workflow. Only an
 # UNSET variable falls back to the default.
@@ -92,10 +97,22 @@ echo "✅ Rendered $COUNT frame(s)."
 OUT_PARENT=$(dirname "$RENDER_OUTPUT_FILE")
 [ "$OUT_PARENT" = "." ] || mkdir -p "$OUT_PARENT"
 
-python3 "$COMPOSER" \
-  --config "$STRIP_CONFIG" \
-  --base-dir "$RENDER_OUT_DIR" \
-  --out "$RENDER_OUTPUT_FILE" || fail "Composing the review strip failed."
+COMPOSE_ARGS=(
+  --config "$STRIP_CONFIG"
+  --base-dir "$RENDER_OUT_DIR"
+  --out "$RENDER_OUTPUT_FILE"
+)
+if [ -n "$RENDER_SVG_DIR" ]; then
+  COMPOSE_ARGS+=(--emit-svg "$RENDER_SVG_DIR")
+fi
+
+python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip failed."
 
 [ -s "$RENDER_OUTPUT_FILE" ] || fail "The composer wrote no page at $RENDER_OUTPUT_FILE."
 echo "✅ Review strip composed at $RENDER_OUTPUT_FILE ($(wc -c <"$RENDER_OUTPUT_FILE") bytes)."
+
+if [ -n "$RENDER_SVG_DIR" ]; then
+  SVG_COUNT=$(find "$RENDER_SVG_DIR" -name '*.svg' 2>/dev/null | wc -l)
+  [ "$SVG_COUNT" -gt 0 ] || fail "No SVGs were written to $RENDER_SVG_DIR."
+  echo "✅ $SVG_COUNT SVG(s) exported to $RENDER_SVG_DIR (annotated + clean per frame)."
+fi
