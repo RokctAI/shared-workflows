@@ -11,6 +11,15 @@ name: Universal Guided Tour
 # the brand-neutral fragments each composed SDK ships in templates/tour/.
 # See scripts/tour/README.md in this repo for the format.
 #
+# Before any of that, and before the APK is even built, the job renders the
+# repo's review strip (a headless widget-test render of the real screens,
+# composed into one self-contained HTML page - scripts/render/README.md) and
+# FAILS the run if it does not render. A compile or layout break is then a
+# one-minute red instead of a forty-minute one. A repo with no
+# test/render harness skips that step entirely and tours exactly as before.
+# The composed page is written inside <output-dir>, so the tour's existing
+# output commit ships it with the screenshots and the feature guide.
+#
 # After the phone leg, a second SERIAL emulator leg (input `tablet`, on by
 # default) reruns the same tour on a 10-inch tablet AVD and commits tablet
 # geometry outputs to marketing/tour/tablet/ — its store/ stills feed the
@@ -72,6 +81,46 @@ on:
         type: boolean
         default: true
         description: "Also rerun the tour on a 10-inch tablet emulator leg and publish tablet assets to <output-dir>/tablet"
+      render-strip:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Render the review strip BEFORE the APK build and the emulator legs,
+          and fail the run if it does not render. A repo with no
+          test/render harness skips it cleanly - see the "Render Strip"
+          steps below.
+      render-test:
+        required: false
+        type: string
+        default: 'test/render/render_screen_test.dart'
+        description: "Render widget test; its absence is what skips the gate."
+      strip-config:
+        required: false
+        type: string
+        default: 'test/render/strip.json'
+        description: "Strip config consumed by scripts/render/compose_strip.py."
+      render-out-dir:
+        required: false
+        type: string
+        default: 'out'
+        description: "Directory the render test writes its PNG + rect JSON into."
+      render-dart-defines:
+        required: false
+        type: string
+        default: 'IS_DEMO=true'
+        description: >-
+          Space-separated KEY=VALUE pairs passed to the render test as
+          --dart-define. IS_DEMO=true is what makes the SDKs register their
+          demo fixtures instead of real HTTP repositories.
+      render-output-file:
+        required: false
+        type: string
+        default: 'render-strip.html'
+        description: >-
+          Filename of the composed page, written INSIDE output-dir so the
+          tour's existing commit-back pathspec ships it with the
+          screenshots and the feature guide.
     secrets:
       MONOREPO_PAT:
         required: false
@@ -285,6 +334,84 @@ jobs:
               exit 1
             fi
           fi
+
+      # ----------------------------------------------------------------------
+      # RENDER STRIP GATE
+      #
+      # A headless render of the app's real screens (RepaintBoundary.toImage
+      # via a widget test - no emulator, no display) composed into one
+      # self-contained HTML page. It costs about a minute and it runs HERE,
+      # after the compose / pub get / build_runner work above and BEFORE the
+      # APK build and both emulator legs, for two reasons:
+      #
+      #   1. It is the cheap gate. A compile break or a screen that will not
+      #      lay out is caught in a minute instead of forty, and the run
+      #      stops before it burns any emulator time.
+      #   2. It reuses this job's composed SDK tree. As a separate job it
+      #      would land on a fresh VM and re-run the whole compose - several
+      #      minutes - purely to render.
+      #
+      # It is a STEP, not a job, for reason 2. Ordering note carried over
+      # from universal-render-strip.yml: Setup Java -> Setup Flutter ->
+      # compose is load-bearing (the composer's SDK-cache codegen silently
+      # skips itself when `flutter` is not yet on PATH, leaving
+      # .rokct/cache/**/*.freezed.dart missing); this step sits well after
+      # all three, so that invariant is untouched.
+      #
+      # The page is written INSIDE output-dir, so the existing "Commit Tour
+      # Outputs" pathspec below ships it in the SAME commit as the
+      # screenshots and the feature guide - no second commit-back path.
+      - name: Check For Render Strip Harness
+        id: render-check
+        if: inputs.render-strip == true
+        shell: bash
+        env:
+          RENDER_TEST: ${{ inputs.render-test }}
+          STRIP_CONFIG: ${{ inputs.strip-config }}
+        run: |
+          # BOTH halves are required: the test renders the PNGs, the config
+          # is what the composer turns them into a page with. A repo that has
+          # neither (most of the fleet - this workflow is distributed
+          # everywhere) skips silently and the tour proceeds exactly as
+          # before. Nothing is rendered, nothing is uploaded and nothing is
+          # committed - not an empty file, not a placeholder.
+          if [ -f "$RENDER_TEST" ] && [ -f "$STRIP_CONFIG" ]; then
+            echo "has_render=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Render harness found ($RENDER_TEST + $STRIP_CONFIG). The strip gates this tour."
+          else
+            echo "has_render=false" >> "$GITHUB_OUTPUT"
+            echo "⏭️ No render harness (want $RENDER_TEST + $STRIP_CONFIG). Skipping the strip; the tour continues."
+          fi
+
+      # Same script the standalone lane (universal-render-strip.yml, still
+      # workflow_dispatch-able) runs, taken from the .tour-tools checkout of
+      # shared-workflows made at the top of this job. One implementation, so
+      # the gate and the manual button cannot drift apart.
+      #
+      # No continue-on-error on purpose: a failure here IS the point.
+      - name: Render Strip (gates the tour)
+        if: steps.render-check.outputs.has_render == 'true'
+        shell: bash
+        env:
+          RENDER_TOOLS_DIR: ${{ github.workspace }}/.tour-tools
+          RENDER_TEST: ${{ inputs.render-test }}
+          STRIP_CONFIG: ${{ inputs.strip-config }}
+          RENDER_OUT_DIR: ${{ inputs.render-out-dir }}
+          RENDER_OUTPUT_FILE: ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+          DART_DEFINES: ${{ inputs.render-dart-defines }}
+        run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
+
+      # Reachable from the run summary the same way the standalone lane
+      # publishes it, for anyone who wants the page without pulling the
+      # branch.
+      - name: Upload Render Strip
+        if: steps.render-check.outputs.has_render == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: render-strip
+          path: ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+          retention-days: 30
+          if-no-files-found: error
 
       - name: "Fetch/Decode Google Services JSON (Priority: Local > Occultation > Secret)"
         env:
