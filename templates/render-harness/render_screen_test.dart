@@ -200,13 +200,22 @@ void registerScreen() {
 ///      numbering was correct, and it was still wrong.
 ///
 /// So: IF THE SCREEN IS A MODAL, A BOTTOM SHEET OR A DIALOG, RENDER IT OVER
-/// ITS HOST. `home:` is the HOST page; the modal is presented over it from a
-/// post-frame callback, and `_drain` (below, unchanged) settles the route
-/// transition before pass 1 measures anything. Present it with the app's OWN
-/// presenter - the `showDialog`, `showModalBottomSheet` or route the app
-/// really uses - never a substitute: the barrier colour, the sheet shape,
-/// the insets and the safe-area handling are all part of what is being
-/// reviewed.
+/// ITS HOST. `home:` is the HOST page, and the modal is opened over it
+/// before anything is measured.
+///
+/// OPEN IT BY DRIVING THE APP'S OWN TRIGGER - tap the button the user taps -
+/// not by presenting the modal yourself and not by pushing its route by
+/// hand. The barrier, the sheet shape, the height constraint, the insets and
+/// the safe-area handling all come from the app's own call site; a stand-in
+/// gets them wrong in exactly the way that is hardest to notice, and a
+/// hand-pushed route stops noticing when the real call site drifts.
+///
+/// paas_manager's harness is the pattern to copy - see the `openSheet`
+/// sketch below and section 2.6 of scripts/render/README.md. Where no
+/// trigger is reachable (a modal only ever opened by a push notification or
+/// a deep link), fall back to presenting it over the host from a post-frame
+/// callback with the app's OWN presenter - the `_HostThenModal` sketch,
+/// also below.
 ///
 /// The tour lane learned this first and wrote it down: `auth.tour.yaml`
 /// warns that routing straight to `/register` renders the sheet "as bare
@@ -236,29 +245,58 @@ Widget buildScreen({required bool dark}) {
   //       home: const YourRealScreen(),
   //
   //       // A screen that is a MODAL / SHEET / DIALOG: hand over its HOST
-  //       // and present the modal over it. See fault 2 above and the
-  //       // _HostThenModal helper below.
-  //       // home: const _HostThenModal(host: SplashPage()),
+  //       // and open the modal over it from the render body with
+  //       // `openSheet(tester)`. See fault 2 above and the sketches below.
+  //       // home: const LoginPage(),
   //     ),
   //   ),
   // );
   throw UnimplementedError('TODO(harness) 6/8: return the real screen widget');
 }
 
-// Copy this in WHEN THE SCREEN UNDER TEST IS A MODAL, a bottom sheet or a
-// dialog, and uncomment the `_HostThenModal` line in buildScreen above.
+// WHEN THE SCREEN UNDER TEST IS A MODAL, a bottom sheet or a dialog.
 //
-// The host page builds first and stays behind; the modal is presented over
-// it from a post-frame callback, which is the same shape paas_driver's
-// `_CourierJourney` uses to fire the home page's fetch before the profile
-// renders. `_drain` then settles the transition before pass 1 measures, so
-// no extra pump is needed here.
+// PREFERRED - drive the app's own trigger. Call this from the render body
+// immediately after the first `_drain`, before pass 1 measures:
 //
-// Present with the app's OWN call. The commented showDialog below is a
-// placeholder for whatever main.dart / the route table really does - if the
-// app pushes a full route, push that route; if it opens a bottom sheet,
-// call showModalBottomSheet with the app's own shape and barrier. The
-// presentation is part of the screen.
+//     await _drain(tester);
+//     await openSheet(tester);   // the modal is now over its host
+//
+// Both `expect`s are load-bearing: they turn a silent wrapper fault into a
+// loud one. If the trigger disappears or stops opening the sheet, the render
+// fails with a reason instead of quietly producing a frame of the host page
+// on its own.
+//
+// /// Opens the sheet the way the APP opens it - by tapping the real button,
+// /// which calls the app's own showCustomModalBottomSheet. Driving the
+// /// button rather than pushing a route by hand is the point: the sheet's
+// /// constraints, its shape and its scrim all come from the app's call site,
+// /// so none of them can drift from what ships without this test noticing.
+// Future<void> openSheet(WidgetTester tester) async {
+//   final trigger = find.widgetWithText(
+//     CustomButton,
+//     AppHelpers.getTranslation(TrKeys.login),
+//   );
+//   expect(
+//     trigger,
+//     findsWidgets,
+//     reason:
+//         'no Login button on the host page - the sheet cannot be opened '
+//         'the way the app opens it',
+//   );
+//   await tester.tap(trigger.first, warnIfMissed: false);
+//   await _drain(tester, rounds: 4);
+//   expect(
+//     find.byType(LoginScreen),
+//     findsOneWidget,
+//     reason: 'tapping the trigger did not put the sheet on screen',
+//   );
+// }
+//
+// FALLBACK - only where no trigger is reachable (a modal opened solely by a
+// push notification, a deep link, or a path the demo fixtures cannot reach).
+// Present it over the host from a post-frame callback, with the app's OWN
+// presenter. Same shape as paas_driver's shipping `_CourierJourney`.
 //
 // class _HostThenModal extends StatefulWidget {
 //   const _HostThenModal({required this.host});
@@ -275,7 +313,8 @@ Widget buildScreen({required bool dark}) {
 //     super.initState();
 //     WidgetsBinding.instance.addPostFrameCallback((_) {
 //       if (!mounted) return;
-//       // The app's own presenter - replace with the real one.
+//       // The app's OWN presenter - showModalBottomSheet, showDialog, or the
+//       // helper the app wraps them in. Never a substitute.
 //       showDialog<void>(
 //         context: context,
 //         barrierDismissible: false,

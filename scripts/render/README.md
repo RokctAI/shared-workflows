@@ -229,9 +229,69 @@ still wrong.
 #### So: render a modal over its host
 
 If the screen under test is a modal, a bottom sheet or a dialog, `home:` is
-the **host page**. The modal is presented over it from a post-frame
-callback, and the harness's existing `_drain` settles the route transition
-before pass 1 measures anything - no extra pump is needed.
+the **host page**, and the modal is opened over it before anything is
+measured.
+
+**Open it by driving the app's own trigger.** Not by presenting the modal
+yourself, and not by pushing its route by hand. The barrier, the sheet
+shape, the height constraint, the insets and the safe-area handling all come
+from the app's own call site; a stand-in gets them wrong in exactly the way
+that is hardest to notice, and a hand-pushed route stops noticing when the
+real call site drifts.
+
+This is what paas_manager's harness does, and it is the pattern to copy:
+
+```dart
+/// Opens the sign-in sheet the way the app opens it: by tapping LoginPage's
+/// Login button, which calls `AppHelpers.showCustomModalBottomSheet` with
+/// `const LoginScreen()`.
+Future<void> openSheet(WidgetTester tester) async {
+  final loginButton = find.widgetWithText(
+    CustomButton,
+    AppHelpers.getTranslation(TrKeys.login),
+  );
+  expect(
+    loginButton,
+    findsWidgets,
+    reason: 'no Login button on LoginPage - the sheet cannot be opened the '
+        'way the app opens it',
+  );
+  await tester.tap(loginButton.first, warnIfMissed: false);
+  await _drain(tester, rounds: 4);
+  expect(
+    find.byType(LoginScreen),
+    findsOneWidget,
+    reason: 'tapping Login did not put the sign-in sheet on screen',
+  );
+}
+```
+
+Both `expect`s matter. They are what turn a silent wrapper fault into a loud
+one: if the trigger disappears or stops opening the sheet, the render fails
+with a reason instead of quietly producing a frame of the host page alone.
+
+Call it in the render body immediately after the first `_drain`, before pass
+1 measures:
+
+```dart
+await tester.pumpWidget(
+  RepaintBoundary(key: boundaryKey, child: buildScreen(dark: dark)),
+);
+await _drain(tester);
+await openSheet(tester);      // <- the modal is now over its host
+```
+
+> **Note.** That last line is currently a hand-edit inside the region the
+> template tells you to leave alone. The template has no seam between the
+> first drain and pass-1 measurement, so every shell with a modal has to add
+> it by hand. If that turns out to be more than a one-off, the fix is a
+> no-op `afterFirstPump` hook in the template rather than each harness
+> editing the proven mechanism.
+
+**When there is no reachable trigger** - the modal is only ever opened by a
+push notification, a deep link, or a code path the demo fixtures cannot
+reach - present it yourself from a post-frame callback over the host, using
+the app's own presenter:
 
 ```dart
 home: const _HostThenModal(host: SplashPage()),
@@ -253,7 +313,8 @@ class _HostThenModalState extends State<_HostThenModal> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // The app's OWN presenter - replace with the real one.
+      // The app's OWN presenter - showModalBottomSheet, showDialog, or the
+      // helper the app wraps them in. Never a substitute.
       showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -267,19 +328,14 @@ class _HostThenModalState extends State<_HostThenModal> {
 }
 ```
 
-The post-frame shape is not new: paas_driver's `_CourierJourney` already
-uses it to fire the home page's statistics fetch before the profile renders.
+The post-frame shape is not new either: paas_driver's `_CourierJourney`
+already uses it to fire the home page's statistics fetch before the profile
+renders. Prefer the trigger; fall back to this.
 
-**Present it with the app's own call.** `showDialog`, `showModalBottomSheet`
-or the route the app really pushes - never a substitute. The barrier colour,
-the sheet shape, the insets and the safe-area handling are all part of what
-is being reviewed, and a stand-in gets them wrong in exactly the way that is
-hardest to notice.
-
-The tour lane learned this first and wrote it down. `auth.tour.yaml` warns
-that routing straight to `/register` renders the sheet *"as bare pages - not
-the UX a user ever sees"* - the same trap, reached from the other side, with
-the same answer.
+The tour lane learned all of this first and wrote it down. `auth.tour.yaml`
+warns that routing straight to `/register` renders the sheet *"as bare pages
+- not the UX a user ever sees"* - the same trap, reached from the other
+side, with the same answer.
 
 ### 2.7 Why the screen is named, and not derived from the tour fragments
 
