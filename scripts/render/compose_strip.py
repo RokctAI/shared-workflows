@@ -346,6 +346,15 @@ def decode_png_luma(data):
     return width, height, bytes(luma)
 
 
+def _rect(element, key):
+    """One rect field as a float. Tolerant: an older harness sidecar that
+    never wrote `h` must degrade to "cannot measure", not crash the page."""
+    try:
+        return float(element[key])
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+
+
 def region_contrast(image, element, logical_width, logical_height):
     """Standard deviation of luminance inside one element's rect, or None.
 
@@ -357,10 +366,10 @@ def region_contrast(image, element, logical_width, logical_height):
     width, height, luma = image
     scale_x = width / float(logical_width)
     scale_y = height / float(logical_height)
-    x0 = max(0, int(float(element['x']) * scale_x))
-    y0 = max(0, int(float(element['y']) * scale_y))
-    x1 = min(width, int((float(element['x']) + float(element['w'])) * scale_x))
-    y1 = min(height, int((float(element['y']) + float(element['h'])) * scale_y))
+    x0 = max(0, int(_rect(element, 'x') * scale_x))
+    y0 = max(0, int(_rect(element, 'y') * scale_y))
+    x1 = min(width, int((_rect(element, 'x') + _rect(element, 'w')) * scale_x))
+    y1 = min(height, int((_rect(element, 'y') + _rect(element, 'h')) * scale_y))
     if x1 - x0 < 2 or y1 - y0 < 2:
         return None
 
@@ -382,7 +391,7 @@ def region_contrast(image, element, logical_width, logical_height):
 
 
 def _moved(a, b):
-    return any(abs(float(a[k]) - float(b[k])) > CHIP_MOVE_TOLERANCE
+    return any(abs(_rect(a, k) - _rect(b, k)) > CHIP_MOVE_TOLERANCE
                for k in ('x', 'y', 'w', 'h'))
 
 
@@ -401,23 +410,34 @@ def resolve_roles(loaded):
             images[index] = decode_png_luma(png_bytes)
         return images[index]
 
-    primaries = {}   # key -> (frame index, element, contrast or None)
+    # Held UNMEASURED until a repeat actually turns up: a single-frame page
+    # has nothing to compare, and decoding its PNG for a number nobody will
+    # question is a second of CI time spent on nothing.
+    primaries = {}   # key -> (frame index, rects, png bytes, element)
+    measured = {}    # key -> contrast of the primary, computed on demand
     roles = []
+
+    def primary_contrast(key):
+        if key not in measured:
+            index, rects, png_bytes, element = primaries[key]
+            measured[key] = region_contrast(
+                image_for(index, png_bytes), element,
+                rects['logicalWidth'], rects['logicalHeight'])
+        return measured[key]
+
     for index, ((frame, rects), png_bytes) in enumerate(loaded):
         frame_roles = {}
         for element in rects['elements']:
             key = element_key(element)
             if key not in primaries:
-                contrast = region_contrast(
-                    image_for(index, png_bytes), element,
-                    rects['logicalWidth'], rects['logicalHeight'])
-                primaries[key] = (index, element, contrast)
+                primaries[key] = (index, rects, png_bytes, element)
                 frame_roles[key] = ROLE_PRIMARY
                 continue
-            _, first_element, first_contrast = primaries[key]
+            first_element = primaries[key][3]
             if _moved(first_element, element):
                 frame_roles[key] = ROLE_CHANGED
                 continue
+            first_contrast = primary_contrast(key)
             contrast = region_contrast(
                 image_for(index, png_bytes), element,
                 rects['logicalWidth'], rects['logicalHeight'])

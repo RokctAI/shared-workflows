@@ -636,6 +636,36 @@ class ChipRepeatTests(ComposerTestCase):
         self.assertGreaterEqual(abs(a - b) / max(a, b, 1.0),
                                 compose_strip.CHIP_CHANGE_THRESHOLD)
 
+    def test_a_sidecar_without_h_does_not_crash_the_page(self):
+        """Older harnesses wrote fewer rect fields. A missing dimension must
+        degrade to "cannot measure", never take the whole page down."""
+        old_shape = {'key': 'hdr', 'label': 'Header', 'x': 16.0, 'y': 10.0,
+                     'w': 358.0}
+        self.write_frame('a', [old_shape], png=_png_grid(64, 64, (20, 20, 20)))
+        self.write_frame('b', [old_shape], png=_png_grid(64, 64, (20, 20, 20)))
+        page, mapping, _new = self.compose({
+            'title': 'T',
+            'frames': [
+                {'png': 'a.png', 'rects': 'a.json', 'caption': 'A'},
+                {'png': 'b.png', 'rects': 'b.json', 'caption': 'B'},
+            ]})
+        self.assertEqual(mapping, {'hdr': 1})
+        self.assertEqual(page.count('class="chip"'), 1)
+        self.assertEqual(page.count('class="chip rep"'), 1)
+
+    def test_a_single_frame_page_needs_no_pixel_comparison(self):
+        """Nothing to compare, so nothing is decoded and nothing is a
+        repeat - the common single-frame page pays none of this cost."""
+        self.write_frame('a', [_element(1, 'hdr', 'Header', 10)],
+                         png=_png_grid(64, 64, (20, 20, 20)))
+        page, _mapping, _new = self.compose({
+            'title': 'T',
+            'frames': [{'png': 'a.png', 'rects': 'a.json', 'caption': 'A'}]})
+        self.assertEqual(page.count('class="chip"'), 1)
+        self.assertNotIn('class="chip rep"', page)
+        # The CSS rule always ships; the per-frame explainer must not.
+        self.assertNotIn('<div class="frame-diff">', page)
+
     def test_undecodable_png_degrades_to_hidden_not_to_noise(self):
         """No pixels to compare -> stay with the default (hidden), never
         flag everything. The toggle is always there to recover the set."""
