@@ -74,13 +74,14 @@ Two independent products (so a video hiccup can never block the stills):
 
 --device picks the canvas/frame geometry preset: ``phone`` (the default —
 everything above, byte-identical to runs that predate the flag) or
-``tablet``, which renders the SAME products on the 10-inch portrait
-1600x2560 canvas for the workflow's tablet emulator leg. A tablet run
+``tablet``, which renders the SAME products on the 10-inch LANDSCAPE
+2560x1600 canvas for the workflow's tablet emulator leg — a tablet is
+held on its long edge, so that is how the listing shows it. A tablet run
 writes to its own --out directory (the workflow passes
 <phone-out>/tablet) and deliberately SKIPS the phone-only Play listing
 assets — store/feature-graphic.png, store/icon-512.png and the
 tour-wide reel exist once per listing and stay with the phone run — so
-its store/ dir holds ONLY portrait tablet stills, which the Play deploy
+its store/ dir holds ONLY landscape tablet stills, which the Play deploy
 classifies as tenInchScreenshots by directory.
 
 Branding (app name, tagline, hook, colours, offer, logo) comes exclusively
@@ -137,6 +138,14 @@ CAPTION_TOP = 140  # caption block top margin (bottom-anchored beats)
 CAPTION_BOTTOM = 140  # caption block bottom margin (top-anchored beats)
 CAPTION_MIN_EDGE = 72  # caption never gets closer than this to a canvas edge
 CAPTION_PHONE_GAP = 48  # px between the caption block and the phone's near edge
+# Caption type, preset-scaled: the same physical reading size on a WIDER
+# canvas needs bigger type (64px is 5.9% of the phone's 1080px canvas but
+# only 2.5% of the landscape tablet's 2560px one), so the tablet preset
+# raises these rather than shipping captions that vanish in a listing
+# thumbnail. The wide reel keeps its own column metrics below.
+CAPTION_FONT_SIZE = 64
+CAPTION_LINE_HEIGHT = 84
+CAPTION_SIDE_MARGIN = 72  # caption block's left/right margin on the canvas
 FRAME_ZONE_TOP = 500  # `full` anchor: phone floats below the caption zone
 VALID_FRAME_ANCHORS = ("bottom", "top", "full")
 # Chapter-beat entrance: the phone starts FULLY off-canvas past its anchored
@@ -187,35 +196,57 @@ FONT_CANDIDATES = (
 # --- device geometry presets -------------------------------------------------
 # The module-level constants above ARE the phone preset (so a run without
 # --device is byte-identical to runs that predate the flag). The tablet
-# preset re-targets the portrait canvas to the workflow's 10-inch tablet
-# leg (1600x2560, the emulator's forced `wm size` — inside Play's
-# 320-3840px screenshot bounds), scales the phone-frame fit boxes to
-# keep the same canvas margins, and re-proportions the drawn frame
-# itself: the phone's 24px bezel / 96px radius applied unscaled to the
-# 1262px-wide tablet card read as a phone slab stretched to 16:10 (2%
-# bezel, 8% corners), where a real tablet carries a ~4-6% bezel and
-# ~3-5% corners. The bottom crop is gentler too (like the wide reel) so
-# the stills keep most of the 16:10 screen — but it MUST still remove
-# the launcher taskbar the tablet emulator burns into the bottom ~100px
-# of every raw capture (~72px once fitted into the 1150px box, plus the
-# bezel): at 0.10 the crop hides 139px of screen, roughly twice the
-# dock. Landscape (wide reel / feature graphic) constants stay
-# untouched: the tablet run skips those phone-only assets.
+# preset re-targets the canvas to the workflow's 10-inch tablet leg,
+# which captures LANDSCAPE 2560x1600 — a tablet is held on its long edge,
+# so that is the shape the listing has to show. 2560x1600 is 1.6:1 and
+# every side is inside Play's 320-3840px screenshot bounds (Play also
+# refuses a longer side more than twice the shorter; 1.6 clears it).
+#
+# The fit boxes keep the SAME 0.71875 scale the portrait canvas used, so
+# the card lands with the same proportions, transposed: a 1952x1262 bezel
+# rect (76% of the canvas width, against the portrait card's 79%) centred
+# with 304px side margins, resting 540px down the canvas so the caption
+# zone above it keeps roughly the same share of the frame (34% here, 31%
+# before). The drawn frame itself is unchanged: 56px of bezel and a 64px
+# corner radius are 4.3% and 4.9% of the card's SHORT side either way
+# round, which is what makes it read as a tablet rather than a stretched
+# phone.
+#
+# CROP_FRACTION is the one number that could NOT simply be carried over.
+# It crops a share of the CARD's height off-canvas, and the launcher
+# taskbar the emulator burns into the bottom of every capture is a fixed
+# ~73dp — ~110px at the leg's density 240, ~147px at the retry's 320 —
+# of a canvas that is now 1600px tall instead of 2560px, i.e. a much
+# bigger share of it. At the portrait 0.10 the landscape card would hide
+# only ~100 raw px and the taskbar would peek out from the bottom of
+# every still; 0.16 hides 203 raw px (crop 202px of card, less the 56px
+# bezel, back through the 0.71875 fit), ~1.8x a density-240 taskbar and
+# ~1.4x a density-320 one, while still keeping 87% of the screen. NOTE
+# this only holds for the default `bottom` frame anchor: a chapter
+# pinned `top` (video.chapter_frame_anchor) crops the TOP of the card
+# and leaves the taskbar in frame — true of the portrait canvas before
+# this change too.
+#
+# Landscape (wide reel / feature graphic) constants stay untouched: the
+# tablet run skips those phone-only assets.
 DEVICE_PRESETS = {
     "phone": {},
     "tablet": {
-        "WIDTH": 1600,
-        "HEIGHT": 2560,
-        "FRAME_MAX_W": 1150,
-        "FRAME_MAX_H": 2000,
-        "FULL_MAX_W": 1040,
-        "FULL_MAX_H": 1600,
+        "WIDTH": 2560,
+        "HEIGHT": 1600,
+        "FRAME_MAX_W": 1840,
+        "FRAME_MAX_H": 1150,
+        "FULL_MAX_W": 1440,
+        "FULL_MAX_H": 900,
         "SPLASH_FIT_W": 1200,
         "SPLASH_FIT_H": 1200,
-        "FRAME_ZONE_TOP": 660,
-        "FRAME_BEZEL": 56,  # 4.4% of the 1262px card (phone: 2.9% of 828px)
-        "FRAME_RADIUS": 64,  # 5.1% of the card width; screen corners at 8px
-        "CROP_FRACTION": 0.10,  # 195px of a 1952px card: dock hidden, screen kept
+        "FRAME_ZONE_TOP": 380,
+        "FRAME_BEZEL": 56,  # 4.3% of the 1262px-short-side card (phone: 2.9%)
+        "FRAME_RADIUS": 64,  # 4.9% of that short side; screen corners at 8px
+        "CROP_FRACTION": 0.16,  # 202px of card = 203 raw px: taskbar hidden
+        "CAPTION_FONT_SIZE": 84,  # 3.3% of a 2560px canvas (phone: 5.9% of 1080)
+        "CAPTION_LINE_HEIGHT": 110,
+        "CAPTION_SIDE_MARGIN": 96,
     },
 }
 
@@ -723,12 +754,12 @@ def caption_overlay(
     if not text:
         return overlay
     draw = ImageDraw.Draw(overlay)
-    font = load_font(64, font_path)
-    margin = 72
+    font = load_font(CAPTION_FONT_SIZE, font_path)
+    margin = CAPTION_SIDE_MARGIN
     max_text_width = WIDTH - 2 * margin
     normalized = " ".join(text.split())
     lines = wrap_tokens(draw, highlight_tokens(normalized, highlight), font, max_text_width)
-    line_height = 84
+    line_height = CAPTION_LINE_HEIGHT
     block_height = line_height * len(lines)
     if position == "top":
         top = CAPTION_TOP
@@ -866,6 +897,14 @@ def splash_card(splash_path, bg=CARD_BG):
     art = load_splash_art(splash_path)
     if art is None:
         return None
+    if WIDTH > HEIGHT:
+        # LANDSCAPE canvas (the tablet preset): portrait splash art cannot
+        # centre-crop to 16:10 without slicing through its own typography,
+        # so it follows exactly the rules the landscape reel card already
+        # uses — contained at full height with pillars in the art's own
+        # border colour, full-bleed cover for landscape art, a small mark
+        # centred on the brand canvas.
+        return splash_card_for(art, WIDTH, HEIGHT, bg)
     if art.height > art.width:  # portrait, like the canvas: full-bleed
         scale = max(WIDTH / art.width, HEIGHT / art.height)
         art = art.resize(
@@ -881,41 +920,49 @@ def splash_card(splash_path, bg=CARD_BG):
     return card.convert("RGB")
 
 
-def splash_card_wide(splash_path, bg=CARD_BG):
-    """Landscape opening card for the wide reel (RGB, WIDE_WxWIDE_H) or None.
+def splash_card_for(art, canvas_w, canvas_h, bg):
+    """Loaded splash art laid onto a LANDSCAPE canvas_w x canvas_h card (RGB).
 
-    Portrait full-screen art cannot centre-crop to 16:9 without slicing
-    through its own typography, so it renders CONTAINED at full canvas
-    height, centred, with the side pillars filled with the art's own
-    border-average colour — flat-background splash art (the common case)
-    blends seamlessly. Full-bleed landscape art cover-crops to the canvas
-    like the portrait card does; a small square/landscape splash mark
-    sits centred on the brand canvas, alpha preserved.
+    Shared by the wide reel's opening card and, since the tablet leg
+    started capturing landscape, by ``splash_card`` itself: portrait art
+    is contained at full canvas height and pillared with its own border
+    average (flat-background splash art blends seamlessly), full-bleed
+    landscape art cover-crops, and a small square/landscape splash mark
+    sits centred on the brand canvas with its alpha preserved.
     """
     from PIL import Image
 
+    if art.height > art.width:  # portrait art: contain at full height, pillar-fill
+        fill = edge_average(art)
+        scale = canvas_h / art.height
+        art = art.resize((max(1, round(art.width * scale)), canvas_h), Image.LANCZOS)
+        card = Image.new("RGBA", (canvas_w, canvas_h), tuple(fill) + (255,))
+        card.alpha_composite(art, ((canvas_w - art.width) // 2, 0))
+        return card.convert("RGB")
+    if art.width > SPLASH_FIT_W or art.height > SPLASH_FIT_H:  # full-bleed landscape art
+        scale = max(canvas_w / art.width, canvas_h / art.height)
+        art = art.resize(
+            (max(canvas_w, round(art.width * scale)), max(canvas_h, round(art.height * scale))),
+            Image.LANCZOS,
+        )
+        left = (art.width - canvas_w) // 2
+        top = (art.height - canvas_h) // 2
+        return art.crop((left, top, left + canvas_w, top + canvas_h)).convert("RGB")
+    card = Image.new("RGBA", (canvas_w, canvas_h), tuple(bg) + (255,))
+    card.alpha_composite(art, ((canvas_w - art.width) // 2, (canvas_h - art.height) // 2))
+    return card.convert("RGB")
+
+
+def splash_card_wide(splash_path, bg=CARD_BG):
+    """Landscape opening card for the wide reel (RGB, WIDE_WxWIDE_H) or None.
+
+    The landscape rules live in ``splash_card_for``, which the tablet
+    preset's landscape canvas now shares.
+    """
     art = load_splash_art(splash_path)
     if art is None:
         return None
-    if art.height > art.width:  # portrait art: contain at full height, pillar-fill
-        fill = edge_average(art)
-        scale = WIDE_H / art.height
-        art = art.resize((max(1, round(art.width * scale)), WIDE_H), Image.LANCZOS)
-        card = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(fill) + (255,))
-        card.alpha_composite(art, ((WIDE_W - art.width) // 2, 0))
-        return card.convert("RGB")
-    if art.width > SPLASH_FIT_W or art.height > SPLASH_FIT_H:  # full-bleed landscape art
-        scale = max(WIDE_W / art.width, WIDE_H / art.height)
-        art = art.resize(
-            (max(WIDE_W, round(art.width * scale)), max(WIDE_H, round(art.height * scale))),
-            Image.LANCZOS,
-        )
-        left = (art.width - WIDE_W) // 2
-        top = (art.height - WIDE_H) // 2
-        return art.crop((left, top, left + WIDE_W, top + WIDE_H)).convert("RGB")
-    card = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(bg) + (255,))
-    card.alpha_composite(art, ((WIDE_W - art.width) // 2, (WIDE_H - art.height) // 2))
-    return card.convert("RGB")
+    return splash_card_for(art, WIDE_W, WIDE_H, bg)
 
 
 def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
@@ -924,8 +971,8 @@ def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
     Used only when no app splash image resolves (see ``splash_card``).
     All text picks black-or-white ink against the actual background; the
     app name uses the accent colour only when it reads on the canvas.
-    ``size`` defaults to the active preset's portrait canvas (resolved
-    at call time); the wide reel passes its landscape one.
+    ``size`` defaults to the active preset's canvas (resolved at call
+    time); the wide reel passes its own landscape one.
     """
     from PIL import Image, ImageDraw
 
@@ -960,9 +1007,8 @@ def hook_card(app, hook, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
 def end_card(app, offer, logo_path, font_path="", bg=CARD_BG, accent=ACCENT, size=None):
     """Closing full-frame card: logo (when present), app name, offer line.
 
-    ``size`` defaults to the active preset's portrait canvas (resolved
-    at call time); the wide reel renders the same centred stack on its
-    landscape one.
+    ``size`` defaults to the active preset's canvas (resolved at call
+    time); the wide reel renders the same centred stack on its own.
     """
     from PIL import Image, ImageDraw
 
@@ -1086,7 +1132,9 @@ def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
             step_key=step["key"],
         )
     )
-    x = WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2
+    # Centred in the RIGHT half, but never pushed off the canvas: a card
+    # from a LANDSCAPE capture is wider than that half.
+    x = min(max(0, WIDE_W - card.width), WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2)
     phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
     crop = round(WIDE_CROP_FRACTION * phone_h)
 
@@ -1350,7 +1398,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     own out dir) keeps the chapter videos and store stills but SKIPS the
     phone-only Play listing assets — feature graphic, icon and the wide
     reel exist once per listing and belong to the phone run — so the
-    tablet store/ dir holds only portrait stills for tenInchScreenshots.
+    tablet store/ dir holds only landscape stills for tenInchScreenshots.
     """
     from PIL import Image
 
@@ -1466,9 +1514,9 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     def write_store_stills(chapters):
         """<out>/store/NN-key.png — the beat composition at rest, per step.
 
-        Play-Store listing stills on the same portrait canvas as the
-        video (the active device preset's WIDTHxHEIGHT — 1080x1920 for
-        phone, 1600x2560 for tablet); numbering matches the guide's
+        Play-Store listing stills on the same canvas as the video (the
+        active device preset's WIDTHxHEIGHT — 1080x1920 portrait for
+        phone, 2560x1600 landscape for tablet); numbering matches the guide's
         screenshots. Wholesale-refreshed so removed or renamed steps
         never linger. The wipe only ever touches THIS run's out dir, so
         the tablet refresh never clears the phone store dir or vice
@@ -1603,8 +1651,8 @@ def main():
         choices=sorted(DEVICE_PRESETS),
         default="phone",
         help="canvas/frame geometry preset (default: phone, byte-identical to "
-        "runs without the flag); 'tablet' renders the 10-inch 1600x2560 "
-        "portrait geometry and skips the phone-only Play assets (feature "
+        "runs without the flag); 'tablet' renders the 10-inch 2560x1600 "
+        "landscape geometry and skips the phone-only Play assets (feature "
         "graphic, icon, wide reel) — point --out at a tablet-specific dir",
     )
     parser.add_argument(
