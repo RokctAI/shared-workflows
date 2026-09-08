@@ -117,6 +117,9 @@ ACCENT = (120, 200, 255)  # accent when the manifest has no accent colour
 # Phone frame each screenshot renders inside (all px on the 1080x1920
 # canvas), styled after the WhatsApp store ads: thin BLACK bezel, large
 # corner radius, screen clipped to rounded corners inside it, soft shadow.
+# The tablet preset overrides the bezel, radius and crop (see
+# DEVICE_PRESETS): a tablet reads as a tablet through a proportionally
+# WIDER bezel and TIGHTER corners than a phone.
 FRAME_BEZEL = 24
 FRAME_RADIUS = 96
 FRAME_BLACK = (0, 0, 0, 255)
@@ -186,9 +189,18 @@ FONT_CANDIDATES = (
 # --device is byte-identical to runs that predate the flag). The tablet
 # preset re-targets the portrait canvas to the workflow's 10-inch tablet
 # leg (1600x2560, the emulator's forced `wm size` — inside Play's
-# 320-3840px screenshot bounds) and scales the phone-frame fit boxes to
-# keep the same canvas margins. Landscape (wide reel / feature graphic)
-# constants stay untouched: the tablet run skips those phone-only assets.
+# 320-3840px screenshot bounds), scales the phone-frame fit boxes to
+# keep the same canvas margins, and re-proportions the drawn frame
+# itself: the phone's 24px bezel / 96px radius applied unscaled to the
+# 1262px-wide tablet card read as a phone slab stretched to 16:10 (2%
+# bezel, 8% corners), where a real tablet carries a ~4-6% bezel and
+# ~3-5% corners. The bottom crop is gentler too (like the wide reel) so
+# the stills keep most of the 16:10 screen — but it MUST still remove
+# the launcher taskbar the tablet emulator burns into the bottom ~100px
+# of every raw capture (~72px once fitted into the 1150px box, plus the
+# bezel): at 0.10 the crop hides 139px of screen, roughly twice the
+# dock. Landscape (wide reel / feature graphic) constants stay
+# untouched: the tablet run skips those phone-only assets.
 DEVICE_PRESETS = {
     "phone": {},
     "tablet": {
@@ -201,6 +213,9 @@ DEVICE_PRESETS = {
         "SPLASH_FIT_W": 1200,
         "SPLASH_FIT_H": 1200,
         "FRAME_ZONE_TOP": 660,
+        "FRAME_BEZEL": 56,  # 4.4% of the 1262px card (phone: 2.9% of 828px)
+        "FRAME_RADIUS": 64,  # 5.1% of the card width; screen corners at 8px
+        "CROP_FRACTION": 0.10,  # 195px of a 1952px card: dock hidden, screen kept
     },
 }
 
@@ -419,8 +434,9 @@ def phone_card(shot, max_w=None, max_h=None):
     screenshot clipped to rounded corners inset inside it. The returned
     image carries a transparent FRAME_MARGIN on every side so the shadow
     blur never clips. ``max_w``/``max_h`` default to the ACTIVE device
-    preset's FRAME_MAX box (resolved at call time, not def time, so
-    ``apply_device_preset`` takes effect).
+    preset's FRAME_MAX box, and the bezel width and corner radius come
+    from the active preset's FRAME_BEZEL / FRAME_RADIUS (all resolved at
+    call time, not def time, so ``apply_device_preset`` takes effect).
     """
     from PIL import Image, ImageDraw, ImageFilter
 
@@ -432,7 +448,7 @@ def phone_card(shot, max_w=None, max_h=None):
     inner = shot.resize((inner_w, inner_h), Image.LANCZOS)
     clip = Image.new("L", (inner_w, inner_h), 0)
     ImageDraw.Draw(clip).rounded_rectangle(
-        (0, 0, inner_w - 1, inner_h - 1), radius=FRAME_RADIUS - FRAME_BEZEL, fill=255
+        (0, 0, inner_w - 1, inner_h - 1), radius=max(0, FRAME_RADIUS - FRAME_BEZEL), fill=255
     )
     card_w = inner_w + 2 * FRAME_BEZEL
     card_h = inner_h + 2 * FRAME_BEZEL
