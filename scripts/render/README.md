@@ -641,48 +641,46 @@ it. The manual `workflow_dispatch` button is untouched.
 
 ---
 
-## 9. One number, one chip
+## 9. One number, one chip - alternating across the frames
 
 A screen rendered in **both** light and dark used to chip every element on
 both frames: numbers 1-11 appeared twice and the page read as if it had 22
 points. It does not any more.
 
-* Each number is chipped **once**, on the first frame it appears on - its
-  *primary* frame.
-* A later frame chips **only the elements that actually changed there**.
-* Everything else on that frame is still in the markup, marked `rep`, hidden
-  by CSS. The **repeats** checkbox in the mode bar shows the full set again -
-  the same mechanism as the **chips** checkbox beside it. `"repeats_default":
-  true` in the config makes that the starting state.
+The rule is **alternation, in numbering order**. Walk the numbers and hand
+them to the frames in turn:
 
-### What counts as "changed"
+* The first number is chipped on the first frame, the second on the second
+  frame, the third on the first again, and so on.
+* Both frames end up carrying **roughly half** the numbers, so neither
+  picture is bare and the reviewer's eye crosses between them - which is the
+  point, because the two renders are what is being compared.
+* An element that exists on **only one** frame is always chipped there and
+  does **not** consume an alternation slot, so a frame-specific element
+  cannot push the split lopsided.
+* Everything a frame does not carry this turn is still in the markup, marked
+  `rep`, hidden by CSS. The **repeats** checkbox in the mode bar shows the
+  full set again - the same mechanism as the **chips** checkbox beside it.
+  `"repeats_default": true` in the config makes that the starting state.
 
-A light/dark pair differs *everywhere* in raw pixel terms, so a per-pixel
-diff would flag all of it and say nothing. The discriminator is the
-element's **internal contrast** - the standard deviation of luminance inside
-its measured rect - because that is invariant to the thing a correct dark
-theme does and sensitive to the thing a dark-mode bug does:
+On the paas_driver courier profile (numbers 13-27) that reads:
 
-| What happened to the element | Contrast | Flagged? |
-|---|---|---|
-| Tonal inversion (`v -> 255-v`), i.e. the theme working | unchanged | no |
-| Ink left the same colour as the surface behind it | collapses to ~0 | **yes** |
-| Element moved or resized past 2 logical px | (geometry check) | **yes** |
+| Frame | Carries |
+|---|---|
+| `courier profile - light` | 13, 15, 17, 19, 21, 23, 25, 27 |
+| `courier profile - dark` | 14, 16, 18, 20, 22, 24, 26 |
 
-The threshold is a **35% relative change** in contrast
-(`CHIP_CHANGE_THRESHOLD`), deliberately tolerant so a re-tinted accent does
-not read as a break. When the PNG cannot be decoded the composer says
-"cannot tell" and leaves the repeat hidden rather than flagging noise - the
-toggle always recovers it.
-
-This is the paas_driver courier profile exactly: in dark, the courier's
-name and phone, `Balance` / `R0.00`, the delivered-order count and every row
-icon are white ink on a card that never flipped. A dark frame that chips
-precisely those points says so at a glance.
+This replaced an earlier rule - *"the first frame owns every number; a later
+frame chips only what measurably changed"* - which fixed the double-count but
+left the dark frame with nothing on it. The pixel change-detection that rule
+needed (per-element luminance standard deviation against a 35% threshold) no
+longer decides anything and has been removed rather than left orphaned.
 
 Numbering is untouched by any of this. Roles decide what is *drawn*; a
 number is still bound to a key for the life of the page and
 `--emit-numbering` round-trips exactly as before.
+
+> **The page alternates. The SVG export does not.** See [§10](#10-svg-per-frame-for-a-guide-or-a-deck).
 
 ---
 
@@ -712,9 +710,26 @@ design app.
 
 The two variants are the page's own two modes rather than a second idea of
 what annotation is: `clean` omits exactly what the page's `.present` class
-hides. Repeats are dropped from the annotated SVG rather than hidden - an
-SVG has no checkbox, and the export should say what the page says by
-default.
+hides.
+
+**The annotated SVG carries every numbered element on its frame** - it does
+*not* alternate the way the page does ([§9](#9-one-number-one-chip---alternating-across-the-frames)).
+The page alternates because its frames are read side by side, so a number
+only has to be said once. An exported SVG is used **alone** - in a guide, on
+a slide - with no second frame beside it to carry the other half, so a frame
+that dropped its repeats would ship unlabelled widgets and a legend that does
+not describe the picture. Page alternates, SVG is complete; do not "fix"
+either to match the other. Numbers stay global either way: chip 13 is 13 on
+the light SVG and on the dark one, never renumbered per file.
+
+**The screen is drawn inside the page's own device bezel** - same radius,
+colour, padding and inset ring, read from shared constants so the two
+renderings cannot drift. The status pill uses the page's `CHIP_COLOR`, the
+chip radius is the page's 17px chip (8.5), and the type is the page's system
+stack. The screenshot's data URI is emitted **once**, as `xlink:href`: SVG
+1.1's spelling, which is what Illustrator, Affinity and Figma read on import.
+Chromium, librsvg and cairosvg all resolve either spelling, so the renderers
+cast no vote and the widest importer support decides.
 
 Both CI lanes write them: the tour commits them to
 `marketing/tour/svg/` beside the page, and the manual lane ships them inside

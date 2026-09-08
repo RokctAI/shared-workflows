@@ -71,10 +71,8 @@ import html
 import json
 import os
 import re
-import struct
 import sys
 import textwrap
-import zlib
 
 # The four review states a frame may be in. Kept deliberately small: a
 # reviewer should be able to hold the whole vocabulary in their head.
@@ -90,6 +88,26 @@ STATUS_TAGS = {
 }
 
 CHIP_COLOR = '#FF6600'
+
+# The device bezel and the type stack are drawn by BOTH the HTML page and the
+# per-frame SVG export. They live here, once, so the two renderings cannot
+# drift apart the way the status pill and the chip radius did.
+BEZEL_FILL = '#1A1C1F'       # --bezel, light
+BEZEL_FILL_DARK = '#0E1012'  # --bezel, dark
+BEZEL_EDGE = '#33363B'       # --bezel-edge, light
+BEZEL_EDGE_DARK = '#2A2D32'  # --bezel-edge, dark
+BEZEL_PAD = 10.0             # .phone padding - the bezel around the screen
+BEZEL_EDGE_W = 2.0           # .phone inset ring
+BEZEL_RADIUS = 44.0          # .phone border-radius
+SCREEN_RADIUS = 35.0         # .screen border-radius
+
+# `sans` is NOT a CSS generic (the generic is `sans-serif`); left as the SVG
+# default it resolves like an unknown family and falls back to a serif face
+# in browsers and design apps alike. This is the page's own stack, quoted for
+# an XML attribute - single quotes so it can sit inside font-family="...".
+SYSTEM_STACK = ('-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,'
+                '"Helvetica Neue",Arial,sans-serif')
+SVG_FONT_STACK = SYSTEM_STACK.replace('"', "'")
 
 SVG_NS = 'http://www.w3.org/2000/svg'
 XLINK_NS = 'http://www.w3.org/1999/xlink'
@@ -211,246 +229,68 @@ def merged_numbering(config, mapping):
 
 
 # ---------------------------------------------------------------------------
-# Cross-frame repeats: chip each number ONCE
+# Cross-frame numbering: each number is carried by ONE frame, in turn
 #
 # A screen rendered in light AND dark puts every numbered element on both
-# frames, so numbers 1-11 appear twice and the page reads as if it had 22
-# points. The fix is not to alternate numbers between the frames - that would
-# scatter one screen's elements across two pictures and you could no longer
-# see element 1 in dark at all. Instead every number is chipped ONCE, on the
-# first frame it appears in (its PRIMARY frame), and a later frame chips only
-# the elements that actually CHANGED between the two renders.
+# frames, so numbers 13-27 appear twice and the page reads as if it had 30
+# points. The frames sit side by side, so a number only has to be said once -
+# but it must be said on a frame that is worth looking at, and the rule this
+# replaced ("the first frame owns every number; a later frame keeps only what
+# measurably changed") left the dark frame bare.
 #
-# That second half is the part with real value. A light/dark pair differs
-# everywhere in raw pixel terms - a naive per-pixel diff flags all of it - so
-# the discriminator is the element's INTERNAL CONTRAST, not its colour:
+# The rule is ALTERNATION, in numbering order: the first number is chipped on
+# the first frame, the second on the second frame, the third on the first
+# again, and so on. Both frames end up carrying roughly half the numbers, so
+# neither picture is empty and the reviewer's eye crosses between them -
+# which is the point, because the two renders are what is being compared.
 #
-#   * A tonal inversion (v -> 255-v, which is what a correct dark theme does
-#     to a widget) leaves the standard deviation of luminance inside the
-#     element's rect unchanged. Score ~0. Not flagged.
-#   * An element that stops being legible - white ink left on a card that did
-#     not flip, the exact paas_driver courier-profile bug where the name,
-#     phone, "Balance"/"R0.00" and the delivered-order count all vanish -
-#     collapses to a near-flat region. Its contrast falls to nothing. Score
-#     ~1. Flagged.
+# An element that exists on only ONE frame is always chipped there and does
+# NOT consume an alternation slot, so a frame-specific element cannot push
+# the split lopsided.
 #
-# So a dark frame chips precisely the elements a reviewer needs to look at.
-# Geometry is checked too: an element that moved or resized past a couple of
-# logical pixels has changed whatever its contrast did.
+# Numbers stay GLOBAL: a number means the same element wherever it appears.
+# This decides only which frame draws it. Everything is recoverable - the
+# "repeats" checkbox in the mode bar puts every number back on every frame it
+# exists on.
 #
-# Everything is recoverable: the "repeats" checkbox in the mode bar shows the
-# full set on every frame, which is the behaviour this replaced.
+# NOTE: the per-frame SVG export deliberately does NOT alternate. It draws
+# every numbered element present on the frame, because an exported SVG is
+# used ALONE - in a guide, on a slide - with no second frame beside it to
+# carry the other half. Page alternates, SVG is complete; see frame_svg.
 # ---------------------------------------------------------------------------
 
-# Relative contrast change at which a repeat is called a real difference.
-# 0.35 is deliberately tolerant: a dark theme that re-tints an accent shifts
-# contrast a little, and only a collapse (or an appearance) should be flagged.
-CHIP_CHANGE_THRESHOLD = 0.35
-# Logical pixels an element may move or resize before that alone counts.
-CHIP_MOVE_TOLERANCE = 2.0
-# Cap on pixels sampled per element; the metric is a spread, not a checksum,
-# so a few thousand samples say the same thing as a few million, far faster.
-CHIP_SAMPLE_CAP = 4096
-
-ROLE_PRIMARY = 'primary'   # first frame this number appears on - always chipped
-ROLE_CHANGED = 'changed'   # a repeat that differs from its primary - chipped
-ROLE_REPEAT = 'repeat'     # a repeat that matches its primary - hidden by default
+ROLE_PRIMARY = 'primary'   # this frame carries the number - chipped
+ROLE_REPEAT = 'repeat'     # another frame carries it - hidden on the PAGE
+#                            (the SVG export draws it anyway; see frame_svg)
 
 
-def decode_png_luma(data):
-    """Decode a PNG to (width, height, luminance bytes), or None.
-
-    Stdlib only, on purpose: the composer has no third-party dependency and
-    the tests synthesise their own PNGs. Handles what
-    RepaintBoundary.toImage writes and what the tests build - 8-bit,
-    non-interlaced, greyscale / RGB / grey+alpha / RGBA. Anything else
-    returns None and the caller degrades to "cannot tell".
-    """
-    if len(data) < 8 or data[:8] != b'\x89PNG\r\n\x1a\n':
-        return None
-    pos, idat, ihdr = 8, [], None
-    while pos + 8 <= len(data):
-        length = struct.unpack('>I', data[pos:pos + 4])[0]
-        kind = data[pos + 4:pos + 8]
-        if kind == b'IHDR':
-            ihdr = struct.unpack('>IIBBBBB', data[pos + 8:pos + 8 + length])
-        elif kind == b'IDAT':
-            idat.append(data[pos + 8:pos + 8 + length])
-        elif kind == b'IEND':
-            break
-        pos += 12 + length
-    if not ihdr or not idat:
-        return None
-    width, height, depth, color, compression, filtering, interlace = ihdr
-    if depth != 8 or interlace != 0 or compression != 0 or filtering != 0:
-        return None
-    channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color)
-    if not channels or not width or not height:
-        return None
-    try:
-        raw = zlib.decompress(b''.join(idat))
-    except zlib.error:
-        return None
-    stride = width * channels
-    if len(raw) < (stride + 1) * height:
-        return None
-
-    luma = bytearray(width * height)
-    prev = bytearray(stride)
-    offset = 0
-    for row_index in range(height):
-        filter_type = raw[offset]
-        offset += 1
-        line = bytearray(raw[offset:offset + stride])
-        offset += stride
-        # The five PNG filters, undone in place (RFC 2083 section 6).
-        if filter_type == 1:
-            for i in range(channels, stride):
-                line[i] = (line[i] + line[i - channels]) & 255
-        elif filter_type == 2:
-            for i in range(stride):
-                line[i] = (line[i] + prev[i]) & 255
-        elif filter_type == 3:
-            for i in range(stride):
-                left = line[i - channels] if i >= channels else 0
-                line[i] = (line[i] + ((left + prev[i]) >> 1)) & 255
-        elif filter_type == 4:
-            for i in range(stride):
-                left = line[i - channels] if i >= channels else 0
-                up = prev[i]
-                up_left = prev[i - channels] if i >= channels else 0
-                estimate = left + up - up_left
-                da, db, dc = (abs(estimate - left), abs(estimate - up),
-                              abs(estimate - up_left))
-                if da <= db and da <= dc:
-                    predictor = left
-                elif db <= dc:
-                    predictor = up
-                else:
-                    predictor = up_left
-                line[i] = (line[i] + predictor) & 255
-        elif filter_type != 0:
-            return None
-
-        base = row_index * width
-        if channels == 1:
-            luma[base:base + width] = line
-        elif channels == 2:
-            luma[base:base + width] = line[0::2]
-        else:
-            red, green, blue = line[0::channels], line[1::channels], line[2::channels]
-            luma[base:base + width] = bytes(
-                (299 * red[i] + 587 * green[i] + 114 * blue[i]) // 1000
-                for i in range(width))
-        prev = line
-    return width, height, bytes(luma)
-
-
-def _rect(element, key):
-    """One rect field as a float. Tolerant: an older harness sidecar that
-    never wrote `h` must degrade to "cannot measure", not crash the page."""
-    try:
-        return float(element[key])
-    except (KeyError, TypeError, ValueError):
-        return 0.0
-
-
-def region_contrast(image, element, logical_width, logical_height):
-    """Standard deviation of luminance inside one element's rect, or None.
-
-    Invariant to a tonal inversion by construction, which is what makes it
-    tell a dark THEME apart from a dark-mode BUG.
-    """
-    if image is None:
-        return None
-    width, height, luma = image
-    scale_x = width / float(logical_width)
-    scale_y = height / float(logical_height)
-    x0 = max(0, int(_rect(element, 'x') * scale_x))
-    y0 = max(0, int(_rect(element, 'y') * scale_y))
-    x1 = min(width, int((_rect(element, 'x') + _rect(element, 'w')) * scale_x))
-    y1 = min(height, int((_rect(element, 'y') + _rect(element, 'h')) * scale_y))
-    if x1 - x0 < 2 or y1 - y0 < 2:
-        return None
-
-    span_x, span_y = x1 - x0, y1 - y0
-    step = max(1, int(((span_x * span_y) / CHIP_SAMPLE_CAP) ** 0.5))
-    total = squares = count = 0
-    for y in range(y0, y1, step):
-        row = y * width
-        for x in range(x0, x1, step):
-            value = luma[row + x]
-            total += value
-            squares += value * value
-            count += 1
-    if count < 4:
-        return None
-    mean = total / count
-    variance = squares / count - mean * mean
-    return variance ** 0.5 if variance > 0 else 0.0
-
-
-def _moved(a, b):
-    return any(abs(_rect(a, k) - _rect(b, k)) > CHIP_MOVE_TOLERANCE
-               for k in ('x', 'y', 'w', 'h'))
-
-
-def resolve_roles(loaded):
-    """Classify every element on every frame as primary / changed / repeat.
+def resolve_roles(loaded, mapping):
+    """Decide which frame carries each number.
 
     Returns a list parallel to ``loaded``: one ``{key: role}`` dict per
-    frame. Numbering is untouched - this decides only what gets a chip
-    DRAWN, never what number it carries, so a committed numbering map and
+    frame. Numbering is untouched - this decides only what gets a chip DRAWN,
+    never what number it carries, so a committed numbering map and
     --emit-numbering round-trip exactly as they did before.
     """
-    images = {}
-
-    def image_for(index, png_bytes):
-        if index not in images:
-            images[index] = decode_png_luma(png_bytes)
-        return images[index]
-
-    # Held UNMEASURED until a repeat actually turns up: a single-frame page
-    # has nothing to compare, and decoding its PNG for a number nobody will
-    # question is a second of CI time spent on nothing.
-    primaries = {}   # key -> (frame index, rects, png bytes, element)
-    measured = {}    # key -> contrast of the primary, computed on demand
-    roles = []
-
-    def primary_contrast(key):
-        if key not in measured:
-            index, rects, png_bytes, element = primaries[key]
-            measured[key] = region_contrast(
-                image_for(index, png_bytes), element,
-                rects['logicalWidth'], rects['logicalHeight'])
-        return measured[key]
-
-    for index, ((frame, rects), png_bytes) in enumerate(loaded):
-        frame_roles = {}
+    # Which frames each key appears on, and the numbering order to walk.
+    frames_for = {}
+    for index, ((_frame, rects), _png) in enumerate(loaded):
         for element in rects['elements']:
-            key = element_key(element)
-            if key not in primaries:
-                primaries[key] = (index, rects, png_bytes, element)
-                frame_roles[key] = ROLE_PRIMARY
-                continue
-            first_element = primaries[key][3]
-            if _moved(first_element, element):
-                frame_roles[key] = ROLE_CHANGED
-                continue
-            first_contrast = primary_contrast(key)
-            contrast = region_contrast(
-                image_for(index, png_bytes), element,
-                rects['logicalWidth'], rects['logicalHeight'])
-            if first_contrast is None or contrast is None:
-                # Undecidable (unsupported PNG, degenerate rect). Stay with
-                # the default - hidden - and let the toggle recover it.
-                frame_roles[key] = ROLE_REPEAT
-                continue
-            spread = max(first_contrast, contrast, 1.0)
-            delta = abs(first_contrast - contrast) / spread
-            frame_roles[key] = (ROLE_CHANGED if delta >= CHIP_CHANGE_THRESHOLD
-                                else ROLE_REPEAT)
-        roles.append(frame_roles)
+            frames_for.setdefault(element_key(element), []).append(index)
+
+    roles = [{} for _ in loaded]
+    turn = 0
+    for key in sorted(frames_for, key=lambda k: mapping[k]):
+        appears_on = frames_for[key]
+        if len(appears_on) == 1:
+            # Only one frame can show it; it costs nobody a turn.
+            roles[appears_on[0]][key] = ROLE_PRIMARY
+            continue
+        owner = appears_on[turn % len(appears_on)]
+        turn += 1
+        for index in appears_on:
+            roles[index][key] = (ROLE_PRIMARY if index == owner
+                                 else ROLE_REPEAT)
     return roles
 
 
@@ -494,8 +334,9 @@ def frame_points(frame, rects, config, mapping, roles=None):
     renderers need: percentages of the render (the page places chips with
     CSS, so it survives any display scale) and logical pixels (the SVG is
     laid out in the render's own logical pixels), plus its `role` from
-    resolve_roles - primary / changed / repeat - which is what decides
-    whether the chip is drawn by default.
+    resolve_roles - primary / repeat - which is what decides whether the
+    PAGE draws the chip by default. The SVG export ignores the role and
+    draws every point; see frame_svg.
     """
     width = float(rects['logicalWidth'])
     height = float(rects['logicalHeight'])
@@ -519,8 +360,8 @@ def frame_points(frame, rects, config, mapping, roles=None):
 def frame_html(frame, rects, png_bytes, config, mapping, roles=None):
     """One phone frame: bezel, render, chips, legend, status pill, note.
 
-    A point whose role is ROLE_REPEAT (already chipped on an earlier frame,
-    and unchanged there) is marked `rep` rather than dropped: it is hidden by
+    A point whose role is ROLE_REPEAT (its number is carried by another
+    frame this turn) is marked `rep` rather than dropped: it is hidden by
     CSS, and the "repeats" checkbox shows the whole set again.
     """
     width = float(rects['logicalWidth'])
@@ -530,37 +371,29 @@ def frame_html(frame, rects, png_bytes, config, mapping, roles=None):
     chips = []
     legend = []
     repeats = 0
-    changed = 0
+    carried = 0
     for point in frame_points(frame, rects, config, mapping, roles):
         cls = ''
         if point['role'] == ROLE_REPEAT:
             cls = ' rep'
             repeats += 1
-        elif point['role'] == ROLE_CHANGED:
-            cls = ' chg'
-            changed += 1
+        else:
+            carried += 1
         chips.append(f'<i class="chip{cls}" '
                      f'style="left:{point["left_pct"]:.2f}%;'
                      f'top:{point["top_pct"]:.2f}%">{point["number"]}</i>')
         legend.append(f'<span class="lg{cls}"><b>{point["number"]}</b>'
                       f'{esc(point["text"])}</span>')
 
-    # Only a frame that actually repeats an earlier one gets the explainer,
-    # so a single-frame page is unchanged from before.
+    # Only a frame that shares elements with another gets the explainer, so
+    # a single-frame page is unchanged from before.
     diff_html = ''
-    if repeats or changed:
-        if changed:
-            diff_html = (
-                f'<div class="frame-diff">Chipped here: the {changed} '
-                f'element(s) that CHANGED from the first frame this screen '
-                f'appears on. {repeats} unchanged point(s) are hidden - turn '
-                f'"repeats" on to see every number again.</div>')
-        else:
-            diff_html = (
-                f'<div class="frame-diff">Nothing measurably changed from '
-                f'the first frame this screen appears on, so all {repeats} '
-                f'numbers are hidden here - turn "repeats" on to see '
-                f'them.</div>')
+    if repeats:
+        diff_html = (
+            f'<div class="frame-diff">This frame carries {carried} of the '
+            f'numbers; the other {repeats} are chipped on the frame beside '
+            f'it, so each number is said once. Turn "repeats" on to see '
+            f'every number on every frame.</div>')
 
     ratio = height / width * 100.0
     status = frame.get('status')
@@ -667,13 +500,25 @@ def sections_html(config, frames, mapping, roles_by_frame=None):
 SVG_PAD = 24.0            # margin around the whole card
 SVG_HEAD_H = 34.0         # caption row height
 SVG_GAP = 18.0            # gap between blocks
-SVG_CHIP_R = 13.0         # chip radius, logical px
+# The page's chip is a 17px box (min-width/height) - radius 8.5 - and its
+# number is set at 10px. The SVG used 13.0, which drew a chip 2.3x the page's
+# area: on the light driver frame chips 16 and 17 sit 11.8px apart, so 17
+# buried ~80% of 16 and neither number could be read.
+SVG_CHIP_R = 8.5          # chip radius, logical px - matches the page's 17px chip
+SVG_CHIP_TEXT = 10.0      # chip number size, matching the page's .chip
+SVG_LEGEND_CHIP_TEXT = 9.5  # matching the page's .legend b
 SVG_LEGEND_SIZE = 13.0    # legend/caption type size
 SVG_LEGEND_LINE = 19.0    # legend line height
-SVG_BEZEL = 10.0          # rounded corner of the screen
 # Sans-serif metrics are close enough to 0.55em average advance for laying
 # out a legend; the text is real text, so a browser or design app re-flows
 # nothing - this only decides where WE break the lines.
+#
+# Re-measured after the font-family fix, on the driver legend, at 13px:
+# the widest line ("Host footer - app name, version, online dot and usage",
+# 52 chars) measures 310.0px in the resolved stack - 0.459em average advance
+# - against a 383px column. 0.55 therefore still OVER-estimates by ~20% and
+# breaks lines early, which is the safe direction; it stays as it is. (Under
+# the old `sans` it measured 352.3px in a 354px column: 1.7px of margin.)
 SVG_CHAR_W = 0.55
 
 
@@ -697,7 +542,7 @@ def frame_slug(frame, rects):
 
 
 def _svg_text(x, y, text, size, fill, weight='400', anchor='start',
-              family='sans'):
+              family=SVG_FONT_STACK):
     return (f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size:.1f}" '
             f'font-family="{family}" font-weight="{weight}" fill="{fill}" '
             f'text-anchor="{anchor}">{esc(text)}</text>')
@@ -715,16 +560,26 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
     mode: chips, legend and the frame note are dropped, exactly as the
     page's `.present` class hides them.
 
-    Repeats are dropped here rather than hidden - an SVG has no checkbox, and
-    the annotated export should say the same thing the page says by default.
+    EVERY numbered point on the frame is drawn, repeats included. That is
+    deliberately NOT what the page does: the page ALTERNATES, giving each
+    number to one frame in turn, because its frames are read side by side and
+    saying a number twice down the column is noise. An exported SVG is used
+    ALONE - in a guide, on a slide - with no second frame beside it, so a
+    frame that dropped its repeats would ship with unlabelled widgets and a
+    legend that does not describe the picture.
+
+    Page alternates, SVG is complete. Do not "fix" either to match the other.
+    The numbers stay global either way: chip 13 is 13 on the light frame and
+    on the dark one, never renumbered per file.
     """
     width = float(rects['logicalWidth'])
     height = float(rects['logicalHeight'])
-    points = [point for point
-              in frame_points(frame, rects, config, mapping, roles)
-              if point['role'] != ROLE_REPEAT]
+    points = frame_points(frame, rects, config, mapping, roles)
 
-    canvas_w = width + SVG_PAD * 2
+    # The screen sits inside the bezel, so the card is the PHONE's width.
+    phone_w = width + BEZEL_PAD * 2
+    phone_h = height + BEZEL_PAD * 2
+    canvas_w = phone_w + SVG_PAD * 2
     y = SVG_PAD
 
     parts = []
@@ -736,31 +591,48 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
     if status:
         pill_w = len(status) * SVG_LEGEND_SIZE * SVG_CHAR_W + 18.0
         head.append(f'<rect x="{SVG_PAD:.1f}" y="{y:.1f}" width="{pill_w:.1f}" '
-                    f'height="22" rx="11" fill="#111"/>')
+                    f'height="22" rx="11" fill="{CHIP_COLOR}"/>')
         head.append(_svg_text(SVG_PAD + pill_w / 2, y + 15.5, status,
                               11.0, '#fff', weight='700', anchor='middle'))
         text_x = SVG_PAD + pill_w + 10.0
     head.append(_svg_text(text_x, y + 15.5, caption, SVG_LEGEND_SIZE,
                           '#111', weight='600'))
-    parts.append('<g class="head">' + ''.join(head) + '</g>')
+    parts.append('<g id="head" class="head">' + ''.join(head) + '</g>')
     y += SVG_HEAD_H
 
     b64 = base64.b64encode(png_bytes).decode('ascii')
+    # ONE spelling of the reference, not two. Emitting the payload into both
+    # href and xlink:href doubled every exported file for nothing.
     href = f'data:image/png;base64,{b64}'
     clip = f'clip-{frame_slug(frame, rects)}'
+    screen_x = SVG_PAD + BEZEL_PAD
+    screen_y = y + BEZEL_PAD
+
+    # The page's .phone: a filled bezel with a 2px ring inset on its edge. A
+    # CSS inset shadow paints inside the border box; an SVG stroke straddles
+    # its path, so the ring is inset by half its width to land in the same
+    # place.
+    inset = BEZEL_EDGE_W / 2
+    parts.append(
+        f'<g id="bezel" class="bezel">'
+        f'<rect x="{SVG_PAD:.1f}" y="{y:.1f}" width="{phone_w:.1f}" '
+        f'height="{phone_h:.1f}" rx="{BEZEL_RADIUS:.1f}" '
+        f'fill="{BEZEL_FILL}"/>'
+        f'<rect x="{SVG_PAD + inset:.1f}" y="{y + inset:.1f}" '
+        f'width="{phone_w - BEZEL_EDGE_W:.1f}" '
+        f'height="{phone_h - BEZEL_EDGE_W:.1f}" '
+        f'rx="{BEZEL_RADIUS - inset:.1f}" fill="none" '
+        f'stroke="{BEZEL_EDGE}" stroke-width="{BEZEL_EDGE_W:.1f}"/></g>')
+
     parts.append(
         f'<defs><clipPath id="{clip}">'
-        f'<rect x="{SVG_PAD:.1f}" y="{y:.1f}" width="{width:.1f}" '
-        f'height="{height:.1f}" rx="{SVG_BEZEL:.1f}"/></clipPath></defs>')
+        f'<rect x="{screen_x:.1f}" y="{screen_y:.1f}" width="{width:.1f}" '
+        f'height="{height:.1f}" rx="{SCREEN_RADIUS:.1f}"/></clipPath></defs>')
     parts.append(
-        f'<g class="screen" clip-path="url(#{clip})">'
-        f'<image x="{SVG_PAD:.1f}" y="{y:.1f}" width="{width:.1f}" '
+        f'<g id="screen" class="screen" clip-path="url(#{clip})">'
+        f'<image x="{screen_x:.1f}" y="{screen_y:.1f}" width="{width:.1f}" '
         f'height="{height:.1f}" preserveAspectRatio="none" '
-        f'href="{href}" xlink:href="{href}"/></g>')
-    parts.append(
-        f'<rect x="{SVG_PAD:.1f}" y="{y:.1f}" width="{width:.1f}" '
-        f'height="{height:.1f}" rx="{SVG_BEZEL:.1f}" fill="none" '
-        f'stroke="#dcdcdc" stroke-width="1"/>')
+        f'xlink:href="{href}"/></g>')
 
     if not present:
         chips = []
@@ -768,28 +640,30 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
             # Same anchor the page uses: the element's top-right corner,
             # nudged by CHIP_SHIFT (translate(-70%,-30%) of the chip box) so
             # the chip straddles the corner instead of covering the widget.
-            cx = SVG_PAD + point['x'] - 0.4 * SVG_CHIP_R
-            cy = y + point['y'] + 0.4 * SVG_CHIP_R
+            cx = screen_x + point['x'] - 0.4 * SVG_CHIP_R
+            cy = screen_y + point['y'] + 0.4 * SVG_CHIP_R
             chips.append(
                 f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{SVG_CHIP_R:.1f}" '
                 f'fill="{CHIP_COLOR}" stroke="#fff" stroke-width="2"/>')
-            chips.append(_svg_text(cx, cy + 4.5, point['number'], 12.0,
+            chips.append(_svg_text(cx, cy + SVG_CHIP_TEXT * 0.35,
+                                   point['number'], SVG_CHIP_TEXT,
                                    '#fff', weight='700', anchor='middle'))
-        parts.append('<g class="chips">' + ''.join(chips) + '</g>')
+        parts.append('<g id="chips" class="chips">' + ''.join(chips) + '</g>')
 
-    y += height
+    y += phone_h
 
     if not present and points:
         y += SVG_GAP
         rows = []
-        avail = width - (SVG_CHIP_R * 2 + 10.0)
+        avail = phone_w - (SVG_CHIP_R * 2 + 10.0)
         for point in points:
             cx = SVG_PAD + SVG_CHIP_R
             cy = y + SVG_CHIP_R - 3.0
             rows.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" '
-                        f'r="{SVG_CHIP_R - 2:.1f}" fill="{CHIP_COLOR}"/>')
-            rows.append(_svg_text(cx, cy + 4.0, point['number'], 11.0, '#fff',
-                                  weight='700', anchor='middle'))
+                        f'r="{SVG_CHIP_R - 1.0:.1f}" fill="{CHIP_COLOR}"/>')
+            rows.append(_svg_text(cx, cy + SVG_LEGEND_CHIP_TEXT * 0.35,
+                                  point['number'], SVG_LEGEND_CHIP_TEXT,
+                                  '#fff', weight='700', anchor='middle'))
             for index, line in enumerate(_wrap(point['text'], avail,
                                                SVG_LEGEND_SIZE)):
                 rows.append(_svg_text(
@@ -799,12 +673,13 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
                 if index:
                     y += SVG_LEGEND_LINE
             y += SVG_LEGEND_LINE + 5.0
-        parts.append('<g class="legend">' + ''.join(rows) + '</g>')
+        parts.append('<g id="legend" class="legend">' + ''.join(rows)
+                     + '</g>')
 
     note = frame.get('note')
     if note and not present:
         y += SVG_GAP
-        for line in _wrap(note, width, 12.0):
+        for line in _wrap(note, phone_w, 12.0):
             parts.append(_svg_text(SVG_PAD, y, line, 12.0, '#666'))
             y += 17.0
 
@@ -852,8 +727,6 @@ def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None):
 # Page
 # ---------------------------------------------------------------------------
 
-SYSTEM_STACK = ('-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,'
-                '"Helvetica Neue",Arial,sans-serif')
 MONO_STACK = ('ui-monospace,SFMono-Regular,Menlo,Consolas,'
               '"Liberation Mono",monospace')
 
@@ -898,19 +771,19 @@ def build_page(config, frames, mapping, roles_by_frame=None):
   :root{{
     --paper:#F6F6F3; --ink:#22262B; --muted:#6B7178; --line:#E2E3DE;
     --card:#FFFFFF; --accent:#D95700; --accent-soft:#FBEADF;
-    --bezel:#1A1C1F; --bezel-edge:#33363B;
+    --bezel:{BEZEL_FILL}; --bezel-edge:{BEZEL_EDGE};
   }}
   @media (prefers-color-scheme: dark){{
     :root:not([data-theme="light"]){{
       --paper:#141619; --ink:#E8EAEC; --muted:#9BA1A8; --line:#2B2E33;
       --card:#1C1F23; --accent:#FF8A3D; --accent-soft:#33231A;
-      --bezel:#0E1012; --bezel-edge:#2A2D32;
+      --bezel:{BEZEL_FILL_DARK}; --bezel-edge:{BEZEL_EDGE_DARK};
     }}
   }}
   :root[data-theme="dark"]{{
     --paper:#141619; --ink:#E8EAEC; --muted:#9BA1A8; --line:#2B2E33;
     --card:#1C1F23; --accent:#FF8A3D; --accent-soft:#33231A;
-    --bezel:#0E1012; --bezel-edge:#2A2D32;
+    --bezel:{BEZEL_FILL_DARK}; --bezel-edge:{BEZEL_EDGE_DARK};
   }}
   *{{box-sizing:border-box}}
   body{{margin:0;background:var(--paper);color:var(--ink);
@@ -955,9 +828,11 @@ def build_page(config, frames, mapping, roles_by_frame=None):
   .s-held{{color:var(--muted);background:transparent;
     box-shadow:inset 0 0 0 1px var(--muted);font-style:italic}}
 
-  .phone{{width:100%;border-radius:44px;padding:10px;background:var(--bezel);
-    box-shadow:0 18px 44px rgba(0,0,0,.28),inset 0 0 0 2px var(--bezel-edge)}}
-  .screen{{border-radius:35px;overflow:hidden}}
+  .phone{{width:100%;border-radius:{BEZEL_RADIUS:.0f}px;
+    padding:{BEZEL_PAD:.0f}px;background:var(--bezel);
+    box-shadow:0 18px 44px rgba(0,0,0,.28),
+      inset 0 0 0 {BEZEL_EDGE_W:.0f}px var(--bezel-edge)}}
+  .screen{{border-radius:{SCREEN_RADIUS:.0f}px;overflow:hidden}}
   .shot{{position:relative;height:0;overflow:hidden}}
   .shot img{{position:absolute;inset:0;width:100%;height:100%;display:block}}
   .chips{{position:absolute;inset:0;pointer-events:none}}
@@ -979,15 +854,15 @@ def build_page(config, frames, mapping, roles_by_frame=None):
   .frame-note{{width:100%;font-family:{mono_font};font-size:10.5px;
     color:var(--muted)}}
 
-  /* A number is chipped once, on the first frame it appears on. A later
-     frame keeps only the points that CHANGED there; the rest are `rep` and
-     hidden until the repeats checkbox is ticked. */
+  /* Each number is carried by ONE frame, alternating in numbering order,
+     so light and dark each hold about half. The numbers a frame does not
+     carry this turn are `rep` and hidden until the repeats checkbox is
+     ticked. The SVG export does not alternate - see frame_svg. */
   .chip.rep,.legend .lg.rep{{display:none}}
   .repeats .chip.rep{{display:flex}}
   .repeats .legend .lg.rep{{display:inline-flex}}
   /* A chip that survived onto a later frame is a real difference - ring it
      so the eye goes there first. */
-  .chip.chg{{box-shadow:0 0 0 2px #FFF,0 1px 4px rgba(0,0,0,.5)}}
   .frame-diff{{width:100%;font-family:{mono_font};font-size:10.5px;
     color:var(--muted);margin-top:2px}}
 
@@ -1061,7 +936,7 @@ def compose(config_path, out_path, emit_numbering=None, base_dir=None,
     mapping, assigned = resolve_numbering([pair for pair, _ in loaded], config)
     # Numbering first, always: roles decide what is DRAWN, never what a
     # number is, so --emit-numbering round-trips exactly as before.
-    roles_by_frame = resolve_roles(loaded)
+    roles_by_frame = resolve_roles(loaded, mapping)
     page = build_page(config, loaded, mapping, roles_by_frame)
 
     with open(out_path, 'w', encoding='utf-8', newline='\n') as handle:
