@@ -131,7 +131,9 @@ fresh-AVD retry and zero-screenshots check as the phone leg.
 
 Tablet outputs land in their own tree, `marketing/tour/tablet/`,
 assembled by `assemble.py --device tablet` (geometry preset: 1600x2560
-canvas, scaled phone-frame boxes):
+canvas, scaled phone-frame boxes, and a tablet-proportioned frame —
+wider 56px bezel, tighter 64px corners, gentler 0.10 bottom crop that
+still hides the emulator's launcher taskbar):
 
 - `marketing/tour/tablet/screenshots/NN-key.png` + `feature-guide.md` —
   the raw tablet stills and guide (same format as the phone leg's)
