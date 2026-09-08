@@ -47,17 +47,20 @@ app's checkout, exactly where the tour pipeline writes them:
 
   marketing/tour/tablet/store/*.png|jpg|jpeg|webp
       The tour pipeline's TABLET leg writes its styled stills here
-      (1600x2560, a 10-inch portrait canvas) — classified by DIRECTORY:
-      every portrait image within Play's 320-3840px bounds ->
-      tenInchScreenshots, ordered by the SAME marketing/store/
+      (2560x1600, a 10-inch LANDSCAPE canvas — a tablet is held on its
+      long edge) — classified by DIRECTORY: every image within Play's
+      320-3840px bounds whose longer side is at most twice its shorter
+      -> tenInchScreenshots, ordered by the SAME marketing/store/
       screenshots.txt pick-list the phoneScreenshots use (see below),
       else sorted filename order, capped at Play's limit of 8 with every
-      skipped file named. The tablet leg never writes a feature graphic
-      or icon here (those exist once per listing and come from the phone
-      dir above); anything non-portrait or out of bounds is logged and
-      skipped. Mapped to tenInchScreenshots only, NOT
+      skipped file named. Orientation is NOT a filter here: Play accepts
+      landscape tablet screenshots, and the leg publishes whatever
+      orientation it captured. The tablet leg never writes a feature
+      graphic or icon here (those exist once per listing and come from
+      the phone dir above); anything out of bounds or out of ratio is
+      logged and skipped. Mapped to tenInchScreenshots only, NOT
       sevenInchScreenshots: the tablet leg runs a 10-inch-class geometry
-      (1600x2560 at 240dpi, sw1066dp), and the phone set at 1080x1920
+      (2560x1600 at 240dpi, sw1066dp), and the phone set at 1080x1920
       already shows the handset/7-inch-class content — duplicating the
       10-inch layouts into the sevenInch slot would misrepresent what a
       7-inch device renders.
@@ -68,7 +71,7 @@ app's checkout, exactly where the tour pipeline writes them:
       line (a marketing/tour/store/ filename, with or without its
       extension, or the bare step key without its NN- prefix), blank
       lines and '#' comment lines ignored. The listed order IS the Play
-      order; keys that match no discovered portrait screenshot are
+      order; keys that match no discovered screenshot are
       logged and skipped; over 8 keys, the first 8 win (logged). When
       the file is absent, holds no effective lines, or matches nothing,
       the default first-8-by-filename behavior above applies unchanged.
@@ -127,8 +130,8 @@ import sys
 STORE_DIR = os.path.join("marketing", "tour", "store")
 # The tablet leg's store stills live in their own directory precisely so
 # they can be classified by location (tenInchScreenshots) instead of by
-# dimensions — a 1600x2560 still is otherwise indistinguishable from a
-# large phone screenshot.
+# dimensions — a 2560x1600 still is otherwise indistinguishable from any
+# other large landscape image.
 TABLET_STORE_DIR = os.path.join("marketing", "tour", "tablet", "store")
 VIDEO_FILE = os.path.join("marketing", "store", "video.txt")
 SCREENSHOTS_FILE = os.path.join("marketing", "store", "screenshots.txt")
@@ -145,6 +148,7 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024  # any listing image: at most 15MB
 FEATURE_W, FEATURE_H = 1024, 500    # featureGraphic: exactly 1024x500
 ICON_W, ICON_H = 512, 512           # icon: exactly 512x512
 PHONE_MIN_PX, PHONE_MAX_PX = 320, 3840  # screenshots: every side in bounds
+MAX_SIDE_RATIO = 2.0                # the longer side: at most twice the shorter
 PHONE_MAX_COUNT = 8                 # at most 8 screenshots per type
 # Play Console listing-text limits (characters), per field.
 LISTING_TEXT_FIELDS = (
@@ -235,7 +239,7 @@ def step_key_of(name):
 def curate_screenshots(screenshots, curated_keys, store_dir):
     """Order `screenshots` by the pick-list; unmatched keys skip-and-log.
 
-    Keys match a discovered portrait screenshot's filename with or
+    Keys match a discovered screenshot's filename with or
     without its extension, and - as a LOWER-priority alias - with its
     "NN-" step number stripped too. Returns the curated list (uncapped),
     or None when nothing matched — the caller falls back to the default
@@ -270,7 +274,7 @@ def curate_screenshots(screenshots, curated_keys, store_dir):
             path = by_step.get(step_key_of(key) or os.path.splitext(key)[0])
         if path is None:
             warn(
-                f"screenshots.txt: no portrait screenshot named {key!r} "
+                f"screenshots.txt: no screenshot named {key!r} "
                 f"in {store_dir} — key skipped"
             )
         elif path in ordered:
@@ -366,11 +370,15 @@ def discover_tablet_screenshots(tablet_store_dir, curated_keys=None):
     """The tablet store dir's stills, in upload order: tenInchScreenshots.
 
     Classification is by DIRECTORY, not dimensions — the tour pipeline's
-    tablet leg writes only its styled portrait stills here (never a
-    feature graphic or icon; those stay with the phone run). Every
-    portrait image within Play's 320-3840px per-side bounds qualifies;
-    anything else (wrong shape, out of bounds, over the 15MB limit,
-    unreadable) is logged and skipped, never fatal. Capped at Play's
+    tablet leg writes only its styled stills here (never a feature
+    graphic or icon; those stay with the phone run). Every image inside
+    Play's screenshot bounds qualifies: 320-3840px per side and a longer
+    side at most twice the shorter. ORIENTATION is deliberately not a
+    filter — the leg captures the tablet landscape (2560x1600, 1.6:1),
+    which Play accepts for tenInchScreenshots, and a portrait still from
+    an older run stays just as valid. Anything else (out of bounds, out
+    of ratio, over the 15MB limit, unreadable) is logged and skipped,
+    never fatal. Capped at Play's
     per-type limit of 8 with every skipped file named — the same
     overflow logging as phoneScreenshots.
 
@@ -402,14 +410,15 @@ def discover_tablet_screenshots(tablet_store_dir, curated_keys=None):
         if dimensions is None:
             continue
         width, height = dimensions
-        if height > width and all(
+        if all(
             PHONE_MIN_PX <= side <= PHONE_MAX_PX for side in (width, height)
-        ):
+        ) and max(width, height) <= MAX_SIDE_RATIO * min(width, height):
             screenshots.append(path)
         else:
             log(
-                f"skipping {path}: {width}x{height} is not a portrait tablet "
-                f"screenshot ({PHONE_MIN_PX}-{PHONE_MAX_PX}px per side)"
+                f"skipping {path}: {width}x{height} is not a valid tablet "
+                f"screenshot ({PHONE_MIN_PX}-{PHONE_MAX_PX}px per side, "
+                f"longer side at most {MAX_SIDE_RATIO:g}x the shorter)"
             )
     if curated_keys and screenshots:
         curated = curate_screenshots(screenshots, curated_keys, tablet_store_dir)

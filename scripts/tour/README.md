@@ -30,8 +30,11 @@ shell repo under `marketing/tour/`:
   whose key content is bottom sheets) or to the legacy fully-visible
   floating phone. Each video opens on the same ~3s opening card — the
   app's real splash image when one resolves (`app.splash`, or
-  auto-detected from the checkout; portrait art renders full-bleed,
-  a square/landscape mark sits centred on the brand canvas), else the
+  auto-detected from the checkout; on a portrait canvas portrait art
+  renders full-bleed, and on the tablet leg's landscape canvas it
+  renders contained with pillars in its own border colour, exactly as
+  the wide reel's card already did; a square/landscape mark sits
+  centred on the brand canvas), else the
   legacy hook card (when the manifest has a `video.hook`) — holds each
   screenshot for a fixed ~4s caption beat (`video.beat_seconds`
   overrides), and closes on the same ~3s logo/offer end card (when the
@@ -110,19 +113,26 @@ After the phone leg, the workflow reruns the SAME tour serially on a
 second emulator (input `tablet`, ON by default — no caller change
 needed; pass `tablet: false` to opt out) using the SDK's `pixel_tablet`
 device profile on the same api-34 google_apis x86_64 system image, with
-the canvas forced to a tablet-class portrait geometry: `wm size
-1600x2560`, `wm density 240` — 1600 / (240/160) = **1066dp** wide, what
-a 12.4-inch 2560x1600 panel (Galaxy Tab S7 FE class, ~243ppi) really
-reports, and both sides sit inside Play's 320-3840px screenshot bounds.
+the canvas forced to a tablet-class **landscape** geometry: `wm size
+2560x1600`, `wm density 240` — 2560 / (240/160) = **1706dp** wide by
+**1066dp** tall, what a 12.4-inch 2560x1600 panel (Galaxy Tab S7 FE
+class, ~243ppi) reports when it is held the way tablets are held. Both
+sides sit inside Play's 320-3840px screenshot bounds and 1.6:1 clears
+Play's rule that the longer side be at most twice the shorter.
 
-The density is what makes the leg a tablet. `PlaneHost.planeCountFor`
-(RokctAI/core) gives three planes only from 840dp up, two from 600dp;
-the earlier `wm density 320` made this same 1600px panel 800dp wide, so
-every "tablet" still was the two-plane FOLDABLE layout and the gallery
-was mislabelled. Real 10-inch tablets land under 840dp too — the
-`pixel_tablet` profile's own 2560x1600 @ 320 is exactly 800dp in
-portrait — so the number is chosen, not inherited. The PIXEL size is
-unchanged: `assemble.py`'s `tablet` preset composites onto 1600x2560.
+Orientation is set by the base display size, not by a rotation command:
+a base display wider than it is tall is landscape-natural, so `wm size
+2560x1600` plus the shared `user_rotation 0` /
+`accelerometer_rotation 0` pin in `run_tour.sh` lands the leg in
+landscape and holds it there.
+
+The density is what keeps the leg multi-pane. `PlaneHost.planeCountFor`
+(RokctAI/core) gives three planes only from 840dp up, two from 600dp.
+Landscape clears 840dp at both densities the legs use — 1706dp at 240
+on the first attempt, 1280dp at 320 on the retry — where portrait was
+tight enough to matter (1066dp at 240, and only 800dp at 320, which is
+how every "tablet" still before #484 shipped the two-plane FOLDABLE
+layout). `assemble.py`'s `tablet` preset composites onto 2560x1600.
 
 `run_tour.sh` is shared by both legs — the tablet leg only
 overrides its `TOUR_OUT` / `TOUR_WM_SIZE` / `TOUR_WM_DENSITY` /
@@ -130,10 +140,12 @@ overrides its `TOUR_OUT` / `TOUR_WM_SIZE` / `TOUR_WM_DENSITY` /
 fresh-AVD retry and zero-screenshots check as the phone leg.
 
 Tablet outputs land in their own tree, `marketing/tour/tablet/`,
-assembled by `assemble.py --device tablet` (geometry preset: 1600x2560
-canvas, scaled phone-frame boxes, and a tablet-proportioned frame —
-wider 56px bezel, tighter 64px corners, gentler 0.10 bottom crop that
-still hides the emulator's launcher taskbar):
+assembled by `assemble.py --device tablet` (geometry preset: 2560x1600
+landscape canvas, scaled frame boxes, larger 84px caption type for the
+wider canvas, and a tablet-proportioned frame — wider 56px bezel,
+tighter 64px corners, and a 0.16 bottom crop that hides 203 raw px, so
+the emulator's launcher taskbar — ~110px at density 240, ~147px at 320
+— is off-canvas on the default `bottom` frame anchor):
 
 - `marketing/tour/tablet/screenshots/NN-key.png` + `feature-guide.md` —
   the raw tablet stills and guide (same format as the phone leg's)
@@ -144,9 +156,9 @@ still hides the emulator's launcher taskbar):
   Play deploy classifies it by LOCATION into `tenInchScreenshots`
   (ordered by the same `marketing/store/screenshots.txt` pick-list the
   phone listing uses, else first 8 in filename order; overflow logged)
-  — a 1600x2560 still is
-  dimensionally indistinguishable from a large phone screenshot, so
-  directory is the only reliable signal. The tablet run never writes a
+  — a 2560x1600 still is
+  dimensionally indistinguishable from any other large landscape image,
+  so directory is the only reliable signal. The tablet run never writes a
   feature graphic, icon, or `tour-wide` reel — those Play assets exist
   once per listing and stay with the phone run. The stills map to the
   10-inch slot only, not `sevenInchScreenshots`: the phone set at
