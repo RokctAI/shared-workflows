@@ -136,8 +136,18 @@ layout). `assemble.py`'s `tablet` preset composites onto 2560x1600.
 
 `run_tour.sh` is shared by both legs — the tablet leg only
 overrides its `TOUR_OUT` / `TOUR_WM_SIZE` / `TOUR_WM_DENSITY` /
-`TOUR_LOGCAT` / `TOUR_TEST_LOG` env defaults — and gets the same
-fresh-AVD retry and zero-screenshots check as the phone leg.
+`TOUR_LOGCAT` / `TOUR_TEST_LOG` / `TOUR_GESTURE_NAV` env defaults — and
+gets the same fresh-AVD retry and zero-screenshots check as the phone
+leg.
+
+Both tablet legs set `TOUR_GESTURE_NAV=1`, which switches the emulator
+from the `pixel_tablet` image's default three-button navigation to
+gesture navigation before the app is installed: on Android 14 the
+three-button taskbar stays pinned across every capture, while the
+gesture-mode taskbar is transient and stashes itself inside the app.
+The 0.16 crop below stays as it is for now — it hides the stashed
+24 dp inset and handle and keeps the store framing unchanged — and can
+be revisited once a run confirms the bar is gone.
 
 Tablet outputs land in their own tree, `marketing/tour/tablet/`,
 assembled by `assemble.py --device tablet` (geometry preset: 2560x1600

@@ -615,6 +615,18 @@ jobs:
           # it there for the whole run.
           adb shell settings put system accelerometer_rotation 0 || true
           adb shell settings put system user_rotation 0 || true
+          # Tablets: switch to gesture navigation before the app is installed. The
+          # pixel_tablet image boots in three-button mode, where Android 14 keeps the
+          # 60 dp taskbar pinned across every capture; in gesture mode the taskbar is
+          # transient and stashes itself inside apps, so the stills come out without it.
+          # This only rebuilds the launcher's taskbar (no SystemUI restart) and runs
+          # before the app exists, so the pre-tour ANR clear below still covers it.
+          if [ "${TOUR_GESTURE_NAV:-}" = "1" ]; then
+            echo "[tour] navbar overlays before: $(adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -E 'navbar\.(threebutton|twobutton|gestural)$' | tr '\n' ' ')"
+            adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural || echo "[tour] gesture navigation overlay not applied; taskbar may stay pinned"
+            sleep 8
+            echo "[tour] navbar overlays after: $(adb shell cmd overlay list 2>/dev/null | tr -d '\r' | grep -E 'navbar\.(threebutton|twobutton|gestural)$' | tr '\n' ' ')"
+          fi
           # The tablet retry boots an AVD whose config.ini ALREADY carries
           # its landscape geometry (see its pre-emulator-launch-script) and
           # sets TOUR_SKIP_DISPLAY_OVERRIDE=1, so the post-boot override
@@ -1601,6 +1613,7 @@ jobs:
           TOUR_OUT: tour_screenshots_tablet
           TOUR_WM_SIZE: 2560x1600
           TOUR_WM_DENSITY: "240"
+          TOUR_GESTURE_NAV: "1"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
         with:
@@ -1662,6 +1675,7 @@ jobs:
           TOUR_WM_SIZE: 2560x1600
           TOUR_WM_DENSITY: "320"
           TOUR_SKIP_DISPLAY_OVERRIDE: "1"
+          TOUR_GESTURE_NAV: "1"
           TOUR_LOGCAT: tour_logcat_tablet.txt
           TOUR_TEST_LOG: tour_test_output_tablet.log
         with:
