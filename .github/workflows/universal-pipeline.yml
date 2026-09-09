@@ -107,6 +107,14 @@ on:
       build_windows:
         type: boolean
         default: false
+      windows_installer:
+        type: boolean
+        default: false
+        description: "Ship the Windows release as a single Inno Setup installer (.exe) instead of a zip. Requires build_windows."
+      app_display_name:
+        type: string
+        default: ""
+        description: "Human-readable app name for the Windows installer. Defaults to the pubspec name."
       build_hms:
         type: boolean
         default: false
@@ -443,6 +451,8 @@ jobs:
       brain_endpoint: ${{ inputs.brain_endpoint }}
       build_android: ${{ inputs.build_android }}
       build_windows: ${{ inputs.build_windows }}
+      windows_installer: ${{ inputs.windows_installer }}
+      app_display_name: ${{ inputs.app_display_name }}
       cleanup_rc_releases: ${{ inputs.cleanup_rc_releases }}
       one_time_cleanup_cutoff_date: ${{ inputs.one_time_cleanup_cutoff_date }}
       backfill_ai_notes_cutoff_version: ${{ inputs.backfill_ai_notes_cutoff_version }}
