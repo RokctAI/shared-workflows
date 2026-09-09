@@ -46,8 +46,95 @@ jobs:
             revert
           requireScope: false
 
-  checklist-check:
+  footer-cleanup:
     needs: telemetry
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    # Cosmetic only - never let a cleanup hiccup block the PR or, via the
+    # `needs` edge below, hide the checklist gate.
+    continue-on-error: true
+    steps:
+      - name: Checkout shared-workflows tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
+      - name: Strip attribution footers from PR body
+        # Skip empty bodies and our own edits. Edits made with GITHUB_TOKEN
+        # never fire a new pull_request run anyway, so there is no loop.
+        if: github.event.pull_request.body != '' && github.actor != 'github-actions[bot]'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/footer-cleanup"
+          mkdir -p "$WORK"
+
+          # api METHOD PATH [JSON_FILE] -> writes $WORK/response.json, echoes HTTP status.
+          # Retries transport errors, 5xx and 429 up to 4 times (2s/4s/8s/16s).
+          api() {
+            local method="$1" path="$2" data="${3:-}" delay=2 attempt code
+            for attempt in 1 2 3 4 5; do
+              if [ -n "$data" ]; then
+                code=$(curl -sS -o "$WORK/response.json" -w '%{http_code}' -X "$method" \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Content-Type: application/json" \
+                  --data-binary @"$data" "$API_URL$path") || code=000
+              else
+                code=$(curl -sS -o "$WORK/response.json" -w '%{http_code}' -X "$method" \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "$API_URL$path") || code=000
+              fi
+              case "$code" in
+                000|429|5*)
+                  if [ "$attempt" -lt 5 ]; then
+                    echo "::debug::$method $path -> $code, retry in ${delay}s" >&2
+                    sleep "$delay"; delay=$((delay * 2)); continue
+                  fi ;;
+              esac
+              echo "$code"; return 0
+            done
+          }
+
+          # Always fetch the live body: on `edited` the event payload can lag.
+          CODE=$(api GET "/repos/$GH_REPO/pulls/$PR_NUMBER")
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::Could not read PR #$PR_NUMBER body (HTTP $CODE); skipping footer cleanup."
+            exit 0
+          fi
+          python3 -c 'import json,sys; sys.stdout.buffer.write((json.load(open(sys.argv[1], encoding="utf-8")).get("body") or "").encode("utf-8"))' \
+            "$WORK/response.json" > "$WORK/body.md"
+          python3 .github/shared-workflows/scripts/pr_footer_cleanup.py < "$WORK/body.md" > "$WORK/cleaned.md"
+
+          if cmp -s "$WORK/body.md" "$WORK/cleaned.md"; then
+            echo "✅ No attribution footer in PR #$PR_NUMBER body; nothing to do."
+            exit 0
+          fi
+
+          python3 -c 'import json,sys; json.dump({"body": open(sys.argv[1], encoding="utf-8").read()}, open(sys.argv[2], "w", encoding="utf-8"))' \
+            "$WORK/cleaned.md" "$WORK/payload.json"
+          CODE=$(api PATCH "/repos/$GH_REPO/pulls/$PR_NUMBER" "$WORK/payload.json")
+          case "$CODE" in
+            200) echo "🧹 Removed attribution footer from PR #$PR_NUMBER body." ;;
+            403|404)
+              echo "::notice::PR #$PR_NUMBER has an attribution footer but this token cannot edit it (HTTP $CODE)." \
+                "Give the caller workflow write access - e.g. a top-level 'permissions: write-all'" \
+                "as in examples/workflows/semantic.yml, or 'permissions: { pull-requests: write }' on the job." ;;
+            *)
+              echo "::warning::PATCH /repos/$GH_REPO/pulls/$PR_NUMBER failed (HTTP $CODE); leaving body as is."
+              head -c 600 "$WORK/response.json" || true; echo ;;
+          esac
+
+  checklist-check:
+    # Runs after footer-cleanup so `gh pr view` below reads the cleaned body.
+    needs: [telemetry, footer-cleanup]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
