@@ -109,12 +109,12 @@ on:
         default: false
       windows_installer:
         type: boolean
-        default: false
-        description: "Ship the Windows release as a single Inno Setup installer (.exe) instead of a zip. Requires build_windows."
+        default: true
+        description: "Ship the Windows release as a single Inno Setup installer (.exe). On by default; pass false to opt out, in which case no Windows asset is attached to the release (the zip is no longer published)."
       app_display_name:
         type: string
         default: ""
-        description: "Human-readable app name for the Windows installer. Defaults to the pubspec name."
+        description: "Human-readable app name for the Windows installer. Defaults to the pubspec name title-cased (my_app -> My App)."
       build_hms:
         type: boolean
         default: false
