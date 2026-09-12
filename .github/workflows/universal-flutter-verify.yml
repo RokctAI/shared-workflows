@@ -109,6 +109,24 @@ jobs:
           SCRIPT
           chmod +x verify_app.sh
 
+      # GitHub's Linux runners support KVM, but /dev/kvm is not accessible
+      # to the runner user by default - without this rule the emulator
+      # action's hardware-acceleration probe fails ("This user doesn't have
+      # permissions to use KVM (/dev/kvm)") and it silently launches qemu
+      # with `-accel off` (full software emulation), which is too slow to
+      # reach sys.boot_completed before the boot timeout - minilauncher run
+      # 34689784176 timed out on both the first attempt and the retry. This
+      # is the setup step reactivecircus documents for GitHub-hosted Linux
+      # runners, and the same one universal-guided-tour.yml already uses.
+      - name: Enable KVM for the Emulator
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "::warning::/dev/kvm still unavailable - emulator will fall back to software emulation"
+
       # Emulator infra flakes (boot timeouts, adb "Broken pipe", dead adb
       # daemon on port 5037) kill whole release runs. Give the job ONE retry
       # with a freshly-created AVD before failing for real.
