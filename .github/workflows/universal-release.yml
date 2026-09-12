@@ -62,13 +62,13 @@ on:
       windows_installer:
         required: false
         type: boolean
-        default: false
-        description: "Package the Windows build as a single Inno Setup installer (.exe) instead of a zip. Requires build_windows."
+        default: true
+        description: "Package the Windows build as a single Inno Setup installer (.exe). On by default; pass false to opt out, in which case no Windows asset is attached to the release (the zip is no longer published). Requires build_windows."
       app_display_name:
         required: false
         type: string
         default: ""
-        description: "Human-readable app name for the Windows installer (AppName, install folder, Start Menu entry). Defaults to the pubspec name."
+        description: "Human-readable app name for the Windows installer (AppName, install folder, Start Menu entry). Defaults to the pubspec name title-cased (my_app -> My App)."
       node-version:
         type: string
         default: '24'
@@ -903,23 +903,16 @@ jobs:
           # CXXFLAGS (not the MSVC `CL` env var) so CMake's compiler
           # identification still passes — see universal-flutter-build.yml.
           CXXFLAGS: "-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
-        # We need to filter Release Mode logic here too to avoid building for RC if user requested
-        # Logic:
+        # Every release that reaches this job gets a real Windows build:
         # 1. Promote (Schedule) = Yes
         # 2. Dev (Develop branch) = Yes
         # 3. Stable (Immediate input + Main branch) = Yes
-        # 4. RC (Weekly input + Main branch) = No (Skip)
+        # 4. RC (Weekly input + Main branch) = Yes
+        # (4) used to be skipped, which left the RC release with no Windows
+        # build of its own and silently fell back to the CI zip uploaded by
+        # universal-flutter-build.yml. RCs now carry the same installer as
+        # every other release.
         run: |
-          $BRANCH = "${{ github.ref_name }}"
-          $EVENT = "${{ github.event_name }}"
-          $STRAT = "${{ inputs.release_strategy }}"
-
-          # Check for RC condition: Weekly Strategy + Main Branch + NOT Schedule
-          if ("$STRAT" -eq "weekly" -and $BRANCH -eq "main" -and $EVENT -ne "schedule") {
-             Write-Output "RC Release Mode on Main (Push). Skipping Windows Build."
-             exit 0
-          }
-
           # Check for Windows directory existence
           if (!(Test-Path "windows")) {
              Write-Output "Skipping: windows/ directory not found. Not a Windows-ready project."
@@ -957,14 +950,14 @@ jobs:
           flutter build windows --release
 
           # Bundle the complete MSVC runtime family from the redist's *.CRT
-          # dir into the zip: on machines without the VC++ redistributable
+          # dir into the payload: on machines without the VC++ redistributable
           # the exe otherwise dies in the loader before main() - instant
           # silent exit, no window, no error. The whole directory ships
           # (not a hand-picked subset) because the CRT DLLs are version-
           # coupled: mixing a new msvcp140.dll with older system companions
           # (msvcp140_1/_2, concrt140, ...) crashes with an access
           # violation at startup. Missing redist on the runner only warns;
-          # the zip still ships.
+          # the installer still ships.
           try {
             $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
             $vs = & $vswhere -latest -property installationPath
@@ -989,22 +982,18 @@ jobs:
           } catch {
             Write-Output "::warning::Could not bundle MSVC runtime DLLs: $_"
           }
-
-          # Zip the build - unless the caller opted into the Inno Setup
-          # installer, which packages the same Release\ tree in the next step.
-          if ("${{ inputs.windows_installer }}" -eq "true") {
-             Write-Output "windows_installer=true: skipping zip; the installer step packages the build."
-          } else {
-             Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath flutter-windows-app.zip
-          }
+          # No zip: the installer step below packages this same Release\ tree
+          # into the single-file .exe that ships as the release asset.
 
       - name: Build Windows Installer (Inno Setup)
-        # Opt-in single-file installer instead of the zip. Inno Setup 6 is
+        # The Windows release asset: a single-file installer. Inno Setup 6 is
         # preinstalled on windows-latest. Deliberately unsigned and per-user
         # (PrivilegesRequired=lowest): the .exe installs after the usual
         # unknown-publisher SmartScreen prompt, needs no admin rights and no
         # certificate import - unlike an unsigned MSIX, which Windows refuses
         # to install until the user trusts a self-signed certificate.
+        # On by default; a caller that passes windows_installer: false gets no
+        # Windows release asset at all (the zip asset was retired).
         if: inputs.windows_installer == true
         shell: pwsh
         env:
@@ -1045,8 +1034,16 @@ jobs:
              Write-Output "::error::Expected $exeName in $ReleaseDir (BINARY_NAME from windows/CMakeLists.txt) but it is missing."
              exit 1
           }
+          # Caller-supplied display name wins. Otherwise derive one from the
+          # pubspec package name so every app gets a readable installer title
+          # without opting in: my_app / my-app -> "My App".
           $displayName = $env:APP_DISPLAY_NAME
-          if ([string]::IsNullOrWhiteSpace($displayName)) { $displayName = $appName }
+          if ([string]::IsNullOrWhiteSpace($displayName)) {
+             $words = @($appName -split '[_\-\s]+' | Where-Object { $_ } | ForEach-Object {
+                $_.Substring(0, 1).ToUpper() + $_.Substring(1)
+             })
+             if ($words.Count -gt 0) { $displayName = $words -join ' ' } else { $displayName = $appName }
+          }
           $outputBase = "$appName-windows-setup-v$appVersion"
           $srcDir = (Resolve-Path $ReleaseDir).Path
           $outDir = Join-Path (Get-Location).Path "installer"
@@ -1103,22 +1100,16 @@ jobs:
           }
           Write-Output "Built installer: $setup ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) MB)"
 
-      - name: Upload Windows Artifact
-        # Only upload if zip exists (meaning we didn't skip)
-        if: inputs.windows_installer != true && hashFiles('flutter-windows-app.zip') != ''
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: windows-release-build
-          path: flutter-windows-app.zip
-          retention-days: 1
-
       - name: Upload Windows Installer Artifact
-        # Same artifact name as the zip so the release job's download step is
-        # unchanged; only one of the two uploads ever runs.
+        # Deliberately NOT named windows-release-build: universal-flutter-build.yml
+        # uploads the CI zip under that name, and in a universal-pipeline.yml run
+        # both reusable workflows share one artifact namespace. Reusing the name
+        # collided with the CI upload and left the release job downloading the CI
+        # zip instead of this installer.
         if: inputs.windows_installer == true && hashFiles('installer/*.exe') != ''
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: windows-release-build
+          name: windows-release-installer
           path: installer/*.exe
           retention-days: 1
 
@@ -1184,33 +1175,29 @@ jobs:
             fi
           fi
       # --- WINDOWS ARTIFACT RETRIEVAL ---
-      - name: Download Windows Artifact
-        if: inputs.build_windows == true
+      - name: Download Windows Installer Artifact
+        if: inputs.build_windows == true && inputs.windows_installer == true
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
-        continue-on-error: true # Might not exist if we skipped build due to RC logic
+        continue-on-error: true # Might not exist (no windows/ dir, build failed)
         with:
-          name: windows-release-build
+          name: windows-release-installer
           path: windows_build
 
       - name: Prepare Windows Asset
-        if: inputs.build_windows == true
+        if: inputs.build_windows == true && inputs.windows_installer == true
         run: |
-           # Check if downloaded file exists (zip, or the Inno Setup installer
-           # when the caller set windows_installer: true)
+           # The only Windows release asset is the Inno Setup installer built by
+           # the build-windows job; the zip asset was retired.
            INSTALLER=""
            for f in windows_build/*-windows-setup-v*.exe; do
               if [ -f "$f" ]; then INSTALLER="$f"; break; fi
            done
-           if [ -f "windows_build/flutter-windows-app.zip" ]; then
-              echo "✅ Found Windows Build"
-              echo "has_windows=true" >> "$GITHUB_ENV"
-              mv windows_build/flutter-windows-app.zip windows_app.zip
-           elif [ -n "$INSTALLER" ]; then
+           if [ -n "$INSTALLER" ]; then
               echo "✅ Found Windows Installer: $INSTALLER"
               echo "has_windows=true" >> "$GITHUB_ENV"
               echo "windows_installer_path=$INSTALLER" >> "$GITHUB_ENV"
            else
-              echo "⚠️ No Windows Build found (skipped?)"
+              echo "⚠️ No Windows installer found (build skipped or failed?)"
               echo "has_windows=false" >> "$GITHUB_ENV"
            fi
 
@@ -2379,16 +2366,11 @@ jobs:
             if [ -f "${{ steps.build_debug_apk.outputs.debug_apk_path }}" ]; then FILES+=("${{ steps.build_debug_apk.outputs.debug_apk_path }}"); fi
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
 
-           # Windows asset: the installer already carries the app name and
-           # version in its filename (<app>-windows-setup-v<version>.exe);
-           # the zip is renamed with the tag as before.
-           if [ "${{ env.has_windows }}" = "true" ]; then
-              if [ -n "${windows_installer_path:-}" ]; then
-                 FILES+=("$windows_installer_path")
-              else
-                 mv windows_app.zip "app-windows-${TAG}.zip"
-                 FILES+=("app-windows-${TAG}.zip")
-              fi
+           # Windows asset: the Inno Setup installer, which already carries the
+           # app name and version in its filename
+           # (<app>-windows-setup-v<version>.exe). The zip asset was retired.
+           if [ "${{ env.has_windows }}" = "true" ] && [ -n "${windows_installer_path:-}" ]; then
+              FILES+=("$windows_installer_path")
            fi
 
            echo "Files to upload: ${FILES[*]}"
