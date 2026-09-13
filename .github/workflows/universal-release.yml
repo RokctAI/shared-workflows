@@ -767,10 +767,104 @@ jobs:
            done
            echo "AI Backfill complete."
 
+  # --- 2.6. VERSION RESOLUTION (Single Source of Truth) ---
+  # Resolves the release version ONCE, here, and hands it to every job that
+  # names an artifact after it: the Windows installer (build-windows) and the
+  # tag / APK / AAB / release notes (release). The installer used to derive its
+  # own version from pubspec.yaml while the tag came from this resolver, so the
+  # two drifted apart and a release could ship app-v1.2.10.apk next to
+  # launcher-windows-setup-v1.0.0.exe. Resolve in one place, consume everywhere.
+  resolve-version:
+    needs: [checks]
+    # The consumers (build-windows, release) never run on pull_request, so
+    # neither does the resolver.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
+      options: --user root
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      file: ${{ steps.version.outputs.file }}
+    steps:
+      - name: System Essentials
+        if: inputs.project_type == 'frappe'
+        run: apt-get update && apt-get install -y git sudo curl jq && git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_SELF=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Fetch and Merge Private Repository
+        shell: bash
+        run: |
+          if [ -f ".private_repo" ]; then
+            REPO_NAME=$(tr -d '\r\n[:space:]' < .private_repo)
+            if [ -n "$REPO_NAME" ]; then
+              echo "Private repository configured: $REPO_NAME"
+              TOKEN="${{ secrets.MONOREPO_PAT || github.token }}"
+              URL="https://x-access-token:${TOKEN}@github.com/${REPO_NAME}.git"
+              if git clone --depth 1 "$URL" .private-temp; then
+                echo "Excluding private files from git tracking..."
+                mkdir -p .git/info
+                (cd .private-temp && find . -type f) | sed 's|^\./||' >> .git/info/exclude
+                echo "Merging private files..."
+                rm -rf .private-temp/.git .private-temp/.github
+                rsync -a .private-temp/ ./
+                rm -rf .private-temp
+              else
+                echo "::warning::Failed to clone private repository $REPO_NAME."
+              fi
+            fi
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
+
+      - name: Get Version (Local)
+        if: env.IS_SELF == 'true'
+        id: version_local
+        uses: ./.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
+      - name: Get Version (Shared)
+        if: env.IS_SELF == 'false'
+        id: version_shared
+        uses: ./.github/shared-workflows/.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
+      - name: Set Version Output
+        id: version
+        run: |
+          # Use non-empty values from either local or shared version steps
+          VER="${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}"
+          FILE="${{ steps.version_local.outputs.file }}${{ steps.version_shared.outputs.file }}"
+          echo "Resolved version: $VER (from $FILE)"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
   # --- 2.7. WINDOWS BUILD (Optional) ---
   build-windows:
     # Needs checks to ensure we don't build broken code, but technically independent
-    needs: [checks]
+    # of it; needs resolve-version for the installer version (single source of truth).
+    needs: [checks, resolve-version]
     runs-on: windows-latest
     if: inputs.build_windows == true && (github.event_name == 'schedule' || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref_name == 'develop' || github.ref_name == 'main')))
     steps:
@@ -998,6 +1092,9 @@ jobs:
         shell: pwsh
         env:
           APP_DISPLAY_NAME: ${{ inputs.app_display_name }}
+          # The version the release job will tag and name the APK/AAB after.
+          # Resolved once in resolve-version so the .exe cannot drift from them.
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $ReleaseDir = "build\windows\x64\runner\Release"
           if (!(Test-Path $ReleaseDir)) {
@@ -1010,18 +1107,25 @@ jobs:
              exit 1
           }
 
-          # App identity: name/version from pubspec.yaml, the exe name from
-          # BINARY_NAME in windows/CMakeLists.txt (falls back to the pubspec name).
+          # App identity: name from pubspec.yaml, the exe name from BINARY_NAME
+          # in windows/CMakeLists.txt (falls back to the pubspec name).
           $pubspec = Get-Content pubspec.yaml -Raw
           $appName = [regex]::Match($pubspec, '(?m)^name:\s*([^\s#]+)').Groups[1].Value
-          $pubVersion = [regex]::Match($pubspec, '(?m)^version:\s*([^\s#]+)').Groups[1].Value
-          if (-not $appName -or -not $pubVersion) {
-             Write-Output "::error::Could not read name/version from pubspec.yaml"
+          if (-not $appName) {
+             Write-Output "::error::Could not read name from pubspec.yaml"
              exit 1
           }
-          # Drop the Flutter "+build" suffix for the user-facing version; the
+          # Version: whatever resolve-version resolved, i.e. the exact string the
+          # release job tags (v<version>) and names the APK/AAB after. Never
+          # re-derived from pubspec.yaml here - that second source is what made
+          # the installer ship a different version than the APK.
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_VERSION)) {
+             Write-Output "::error::RELEASE_VERSION is empty (resolve-version produced no version); refusing to build an installer with an unknown version."
+             exit 1
+          }
+          # Drop any Flutter "+build" suffix for the user-facing version; the
           # exe's VersionInfo must be purely numeric (x.x.x[.x]).
-          $appVersion = $pubVersion -replace '\+.*$', ''
+          $appVersion = $env:RELEASE_VERSION.Trim() -replace '\+.*$', ''
           $fileVersion = [regex]::Match($appVersion, '^\d+(\.\d+){0,3}').Value
           if (-not $fileVersion) { $fileVersion = "0.0.0" }
           $binaryName = $appName
@@ -1117,7 +1221,7 @@ jobs:
 
   # --- 3. THE RELEASE JOB ---
   release:
-    needs: [checks, build-windows]
+    needs: [checks, resolve-version, build-windows]
     # Standard GHA behavior: runs if all needs are success or skipped.
     # We use always() to ensure it runs even if build-windows was skipped (which it often is)
     # Never on pull_request: this job tags, publishes releases and (weekly
@@ -1229,29 +1333,9 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Get Version (Local)
-        if: env.IS_SELF == 'true'
-        id: version_local
-        uses: ./.github/actions/check-version
-        with:
-          file_path: ${{ inputs.version_file }}
-
-      - name: Get Version (Shared)
-        if: env.IS_SELF == 'false'
-        id: version_shared
-        uses: ./.github/shared-workflows/.github/actions/check-version
-        with:
-          file_path: ${{ inputs.version_file }}
-
-      - name: Set Version Output
-        id: version
-        run: |
-          # Use non-empty values from either local or shared version steps
-          VER="${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}"
-          FILE="${{ steps.version_local.outputs.file }}${{ steps.version_shared.outputs.file }}"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
-
+      # Version is NOT resolved here: resolve-version already did it, and the
+      # Windows installer built in build-windows consumed that same value. Any
+      # second derivation is how the .exe and the APK drifted apart.
       - name: Determine Release Mode
         id: mode
         shell: bash
@@ -1286,7 +1370,7 @@ jobs:
                     SUFFIX="-dev-$HASH"
                 elif [[ "$REF_NAME" == "main" ]]; then
                     # Check if version in file is a stable release (no -rc)
-                    FILE="${{ steps.version.outputs.file }}"
+                    FILE="${{ needs.resolve-version.outputs.file }}"
                     CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
                     if [[ "$CUR_VER" != *"-rc"* ]]; then
                         MODE="stable"
@@ -1404,7 +1488,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-           FILE="${{ steps.version.outputs.file }}"
+           FILE="${{ needs.resolve-version.outputs.file }}"
            FORMAT="${{ inputs.version_format || '##.##.##' }}"
 
            if [[ ! -f "$FILE" ]]; then
@@ -1473,7 +1557,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-           VERSION="${{ steps.version.outputs.version }}"
+           VERSION="${{ needs.resolve-version.outputs.version }}"
            if [ -z "$VERSION" ]; then
               echo "❌ Error: Extracted version is empty. Cannot create tag."
               exit 1
@@ -2413,7 +2497,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-           VERSION="${{ steps.version.outputs.version }}"
+           VERSION="${{ needs.resolve-version.outputs.version }}"
            CURRENT_TAG="${{ env.TAG_NAME }}"
            echo "🧹 Rolling Cleanup for RC v$VERSION..."
 
