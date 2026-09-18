@@ -982,6 +982,33 @@ jobs:
             echo "Not a composed shell app (no composer.json). Skipping composition."
           fi
 
+      # --- BUILD STAMPING ---
+      # pubspec.yaml's `version:` is no longer what ships; version.json is.
+      # resolve-version reads it once and this step stamps it onto the binary
+      # below with --build-name, so the .exe's version info cannot drift from
+      # the tag or the APK/AAB. Nothing rewrites pubspec.yaml: the flutter
+      # flags override whatever it still says.
+      # --build-number is the same UTC-minutes-since-the-epoch counter the
+      # Android lanes use as versionCode (Play refuses a versionCode it has
+      # already seen, which is exactly what a frozen pubspec "+1" guaranteed),
+      # kept identical here so one clock stamps every platform.
+      - name: Resolve build name and number
+        shell: pwsh
+        env:
+          RESOLVED_VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          # Strip any Flutter "+build" suffix and any leading "v": --build-name
+          # takes the bare semantic version.
+          $buildName = ($env:RESOLVED_VERSION -replace '\+.*$', '' -replace '^v', '').Trim()
+          if ([string]::IsNullOrWhiteSpace($buildName)) {
+             Write-Output "::error::resolve-version produced no version, so there is nothing to stamp onto this build. Refusing to build a binary with an unknown version - check that the version file resolved by check-version exists and holds a version."
+             exit 1
+          }
+          $buildNumber = [int64][math]::Floor([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() / 60)
+          Write-Output "Stamping Windows build as $buildName (build number $buildNumber)"
+          "BUILD_NAME=$buildName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build Windows
         shell: pwsh
         env:
@@ -1041,7 +1068,7 @@ jobs:
               exit $jitRc
             }
           }
-          flutter build windows --release
+          flutter build windows --release --build-name="$env:BUILD_NAME" --build-number="$env:BUILD_NUMBER"
 
           # Bundle the complete MSVC runtime family from the redist's *.CRT
           # dir into the payload: on machines without the VC++ redistributable
@@ -2048,6 +2075,39 @@ jobs:
               fi
            fi
 
+      # --- BUILD STAMPING ---
+      # pubspec.yaml's `version:` is no longer what ships; version.json is.
+      # resolve-version reads it once — the same string this job tags and
+      # names the APK/AAB after — and this step stamps it onto every binary
+      # below with --build-name. Nothing rewrites pubspec.yaml: the flutter
+      # flags override whatever it still says, so the two cannot drift.
+      # --build-number (Android's versionCode) is UTC minutes since the epoch,
+      # so every upload is strictly newer than the one before it — Play
+      # refuses a versionCode it has already seen, which is exactly what a
+      # frozen pubspec "+1" guaranteed on every single build.
+      - name: Resolve build name and number
+        # Exactly the condition the first flutter build below carries, so a run
+        # that was never going to build an APK/AAB cannot be failed by the
+        # empty-version check.
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        env:
+          RESOLVED_VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+            # Strip any Flutter "+build" suffix and any leading "v":
+            # --build-name takes the bare semantic version.
+            BUILD_NAME=$(printf '%s' "${RESOLVED_VERSION%%+*}" | tr -d '[:space:]')
+            BUILD_NAME="${BUILD_NAME#v}"
+            if [ -z "$BUILD_NAME" ]; then
+              echo "::error::resolve-version produced no version, so there is nothing to stamp onto the APK/AAB. Refusing to build a binary with an unknown version - check that ${{ inputs.version_file }} exists in this repo and holds a version."
+              exit 1
+            fi
+            BUILD_NUMBER=$(( $(date -u +%s) / 60 ))
+            echo "Stamping Android builds as $BUILD_NAME (versionCode $BUILD_NUMBER)"
+            {
+              echo "BUILD_NAME=$BUILD_NAME"
+              echo "BUILD_NUMBER=$BUILD_NUMBER"
+            } >> "$GITHUB_ENV"
+
       - name: Build Android APK (Release)
         # Build for Dev, Promote (Stable), Immediate Stable, RC, and Client.
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
@@ -2074,9 +2134,9 @@ jobs:
               fi
             fi
             if [ -f .env/production.env ]; then
-              flutter build apk --release --dart-define-from-file=.env/production.env
+              flutter build apk --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
             else
-              flutter build apk --release
+              flutter build apk --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
             fi
 
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
@@ -2095,9 +2155,9 @@ jobs:
         run: |
              echo "Building Android Debug APK..."
              if [ -f .env/production.env ]; then
-               flutter build apk --debug --dart-define-from-file=.env/production.env
+               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
              else
-               flutter build apk --debug
+               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
              fi
 
              DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
@@ -2117,9 +2177,9 @@ jobs:
         run: |
             echo "Building Android AppBundle..."
             if [ -f .env/production.env ]; then
-              flutter build appbundle --release --dart-define-from-file=.env/production.env
+              flutter build appbundle --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
             else
-              flutter build appbundle --release
+              flutter build appbundle --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
             fi
 
             AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
