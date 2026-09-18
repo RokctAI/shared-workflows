@@ -40,8 +40,8 @@ on:
       version_file:
         required: false
         type: string
-        default: "pubspec.yaml"
-        description: "Path to the file holding the app version (pubspec.yaml 'version: X.Y.Z+N')"
+        default: "version.json"
+        description: 'Path to the file holding the app version. version.json ({"version": "X.Y.Z"}) is the source of truth for what ships - pubspec.yaml version: is not, and is no longer read by default.'
       package_name:
         required: false
         type: string
@@ -155,25 +155,62 @@ jobs:
             echo "on_main=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # --- VERSION RESOLUTION ---
+      # pubspec.yaml's `version:` is no longer what ships; version.json is, and
+      # it is read here through the same check-version action the release lane
+      # uses (universal-release.yml's resolve-version job) instead of grepping
+      # pubspec by hand. That makes the
+      # "version-unchanged-since-last-release" rule below mean exactly what the
+      # release tag means, rather than comparing against a string nothing
+      # stamps onto a binary any more.
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_SELF=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
+
+      # continue-on-error on both: check-version exits non-zero when the file
+      # is missing or unparseable, and that has always been a clean no-op here
+      # (the no-version-resolved rule in Decide), not a red run. Failing the
+      # step leaves the output empty, which is exactly what that rule reads.
+      - name: Get Version (Local)
+        if: env.IS_SELF == 'true'
+        id: version_local
+        continue-on-error: true
+        uses: ./.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
+      - name: Get Version (Shared)
+        if: env.IS_SELF == 'false'
+        id: version_shared
+        continue-on-error: true
+        uses: ./.github/shared-workflows/.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
       - name: Resolve Current Version
         id: current_version
         run: |
-          FILE="${{ inputs.version_file }}"
-          if [ ! -f "$FILE" ]; then
-            echo "❌ Version file not found: $FILE"
-            echo "version=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$FILE" == *.yaml ]] || [[ "$FILE" == *.yml ]]; then
-            VERSION=$(grep -m1 -E '^version:' "$FILE" | awk '{print $2}' | tr -d '"' | tr -d "'")
-          elif [[ "$FILE" == *.json ]]; then
-            VERSION=$(jq -r .version "$FILE")
+          # Exactly one of the two steps above ran; the other contributes an
+          # empty string. Both empty means nothing resolved.
+          VERSION="${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}"
+          FILE="${{ steps.version_local.outputs.file }}${{ steps.version_shared.outputs.file }}"
+          if [ -z "$VERSION" ]; then
+            echo "⚠️ No version resolved from ${{ inputs.version_file }}."
           else
-            VERSION=$(cat "$FILE")
+            echo "📦 Current version: $VERSION (from $FILE)"
           fi
-
-          echo "📦 Current version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Package Name
@@ -599,10 +636,70 @@ jobs:
             fi
           fi
 
+      # --- BUILD STAMPING ---
+      # pubspec.yaml's `version:` is no longer what ships; version.json is,
+      # read here through the same check-version action the gate and the
+      # release lane use, and stamped onto the AAB with --build-name. Nothing
+      # rewrites pubspec.yaml: the flutter flags override whatever it still
+      # says, so the uploaded bundle carries the resolved version instead of a
+      # frozen one.
+      # --build-number is Android's versionCode, set to UTC minutes since the
+      # epoch so every upload is strictly newer than the one Play already
+      # has — Play rejects a versionCode it has seen before, which is exactly
+      # why a frozen pubspec "+1" could only ever be published once.
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_SELF=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: .github/shared-workflows
+          token: ${{ github.token }}
+
+      - name: Get Version (Local)
+        if: env.IS_SELF == 'true'
+        id: version_local
+        uses: ./.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
+      - name: Get Version (Shared)
+        if: env.IS_SELF == 'false'
+        id: version_shared
+        uses: ./.github/shared-workflows/.github/actions/check-version
+        with:
+          file_path: ${{ inputs.version_file }}
+
+      - name: Resolve Build Name And Number
+        env:
+          RESOLVED_VERSION: ${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}
+        run: |
+          # Strip any Flutter "+build" suffix and any leading "v":
+          # --build-name takes the bare semantic version.
+          BUILD_NAME=$(printf '%s' "${RESOLVED_VERSION%%+*}" | tr -d '[:space:]')
+          BUILD_NAME="${BUILD_NAME#v}"
+          if [ -z "$BUILD_NAME" ]; then
+            echo "::error::No version resolved from ${{ inputs.version_file }}; refusing to build an AAB with an unknown version. The gate resolved one, so this means the file changed or is unreadable in this job's checkout."
+            exit 1
+          fi
+          BUILD_NUMBER=$(( $(date -u +%s) / 60 ))
+          echo "Stamping AAB as $BUILD_NAME (versionCode $BUILD_NUMBER)"
+          {
+            echo "BUILD_NAME=$BUILD_NAME"
+            echo "BUILD_NUMBER=$BUILD_NUMBER"
+          } >> "$GITHUB_ENV"
+
       - name: Build Android AppBundle
         id: build_aab
         run: |
-          BUILD_ARGS=(--release)
+          BUILD_ARGS=(--release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER")
           if [ -f .env/production.env ]; then
             BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
           fi
