@@ -170,6 +170,46 @@ jobs:
           disable-animations: true
           script: bash ./verify_app.sh
 
+      # Structured failure record (failure-record.json) for a verify that
+      # failed on both attempts: consumer, stage, API cmd (only when logcat
+      # shows a failing API call), error summary, log tail, emulator info,
+      # screenshot artifact and a failure class. Never fatal.
+      - name: Checkout Shared Workflows (Failure Record)
+        if: steps.verify.outcome == 'failure' && steps.verify-retry.outcome != 'success'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
+      - name: Write Failure Record
+        if: steps.verify.outcome == 'failure' && steps.verify-retry.outcome != 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          EMULATOR_API_LEVEL: '34'
+          EMULATOR_TARGET: google_apis
+          EMULATOR_ARCH: x86_64
+        run: |
+          FR=.github/shared-workflows/scripts/failure_record.py
+          if [ -f "$FR" ]; then
+            python3 "$FR" write --out failure-record.json --stage emulator-verify \
+              --log logs.txt --class runtime \
+              --screenshot-artifact verification-results --screenshot-file verification.png || true
+            [ -s failure-record.json ] && { python3 "$FR" render failure-record.json >> "$GITHUB_STEP_SUMMARY" || true; }
+          fi
+          rm -rf .github/shared-workflows
+
+      - name: Upload Failure Record
+        if: steps.verify.outcome == 'failure' && steps.verify-retry.outcome != 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: failure-record-verify
+          path: failure-record.json
+          if-no-files-found: ignore
+
       - name: Verify Status
         if: always()
         run: |
