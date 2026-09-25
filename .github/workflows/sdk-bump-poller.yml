@@ -10,6 +10,16 @@
 # to the last *successful* build, a failed or cancelled build never
 # swallows a change: it stays detected and the next weekly run simply
 # dispatches the build again.
+#
+# Staged rollout: builds go one consumer at a time and stop at the first
+# failure. The SDK version that broke it is then known-bad, and it is read
+# back from the same place the poller keeps all its state - the shells'
+# build.yml run history. A shell whose latest completed build (newer than
+# its last green) failed while the SDK path it changed was already at
+# today's SHA marks <sdk-path>@<sha> known-bad. Every consumer that would
+# rebuild only for that same version is held (not dispatched) and reported.
+# As soon as that SDK path gets a newer commit, the key no longer matches
+# and the rollout restarts from the first consumer.
 # (The push-side sdk-dispatch.yml -> universal-sdk-dispatch.yml path was
 # retired for private-repo Actions minutes cost; this poller runs on the
 # public shared-workflows repo, which has free minutes.)
@@ -163,6 +173,8 @@ jobs:
           }
 
           # --- 3. Per shell: last green build vs composed SDK paths -------------
+          KNOWN_BAD_FILE="$WORK/known-bad.tsv"    # sdk@sha<TAB>shell<TAB>run_url
+          : > "$KNOWN_BAD_FILE"
           NEEDS_FILE="$WORK/needs-build.tsv"      # shell<TAB>branch<TAB>reason<TAB>sdk<TAB>from_sha<TAB>to_sha
           ROWS_FILE="$WORK/summary-rows.tsv"      # shell<TAB>last_green<TAB>result
           : > "$NEEDS_FILE"
@@ -243,6 +255,33 @@ jobs:
               fi
             done < "$WORK/entries.tsv"
 
+            # Known-bad check: did this shell's latest completed build (newer
+            # than its last green) fail on the SDK version that is current now?
+            if [ -n "$CHANGED" ] && [ "$CHANGED_TO" != "-" ]; then
+              LAST_RUN="$(curl -sSG -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+                --data-urlencode "branch=$SHELL_BRANCH" \
+                --data-urlencode "status=completed" \
+                --data-urlencode "per_page=1" \
+                "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/workflows/$WORKFLOW_FILE/runs" 2>/dev/null \
+                | jq -r '.workflow_runs[0] // empty | [.conclusion, (.run_started_at // .created_at), .html_url] | @tsv' 2>/dev/null || true)"
+              IFS=$'\t' read -r LR_CONCLUSION LR_STARTED LR_URL <<< "$LAST_RUN"
+              case "$LR_CONCLUSION" in
+                failure|timed_out)
+                  if [ -n "$LR_STARTED" ] && [[ "$LR_STARTED" > "$LAST_GREEN" ]]; then
+                    CH_REPO="${CHANGED%%/*}"
+                    CH_PATH="${CHANGED#*/}"
+                    [ "$CH_PATH" = "." ] && CH_PATH=""
+                    CH_BRANCH="$(awk -F'\t' -v n="$CH_REPO" '$2 == n { print $3; exit }' "$REPOS_LOWER")"
+                    if AT_FAIL="$(latest_commit_sha "$CH_REPO" "$CH_BRANCH" "$CH_PATH" "$LR_STARTED")" \
+                       && [ -n "$AT_FAIL" ] && [ "$AT_FAIL" = "$CHANGED_TO" ]; then
+                      echo "$SHELL_REPO: last build failed on $CHANGED@$CHANGED_TO ($LR_URL) -> that SDK version is known-bad."
+                      printf '%s\t%s\t%s\n' "$CHANGED@$CHANGED_TO" "$SHELL_REPO" "$LR_URL" >> "$KNOWN_BAD_FILE"
+                    fi
+                  fi
+                  ;;
+              esac
+            fi
+
             if [ -n "$CHANGED" ]; then
               echo "$SHELL_REPO: $CHANGED changed since last successful build ($LAST_GREEN) -> needs a build."
               printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$SHELL_REPO" "$SHELL_BRANCH" "$CHANGED changed" \
@@ -310,12 +349,22 @@ jobs:
           FAILED=""
           WOULD=""
           SKIPPED_AFTER_STOP=""
+          HELD=""
           STOPPED_AT=""
           POLL_SECS=30
           FIND_TRIES=20          # ~10 min to see the dispatched run appear
           WAIT_TRIES=300         # ~150 min per build
           if [ -s "$NEEDS_FILE" ]; then
             while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH REASON SDK_ID SDK_FROM SDK_TO; do
+              SDK_KEY=""
+              [ "$SDK_ID" != "-" ] && [ "$SDK_TO" != "-" ] && SDK_KEY="$SDK_ID@$SDK_TO"
+              if [ -n "$SDK_KEY" ] && BAD_ROW="$(awk -F'\t' -v k="$SDK_KEY" '$1 == k { print; exit }' "$KNOWN_BAD_FILE")" && [ -n "$BAD_ROW" ]; then
+                BAD_SHELL="$(printf '%s' "$BAD_ROW" | cut -f2)"
+                echo "::warning::$SHELL_REPO: held - $SDK_KEY is known-bad (first failed in $BAD_SHELL); waiting for a newer version of that SDK."
+                HELD="$HELD $SHELL_REPO"
+                sed -i "s|^$SHELL_REPO\t\(.*\)\tdispatch (\(.*\))$|$SHELL_REPO\t\1\theld (known-bad $SDK_KEY, failed in $BAD_SHELL)|" "$ROWS_FILE"
+                continue
+              fi
               if [ -n "$STOPPED_AT" ]; then
                 SKIPPED_AFTER_STOP="$SKIPPED_AFTER_STOP $SHELL_REPO"
                 continue
@@ -376,6 +425,10 @@ jobs:
                 echo "::error::$SHELL_REPO: build ${CONCLUSION:-did not finish in time} ($RUN_URL); stopping - remaining shells wait for the next poll."
                 FAILED="$FAILED $SHELL_REPO"
                 STOPPED_AT="$SHELL_REPO (build ${CONCLUSION:-timed out}: $RUN_URL)"
+                if [ -n "$SDK_KEY" ]; then
+                  printf '%s\t%s\t%s\n' "$SDK_KEY" "$SHELL_REPO" "$RUN_URL" >> "$KNOWN_BAD_FILE"
+                  STOPPED_AT="$STOPPED_AT; SDK version $SDK_KEY is now known-bad"
+                fi
                 render_failure_records "$SHELL_REPO" "$RUN_ID" "$SDK_ID" "$SDK_FROM" "$SDK_TO"
               fi
             done < "$NEEDS_FILE"
@@ -411,6 +464,22 @@ jobs:
                 echo "- Not dispatched (left for the next poll):$(echo "$SKIPPED_AFTER_STOP" | sed 's/ /, /g' | sed 's/^,//')"
               fi
             fi
+            if [ -s "$KNOWN_BAD_FILE" ]; then
+              echo ""
+              echo "### Known-bad SDK versions (staged rollout)"
+              echo ""
+              echo "Consumers that would rebuild only for one of these versions are held until that SDK gets a newer commit; the rollout then restarts from the first consumer."
+              echo ""
+              echo "| SDK version | First failing consumer | Run |"
+              echo "|---|---|---|"
+              sort -u "$KNOWN_BAD_FILE" | while IFS=$'\t' read -r K S U; do
+                echo "| \`$K\` | $S | $U |"
+              done
+              if [ -n "$HELD" ]; then
+                echo ""
+                echo "- Held (known-bad SDK version):$(echo "$HELD" | sed 's/ /, /g' | sed 's/^,//')"
+              fi
+            fi
             if [ -s "$REPORTS_FILE" ]; then
               echo ""
               echo "## Failure records"
@@ -418,5 +487,17 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+          sort -u "$KNOWN_BAD_FILE" | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {sdk_version: .[0], consumer: .[1], run_url: .[2]})' \
+            > "$RUNNER_TEMP/known-bad-sdk.json" 2>/dev/null || echo '[]' > "$RUNNER_TEMP/known-bad-sdk.json"
+
           # A stopped chain is a real failure and must show as a red run.
+          # Holding consumers behind an already-known-bad version is not.
           [ -z "$STOPPED_AT" ]
+
+      - name: Upload known-bad SDK versions
+        if: always() && steps.guard.outputs.run == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: known-bad-sdk
+          path: ${{ runner.temp }}/known-bad-sdk.json
+          if-no-files-found: ignore
