@@ -24,7 +24,7 @@
 // supacharge). The file does not compile until that token is substituted;
 // nothing else in it is app-specific.
 //
-// Guided-tour runner for the demo build (--dart-define=IS_DEMO=true).
+// Guided-tour runner for the demo build (--dart-define=TOUR_MODE=true).
 //
 // Steps come from tour_steps.g.dart, which CI regenerates from
 // tour/app.tour.yaml plus the tour fragments shipped by the composed SDKs

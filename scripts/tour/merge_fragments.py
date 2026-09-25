@@ -73,7 +73,7 @@ HIGHLIGHT_RE = re.compile(r"\*([^*\n]+)\*")
 VALID_ACTIONS = ("wait", "route", "dart")
 DEFAULT_SETTLE_SECONDS = 5
 # Demo account the shared auth fragment signs in as when an app shell
-# declares no setup.demo_email. MockAuthRepository maps the address to a
+# declares no setup.demo_email. auth_sdk's demo login fixtures map the address to a
 # role, so a shell whose session_policy rejects 'customer' must set its own.
 DEFAULT_DEMO_EMAIL = "demo.student@example.com"
 # One caption beat per still in the video (WhatsApp-status pacing);

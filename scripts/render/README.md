@@ -184,22 +184,23 @@ is not) but the word is readable, which is what the review needs.
 
 ### 2.5 Demo data comes from the SDKs, not from the harness
 
-**Do not hand-write fixtures.** Every SDK already owns its demo data and
-already swaps it in itself. `AppConstants.isDemo`
-(`core/base/dart/lib/src/constants/app_constants.dart`) is
-`bool.fromEnvironment('IS_DEMO')`, and each SDK's DI registration branches on
-it:
+**Do not hand-write fixtures.** Every SDK already owns its demo data as
+`<cmd>.json` fixtures, registered from its own DI with
+`DemoFixtures.registerAssetDirectory`. There are no demo or mock repositories:
+the SDKs always register their REAL Http repositories, and base_sdk's
+`DemoGatewayInterceptor`
+(`core/base/dart/lib/src/handlers/demo_gateway_interceptor.dart`, base_sdk
+>= 1.73.0) answers each `rokct.platform.api` call from the fixture for its cmd
+whenever `DemoSession.demoActive` is true
+(`AppConstants.isTour || DemoSession.instance.active`).
 
-| SDK | Registration | What demo mode gives you |
-|---|---|---|
-| lms | `LmsSdkDependencies.register` (`agent/lms/dart/lib/src/common/di/lms_di.dart`) | `DemoLmsRepository` - courses, enrolments, grade, tutors, board, practice, server clock - and `SeededTutorCatalog` |
-| auth | `AuthSdkDependencies.register` (`Users/auth/dart/lib/src/common/di/auth_di.dart`) | `MockAuthRepository`, including the demo logins (`partner@`/`admin@`/`driver@`/`manager@demo.rokct.ai`) and its demo `ProfileData` |
-| users | `UsersSdkDependencies.register` (`Users/users/dart/lib/src/common/di/users_di.dart`) | `MockAddressRepository` |
-
-So the whole data setup for a screen is: run the test with
-`--dart-define=IS_DEMO=true` and call the DI registrations in composed-app
-order (base first, then each feature SDK). Per-screen config then really is
-just *which screen* - see `TODO(harness) 2/8` in the template.
+So the whole data setup for a screen is: activate the demo session
+(`await DemoSession.instance.activate()` after `LocalStorage.init()`) and call
+the DI registrations in composed-app order (base first, then each feature
+SDK). No `--dart-define` is needed. Per-screen config then really is just
+*which screen* - see `TODO(harness) 2/8` in the template. A cmd with no
+fixture throws `DemoFixtureMissing(cmd)`: add the fixture to the SDK, do not
+stub around it.
 
 Registrations are guarded by `isRegistered`, so anything pre-registered wins;
 that is also how the exception hook below gets in.
@@ -210,8 +211,8 @@ Demo mode covers repositories. It does **not** pre-fill stores the device
 accumulates through use - an attendance ledger, a downloads list, a watch
 history. Those are written by the app as the user does things
 (`ProfileStore.recordAttendance` is called from `schedule_notifier.dart` as
-lessons are attended), and `DemoLmsRepository.recordAttendanceEvent` is a
-deliberate no-op. The guided tour fills them by BOOTING the app and walking
+lessons are attended), and the fixture that answers the attendance write
+stores nothing. The guided tour fills them by BOOTING the app and walking
 the schedule; a widget test never walks that journey, so on a fresh temp
 database those screens render empty.
 
@@ -222,7 +223,8 @@ by the app, and say so in the page's notes. **This is the documented
 exception, not the default path.**
 
 `TODO(harness) 4/8` is the second, rarer exception: a hand-written stub, for a
-service with no `isDemo` implementation at all. Let stubs throw from
+service that does not go through the platform gateway, so no fixture can
+answer it. Let stubs throw from
 `noSuchMethod` so they name the exact member the screen touches and cannot
 quietly grow.
 
@@ -418,11 +420,10 @@ not worth coupling the renderer to the tour pipeline. Name the screen.
 ## 3. Running it
 
 ```bash
-# 1. render (in the harness package). IS_DEMO=true is what makes the SDKs
-#    register their own demo fixtures instead of their real HTTP repositories.
-flutter test --dart-define=IS_DEMO=true test/render_screen_test.dart
-RENDER_SUFFIX=_draft flutter test --dart-define=IS_DEMO=true \
-    test/render_screen_test.dart                                # PR heads
+# 1. render (in the harness package). The harness activates the demo
+#    session itself; the SDKs' fixtures answer through DemoGatewayInterceptor.
+flutter test test/render_screen_test.dart
+RENDER_SUFFIX=_draft flutter test test/render_screen_test.dart  # PR heads
 
 # 2. compose
 python scripts/render/compose_strip.py \
