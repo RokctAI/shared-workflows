@@ -1,0 +1,80 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+
+# SDK gateway cmd check -> central issues. Runs scripts/sdk_validator.py over
+# the calling repo (warn-only, exactly as before) and syncs its gateway cmd
+# findings into ONE issue per SDK in RokctAI/platformstack via
+# scripts/sdk_cmd_issue_sync.py: opened when an SDK has unresolved cmds,
+# updated in place on every run, closed when the count reaches zero. Issues
+# are found by the hidden `<!-- cmd-check:<sdk> -->` marker + the
+# `sdk-cmd-check` label, so an SDK never gets a second issue.
+# Never fails the caller: the validator step does not gate on findings and
+# the sync step is continue-on-error and degrades to a log line without
+# MONOREPO_PAT (same token/pattern as the central build-failure reporter).
+#
+# Usage from an SDK repo:
+#   jobs:
+#     cmd-check:
+#       uses: RokctAI/shared-workflows/.github/workflows/universal-sdk-cmd-check.yml@main
+#       secrets: inherit
+
+name: SDK Gateway Cmd Check
+
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Print planned issue operations instead of performing them'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print planned issue operations instead of performing them'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cmd-check:
+    name: SDK gateway cmd check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Checkout repo under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: src
+
+      - name: Checkout shared-workflows scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: sw
+
+      - name: Run SDK validator (warn-only)
+        run: |
+          python3 sw/scripts/sdk_validator.py --root "$GITHUB_WORKSPACE/src" \
+            --cmd-report "$RUNNER_TEMP/cmd_report.json" || true
+          if [ -f "$RUNNER_TEMP/cmd_report.json" ]; then
+            echo "Gateway cmd report:"
+            cat "$RUNNER_TEMP/cmd_report.json"
+          else
+            echo "No cmd report produced (no SDK with a frappe half here)."
+          fi
+
+      - name: Sync cmd-check issues to central repo
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          CENTRAL_REPO: RokctAI/platformstack
+          DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          EXTRA_ARGS=""
+          [ "$DRY_RUN" = "true" ] && EXTRA_ARGS="--dry-run"
+          python3 sw/scripts/sdk_cmd_issue_sync.py "$RUNNER_TEMP/cmd_report.json" $EXTRA_ARGS
