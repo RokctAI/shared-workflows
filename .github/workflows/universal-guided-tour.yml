@@ -3,7 +3,7 @@
 name: Universal Guided Tour
 
 # Builds the calling app shell with its built-in demo dataset
-# (--dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true), walks a scripted
+# (--dart-define=TOUR_MODE=true), walks a scripted
 # guided tour on a headless Android emulator, captures a screenshot per step,
 # assembles a markdown feature guide (required) and a vertical marketing
 # video (best-effort), and commits the outputs to marketing/tour/ in the
@@ -110,11 +110,12 @@ on:
       render-dart-defines:
         required: false
         type: string
-        default: 'IS_DEMO=true'
+        default: 'TOUR_MODE=true'
         description: >-
           Space-separated KEY=VALUE pairs passed to the render test as
-          --dart-define. IS_DEMO=true is what makes the SDKs register their
-          demo fixtures instead of real HTTP repositories.
+          --dart-define. TOUR_MODE=true makes DemoSession.demoActive true, so
+          base_sdk's DemoGatewayInterceptor answers the SDKs' real
+          repositories from their fixtures (IS_DEMO is gone).
       render-output-file:
         required: false
         type: string
@@ -502,7 +503,7 @@ jobs:
         id: build-apk
         shell: bash
         run: |
-          BUILD_ARGS=(--debug --dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true)
+          BUILD_ARGS=(--debug --dart-define=TOUR_MODE=true)
           if [ -f .env/production.env ]; then
             BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
           fi
@@ -923,7 +924,7 @@ jobs:
           CAP_PID=$!
 
           TEST_EXIT=0
-          TEST_ARGS=(--dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true)
+          TEST_ARGS=(--dart-define=TOUR_MODE=true)
           if [ -f .env/production.env ]; then
             TEST_ARGS+=(--dart-define-from-file=.env/production.env)
           fi

@@ -35,10 +35,9 @@
 #   RENDER_SUFFIX       exported for the test, so two checkouts can be told
 #                       apart.
 #   DART_DEFINES        space-separated KEY=VALUE pairs, one --dart-define
-#                       each. IS_DEMO=true is what makes the SDKs register
-#                       their demo fixtures instead of real HTTP
-#                       repositories - without it the render is of an empty,
-#                       broken screen.
+#                       each. Empty by default: the render test activates
+#                       the demo session itself and the SDKs' fixtures answer
+#                       through DemoGatewayInterceptor.
 #   RENDER_LOG          where to tee the `flutter test` output.
 #
 # Callers decide whether a repo HAS a harness; this script fails loudly when
@@ -62,7 +61,7 @@ RENDER_SVG_DIR="${RENDER_SVG_DIR-svg}"
 # `-` not `:-`: an EXPLICITLY empty DART_DEFINES means "no defines", the
 # same as passing an empty dart-defines input to the workflow. Only an
 # UNSET variable falls back to the default.
-DART_DEFINES="${DART_DEFINES-IS_DEMO=true}"
+DART_DEFINES="${DART_DEFINES-}"
 RENDER_LOG="${RENDER_LOG:-render_log.txt}"
 # The test reads this itself; export it even when empty so a stale value from
 # the runner environment cannot leak into the filenames.

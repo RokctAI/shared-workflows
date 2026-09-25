@@ -13,8 +13,9 @@
 #   self-contained scrollable HTML page, and uploads it as a build artifact.
 #   Format and conventions: scripts/render/README.md in this repo.
 #
-# The render test uses the SDKs' own demo/seed fixtures (IS_DEMO=true) and
-# should not be wired to a live client or backend.
+# The render test activates a demo session itself, so the SDKs' real
+# repositories are answered from their own fixtures by base_sdk's
+# DemoGatewayInterceptor; it should not be wired to a live backend.
 #
 # It never commits or pushes: it composes in place purely to render, so it is
 # safe on PRs and arbitrary branches.
@@ -65,13 +66,13 @@ on:
       dart-defines:
         required: false
         type: string
-        default: 'IS_DEMO=true'
+        default: ''
         description: >-
           Space-separated KEY=VALUE pairs passed to `flutter test` as
-          --dart-define. IS_DEMO=true is the default because it is what makes
-          the SDKs register their OWN demo fixtures (DemoLmsRepository,
-          MockAuthRepository, ...) instead of their real HTTP repositories -
-          without it the render is of an empty, broken screen.
+          --dart-define. Empty by default: the render test activates the demo
+          session itself (DemoSession.instance.activate()), and the SDKs'
+          fixtures answer through DemoGatewayInterceptor. IS_DEMO is gone
+          (a no-op since base_sdk 1.65.0).
       output-file:
         required: false
         type: string

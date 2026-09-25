@@ -90,11 +90,11 @@ tour:
   # --- role chaining (optional) ---------------------------------------
   # A tour can walk several roles through the same session by chaining
   # sign-out/sign-in steps between role-specific fragments. In demo builds
-  # auth_sdk's MockAuthRepository maps the role by EMAIL (any password):
+  # auth_sdk's demo login fixtures map the role by EMAIL (any password):
   # partner@demo.rokct.ai -> partner, admin@demo.rokct.ai -> admin, any
   # other email -> the default (customer/student) role. An app needing
   # other roles (driver, manager, ...) must first add those demo emails to
-  # MockAuthRepository in Users/auth. Working sign-out and sign-in `dart`
+  # auth_sdk's login fixtures in Users/auth. Working sign-out and sign-in `dart`
   # steps to copy verbatim (they use base_sdk's LocalStorage teardown and
   # auth_sdk's loginProvider) are in supacharge's tour/app.tour.yaml —
   # steps sign_out_student / partner_sign_in.

@@ -4,7 +4,7 @@ Automated feature-tour screenshots, feature guide, and vertical video for
 composed Flutter app shells. Runs via
 `.github/workflows/universal-guided-tour.yml`, which composes the app the
 same way `universal-flutter-build.yml` does, builds a demo APK
-(`--dart-define=IS_DEMO=true --dart-define=TOUR_MODE=true`), walks a scripted
+(`--dart-define=TOUR_MODE=true`), walks a scripted
 tour on a headless Android emulator, and commits the outputs back to the app
 shell repo under `marketing/tour/`:
 

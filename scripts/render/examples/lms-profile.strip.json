@@ -87,14 +87,14 @@
       "kicker": "note - how these renders were produced",
       "body": [
         "A widget-test harness; zero app code touched. It pumps the real GenericProfilePage with LmsProfileSections.registerStudentSections(...) registered, renders it at 390 logical px (dpr 3) at the page's full content height, and captures the RepaintBoundary to PNG.",
-        "The data is the SDKs' own demo data, not fixtures written for this page. The test runs with --dart-define=IS_DEMO=true and calls the SDKs' DI registrations, so LmsSdkDependencies installs DemoLmsRepository and SeededTutorCatalog and AuthSdkDependencies installs MockAuthRepository - the same demo fixtures a demo build of the app serves.",
+        "The data is the SDKs' own demo data, not fixtures written for this page. The test activates a demo session and calls the SDKs' DI registrations, which install their real repositories; base_sdk's DemoGatewayInterceptor answers them from the SDKs' own fixtures - the same data a demo session of the app serves.",
         "Real, not simulated: Inter/Montserrat loaded as real font files through the google_fonts test path, the real MaterialIcons and Remix icon fonts, and AppStyle light/dark tokens resolved by the real setBrightness seam. Layout, spacing, typography, colour, registry order and visibility gates are all the shipped code path."
       ]
     },
     {
       "kicker": "exception - device history the demo mode cannot supply",
       "body": [
-        "The profile's attendance percentage and library come from stores a device accumulates through use: ProfileStore's attendance ledger is written by the schedule as lessons are attended, and DemoLmsRepository.recordAttendanceEvent is a deliberate no-op. A widget test never walks that journey, so those stores start empty.",
+        "The profile's attendance percentage and library come from stores a device accumulates through use: ProfileStore's attendance ledger is written by the schedule as lessons are attended, and the fixture answering the attendance write stores nothing. A widget test never walks that journey, so those stores start empty.",
         "This page therefore seeds the attendance ledger and library through the app's REAL store API (harness marker 3/8). The percentages, averages and expandable summaries on the frames are still computed by the app's own notifiers from those records - nothing on the frame is a typed-in number. Every other value comes from demo mode."
       ]
     },
