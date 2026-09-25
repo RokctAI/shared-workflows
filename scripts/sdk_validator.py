@@ -647,11 +647,14 @@ def cmd_is_whitelisted(cmd, keys):
     return cmd in keys or (APP_NAME_PREFIX + cmd) in keys
 
 
-def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger):
+def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger,
+                          unresolved=None):
     """Checks every Dart cmd of one SDK against its own frappe half (+deps).
 
     Returns the number of unresolved cmds, or None when the SDK has no
-    frappe half in this workspace (nothing to check against).
+    frappe half in this workspace (nothing to check against). When
+    `unresolved` is a list, each unresolved cmd is appended to it as
+    {'cmd': ..., 'file': first 'rel/path.dart'}.
     """
     root = Path(info['root_dir']).resolve()
     manifest = frappe_by_root.get(root)
@@ -667,6 +670,8 @@ def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger
         if cmd_is_whitelisted(cmd, keys):
             continue
         missing += 1
+        if unresolved is not None:
+            unresolved.append({'cmd': cmd, 'file': rel})
         logger.log(
             f"Gateway cmd '{cmd}' (first used at {rel}) is not whitelisted by "
             f"this SDK's frappe half ({os.path.relpath(manifest, root.parent).replace(chr(92), '/')})"
@@ -806,6 +811,13 @@ def parse_args():
         "shared-workflows/ -> the folder holding every sibling repo - the "
         "full multi-repo scan mode). Override explicitly if neither fits.",
     )
+    parser.add_argument(
+        "--cmd-report",
+        default=None,
+        help="Write the gateway cmd check results as JSON to this path: "
+        "{sdk_name: [{cmd, file}]} for every SDK that was checked (an empty "
+        "list = fully resolved). Report-only; never changes the exit status.",
+    )
     return parser.parse_args()
 
 
@@ -919,19 +931,32 @@ def main():
     frappe_by_name = {label[:-len(' (frappe)')]: i['manifest_path']
                       for label, i in flavor_data.items()
                       if i['flavor'] == 'frappe'}
+    cmd_report = {}
     if frappe_by_root:
         logger.log("--- Gateway cmd check (dart cmds vs own frappe half) ---")
         for sdk_name, info in sdk_data.items():
+            unresolved = []
             try:
                 missing = validate_gateway_cmds(sdk_name, info, frappe_by_root,
-                                                frappe_by_name, logger)
+                                                frappe_by_name, logger,
+                                                unresolved)
             except Exception as e:
                 logger.log(f"Error running gateway cmd check: {e}", "WARNING",
                            sdk_name)
                 continue
+            if missing is not None:
+                cmd_report[sdk_name] = unresolved
             if missing:
                 logger.log(f"{sdk_name}: {missing} unresolved gateway cmd(s).",
                            "WARNING", sdk_name)
+
+    if args.cmd_report:
+        try:
+            with open(args.cmd_report, 'w', encoding='utf-8', newline='\n') as f:
+                json.dump(cmd_report, f, indent=2, sort_keys=True)
+                f.write('\n')
+        except OSError as e:
+            logger.log(f"Could not write cmd report: {e}", "WARNING")
 
     logger.write_summaries(list(sdk_data.keys()) + list(flavor_data.keys()))
 

@@ -152,6 +152,28 @@ class ValidateGatewayCmdsTest(unittest.TestCase):
         self.assertIsNone(missing)
         self.assertFalse(logger.lines)
 
+    def test_cmd_report_json(self):
+        self._sdk("base", "p({'cmd': 'api.base.ok'});", ["{app_name}.api.base.ok"])
+        self._sdk("shop", "p({'cmd': 'api.system.get_settings'});",
+                  ["{app_name}.api.shop.get"])
+        self._sdk("dartonly", "p({'cmd': 'api.x.y'});", None)
+        out = self.root / "report.json"
+        argv, cwd = sys.argv, os.getcwd()
+        os.chdir(self.root)
+        try:
+            sys.argv = ["sdk_validator.py", "--root", str(self.root),
+                        "--cmd-report", str(out)]
+            sdk_validator.main()
+        finally:
+            sys.argv = argv
+            os.chdir(cwd)
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(report, {
+            "base_sdk": [],
+            "shop_sdk": [{"cmd": "api.system.get_settings",
+                          "file": "lib/src/repo.dart"}],
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
