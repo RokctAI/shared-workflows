@@ -49,6 +49,13 @@ jobs:
       WORKFLOW_FILE: build.yml
       DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
+      # Only for scripts/failure_record.py, which renders the consumer's
+      # structured failure record into this run's report.
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
       - name: Check MONOREPO_PAT availability
         id: guard
         run: |
@@ -156,7 +163,7 @@ jobs:
           }
 
           # --- 3. Per shell: last green build vs composed SDK paths -------------
-          NEEDS_FILE="$WORK/needs-build.tsv"      # shell<TAB>branch<TAB>reason
+          NEEDS_FILE="$WORK/needs-build.tsv"      # shell<TAB>branch<TAB>reason<TAB>sdk<TAB>from_sha<TAB>to_sha
           ROWS_FILE="$WORK/summary-rows.tsv"      # shell<TAB>last_green<TAB>result
           : > "$NEEDS_FILE"
           : > "$ROWS_FILE"
@@ -183,7 +190,7 @@ jobs:
 
             if [ -z "$LAST_GREEN" ]; then
               echo "$SHELL_REPO: no successful $WORKFLOW_FILE run on $SHELL_BRANCH yet -> needs a build."
-              printf '%s\t%s\t%s\n' "$SHELL_REPO" "$SHELL_BRANCH" "never built successfully" >> "$NEEDS_FILE"
+              printf '%s\t%s\t%s\t-\t-\t-\n' "$SHELL_REPO" "$SHELL_BRANCH" "never built successfully" >> "$NEEDS_FILE"
               printf '%s\t%s\t%s\n' "$SHELL_REPO" "never" "dispatch (never built successfully)" >> "$ROWS_FILE"
               continue
             fi
@@ -196,6 +203,8 @@ jobs:
               | [($g | split("/") | last), (.path // "")] | @tsv' "$COMPOSER" > "$WORK/entries.tsv"
 
             CHANGED=""
+            CHANGED_FROM=""
+            CHANGED_TO=""
             ENTRY_ERRORS=0
             while IFS=$'\t' read -r SDK_LOWER SDK_PATH; do
               MATCH="$(awk -F'\t' -v l="$SDK_LOWER" '$1 == l { print $2 "\t" $3; exit }' "$REPOS_LOWER")"
@@ -228,13 +237,16 @@ jobs:
               fi
               if [ "$NOW_SHA" != "$THEN_SHA" ]; then
                 CHANGED="$SDK_REPO/${P:-.}"
+                CHANGED_FROM="${THEN_SHA:--}"
+                CHANGED_TO="${NOW_SHA:--}"
                 break
               fi
             done < "$WORK/entries.tsv"
 
             if [ -n "$CHANGED" ]; then
               echo "$SHELL_REPO: $CHANGED changed since last successful build ($LAST_GREEN) -> needs a build."
-              printf '%s\t%s\t%s\n' "$SHELL_REPO" "$SHELL_BRANCH" "$CHANGED changed" >> "$NEEDS_FILE"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$SHELL_REPO" "$SHELL_BRANCH" "$CHANGED changed" \
+                "$CHANGED" "$CHANGED_FROM" "$CHANGED_TO" >> "$NEEDS_FILE"
               printf '%s\t%s\t%s\n' "$SHELL_REPO" "$LAST_GREEN" "dispatch ($CHANGED changed)" >> "$ROWS_FILE"
             elif [ "$ENTRY_ERRORS" -gt 0 ]; then
               echo "$SHELL_REPO: no changes detected, but $ENTRY_ERRORS entries could not be checked (see warnings); not dispatching."
@@ -244,6 +256,49 @@ jobs:
               printf '%s\t%s\t%s\n' "$SHELL_REPO" "$LAST_GREEN" "skip (up to date)" >> "$ROWS_FILE"
             fi
           done < "$SHELLS_FILE"
+
+          # Render the failed run's structured failure records (the
+          # failure-record-* artifacts written by universal-flutter-build /
+          # universal-flutter-verify) into this run's report, overlaid with
+          # the SDK change the poller detected. Best effort; never fatal.
+          REPORTS_FILE="$WORK/failure-reports.md"
+          : > "$REPORTS_FILE"
+          render_failure_records() {
+            local repo="$1" run_id="$2" sdk="$3" from="$4" to="$5" dir overlay found=0
+            dir="$WORK/records-$repo-$run_id"
+            mkdir -p "$dir"
+            [ "$sdk" = "-" ] && sdk=""
+            [ "$from" = "-" ] && from=""
+            [ "$to" = "-" ] && to=""
+            overlay="$(jq -cn --arg n "$sdk" --arg f "$from" --arg t "$to" --arg r "$ORG/$repo" \
+              '{sdk: {name: ($n | if . == "" then null else . end), from_version: ($f | if . == "" then null else . end), to_version: ($t | if . == "" then null else . end)},
+                consumer: {repo: $r}}' 2>/dev/null || echo '{}')"
+            curl -sS -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+              "https://api.github.com/repos/$ORG/$repo/actions/runs/$run_id/artifacts?per_page=100" 2>/dev/null \
+              | jq -r '.artifacts[]? | select(.name | startswith("failure-record")) | [.name, .archive_download_url] | @tsv' 2>/dev/null \
+              > "$dir/list.tsv" || true
+            while IFS=$'\t' read -r NAME URL; do
+              [ -n "$URL" ] || continue
+              curl -sSL -H "$AUTH_HEADER" -o "$dir/$NAME.zip" "$URL" 2>/dev/null || continue
+              unzip -o -q "$dir/$NAME.zip" -d "$dir/$NAME" 2>/dev/null || continue
+              [ -s "$dir/$NAME/failure-record.json" ] || continue
+              {
+                echo ""
+                echo "### $repo: \`$NAME\`"
+                python3 scripts/failure_record.py render "$dir/$NAME/failure-record.json" --overlay "$overlay" 2>/dev/null || true
+              } >> "$REPORTS_FILE"
+              found=1
+            done < "$dir/list.tsv"
+            if [ "$found" = "0" ]; then
+              {
+                echo ""
+                echo "### $repo"
+                echo ""
+                echo "_No failure record was uploaded by the failed run; see its logs._"
+              } >> "$REPORTS_FILE"
+            fi
+            return 0
+          }
 
           # --- 4. Dispatch builds ONE AT A TIME, stop at the first failure ----
           # Each build is dispatched, then this step waits for that exact run
@@ -260,7 +315,7 @@ jobs:
           FIND_TRIES=20          # ~10 min to see the dispatched run appear
           WAIT_TRIES=300         # ~150 min per build
           if [ -s "$NEEDS_FILE" ]; then
-            while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH REASON; do
+            while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH REASON SDK_ID SDK_FROM SDK_TO; do
               if [ -n "$STOPPED_AT" ]; then
                 SKIPPED_AFTER_STOP="$SKIPPED_AFTER_STOP $SHELL_REPO"
                 continue
@@ -321,6 +376,7 @@ jobs:
                 echo "::error::$SHELL_REPO: build ${CONCLUSION:-did not finish in time} ($RUN_URL); stopping - remaining shells wait for the next poll."
                 FAILED="$FAILED $SHELL_REPO"
                 STOPPED_AT="$SHELL_REPO (build ${CONCLUSION:-timed out}: $RUN_URL)"
+                render_failure_records "$SHELL_REPO" "$RUN_ID" "$SDK_ID" "$SDK_FROM" "$SDK_TO"
               fi
             done < "$NEEDS_FILE"
           else
@@ -354,6 +410,11 @@ jobs:
               if [ -n "$SKIPPED_AFTER_STOP" ]; then
                 echo "- Not dispatched (left for the next poll):$(echo "$SKIPPED_AFTER_STOP" | sed 's/ /, /g' | sed 's/^,//')"
               fi
+            fi
+            if [ -s "$REPORTS_FILE" ]; then
+              echo ""
+              echo "## Failure records"
+              cat "$REPORTS_FILE"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
