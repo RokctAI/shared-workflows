@@ -1260,6 +1260,11 @@ jobs:
     container:
       image: ${{ inputs.project_type == 'frappe' && 'debian:bookworm' || '' }}
       options: --user root
+    # The frappe container's default shell is sh, which has no [[ ]]; every
+    # step here is written for bash.
+    defaults:
+      run:
+        shell: bash
     env:
       GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
       KEY_JKS: ${{ secrets.KEY_JKS }}
@@ -1398,7 +1403,7 @@ jobs:
                 elif [[ "$REF_NAME" == "main" ]]; then
                     # Check if version in file is a stable release (no -rc)
                     FILE="${{ needs.resolve-version.outputs.file }}"
-                    CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
+                    CUR_VER=$(jq -r 'if has("version") then .version else (to_entries[0].value) end' "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
                     if [[ "$CUR_VER" != *"-rc"* ]]; then
                         MODE="stable"
                         SUFFIX=""
@@ -1523,28 +1528,31 @@ jobs:
               exit 1
            fi
 
-           CUR_VER=$(jq -r .version "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
+           CUR_VER=$(jq -r 'if has("version") then .version else (to_entries[0].value) end' "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
            echo "✅ Current: $CUR_VER"
 
            # Automated Bump Logic
-           NEW_VER=$(python3 -c "
-           import sys
-           cur_ver = '$CUR_VER'
-           fmt_str = '$FORMAT'
-           try:
-               v_parts = [int(x) for x in cur_ver.split('.')]
-               f_parts = fmt_str.split('.')
-               v_parts[-1] += 1
-               for i in range(len(v_parts)-1, 0, -1):
-                   width = f_parts[i].count('#')
-                   limit = 10**width
-                   if v_parts[i] >= limit:
-                       v_parts[i] = 0
-                       v_parts[i-1] += 1
-               print('.'.join(map(str, v_parts)))
-           except Exception as e:
-               print(cur_ver)
-           ")
+           NEW_VER="$CUR_VER"
+           # version.json keeps the version under its first key (e.g. "platform"),
+           # the same rule check-version reads. No python: frappe runs in debian:bookworm.
+           IFS=. read -ra V <<< "$CUR_VER"
+           IFS=. read -ra F <<< "$FORMAT"
+           if [ "${#V[@]}" -gt 0 ] && printf '%s\n' "${V[@]}" | grep -qvx '[0-9]\+'; then
+             echo "⚠️ Non-numeric version '$CUR_VER'; leaving it unchanged."
+           elif [ "${#V[@]}" -gt 0 ]; then
+             last=$(( ${#V[@]} - 1 ))
+             V[$last]=$(( 10#${V[$last]} + 1 ))
+             for (( i=last; i>0; i-- )); do
+               hashes="${F[$i]//[^#]/}"
+               [ -z "$hashes" ] && continue
+               limit=$(( 10 ** ${#hashes} ))
+               if [ "${V[$i]}" -ge "$limit" ]; then
+                 V[$i]=0
+                 V[$((i-1))]=$(( 10#${V[$((i-1))]} + 1 ))
+               fi
+             done
+             NEW_VER=$(IFS=.; echo "${V[*]}")
+           fi
 
            if [ "$CUR_VER" = "$NEW_VER" ]; then
               echo "⏭️ No version change calculated. Skipping PR."
@@ -1553,7 +1561,7 @@ jobs:
 
            # Update File
            if [[ "$FILE" == *.json ]]; then
-             jq ".version = \"$NEW_VER\"" "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+             jq --arg v "$NEW_VER" 'if has("version") then .version = $v else (to_entries[0].key) as $k | .[$k] = $v end' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
            else
              sed -i "s/$CUR_VER/$NEW_VER/g" "$FILE"
            fi
