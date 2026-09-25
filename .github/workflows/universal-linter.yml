@@ -1369,6 +1369,74 @@ jobs:
              fi
           fi
 
+  # SDK gateway cmd check, REPORT-ONLY. Runs scripts/sdk_validator.py's cmd
+  # check (dart gateway cmds vs the same SDK's frappe whitelist) and writes
+  # the result to the job summary. It never fails the job and opens no
+  # issues: it stays report-only until the unresolved cmds are fixed or
+  # allow-listed (then universal-sdk-cmd-check.yml's issue sync takes over).
+  # Repos with no SDK manifest produce an empty report and a one-line note.
+  sdk-cmd-check:
+    if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',sdk-cmd-check,') }}
+    name: 🔌 SDK Gateway Cmd Check (report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repo under test
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: src
+          persist-credentials: false
+
+      - name: Checkout shared-workflows scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: sw
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Run cmd check and write job summary
+        continue-on-error: true
+        env:
+          REPORT: ${{ runner.temp }}/cmd_report.json
+        run: |
+          python3 sw/scripts/sdk_validator.py --root "$GITHUB_WORKSPACE/src" \
+            --cmd-report "$REPORT" > "$RUNNER_TEMP/sdk_validator.log" 2>&1 || true
+          python3 - <<'PY' || true
+          import json, os
+          path = os.environ["REPORT"]
+          out = ["### 🔌 SDK gateway cmd check (report-only)", ""]
+          try:
+              with open(path, encoding="utf-8") as f:
+                  report = json.load(f)
+          except (OSError, ValueError):
+              report = {}
+          if not report:
+              out.append("No SDK with a frappe half in this repo; nothing to check.")
+          else:
+              total = sum(len(v) for v in report.values())
+              out.append(f"**{total} unresolved gateway cmd(s)** across "
+                         f"{len(report)} SDK(s). Report-only: this never fails "
+                         "the build and opens no issues.")
+              out += ["", "| SDK | Unresolved |", "|---|---|"]
+              for sdk in sorted(report):
+                  out.append(f"| `{sdk}` | {len(report[sdk])} |")
+              rows = [(s, e["cmd"], e["file"]) for s in sorted(report)
+                      for e in report[s]]
+              if rows:
+                  out += ["", "<details><summary>Unresolved cmds</summary>", "",
+                          "| SDK | cmd | first used at |", "|---|---|---|"]
+                  out += [f"| `{s}` | `{c}` | `{p}` |" for s, c, p in rows]
+                  out += ["", "</details>"]
+          text = "\n".join(out) + "\n"
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(text)
+          PY
+
   lint-node:
     if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-node,') }}
     needs: telemetry
