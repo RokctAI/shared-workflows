@@ -1541,14 +1541,14 @@ jobs:
              echo "⚠️ Non-numeric version '$CUR_VER'; leaving it unchanged."
            elif [ "${#V[@]}" -gt 0 ]; then
              last=$(( ${#V[@]} - 1 ))
-             V[$last]=$(( 10#${V[$last]} + 1 ))
+             V[last]=$(( 10#${V[last]} + 1 ))
              for (( i=last; i>0; i-- )); do
-               hashes="${F[$i]//[^#]/}"
+               hashes="${F[i]//[^#]/}"
                [ -z "$hashes" ] && continue
                limit=$(( 10 ** ${#hashes} ))
-               if [ "${V[$i]}" -ge "$limit" ]; then
-                 V[$i]=0
-                 V[$((i-1))]=$(( 10#${V[$((i-1))]} + 1 ))
+               if [ "${V[i]}" -ge "$limit" ]; then
+                 V[i]=0
+                 V[i-1]=$(( 10#${V[i-1]} + 1 ))
                fi
              done
              NEW_VER=$(IFS=.; echo "${V[*]}")
