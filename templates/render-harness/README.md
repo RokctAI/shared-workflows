@@ -46,9 +46,9 @@ Locally, the throwaway package with path deps is still the fastest loop.
    Markers 3 and 4 are EXCEPTIONS and are usually left empty: the SDKs supply
    their own demo data through marker 2. See §2.5 of
    [`scripts/render/README.md`](../../scripts/render/README.md).
-5. `flutter test --dart-define=IS_DEMO=true test/render_screen_test.dart`.
-   Without `IS_DEMO=true` the SDKs register their real HTTP repositories and
-   you render an empty screen. Open a PNG before going any further: if the
+5. `flutter test test/render_screen_test.dart`. Marker 2 activates the demo
+   session (`DemoSession.instance.activate()`); without it the real HTTP
+   repositories call a real backend and you render an empty screen. Open a PNG before going any further: if the
    type looks like uniform blocks, the fonts did not load and nothing
    downstream is worth doing.
 6. Write the strip config and compose:
@@ -87,8 +87,10 @@ that fail SILENTLY - everything below them fails loudly enough to notice.
 - **One-pass height.** The frame height must be measured and then re-rendered
   at that height: screenutil's `.h` sizes scale with the viewport, so the
   height converges rather than being knowable up front.
-- **Forgetting `--dart-define=IS_DEMO=true`.** The SDKs then wire their real
-  HTTP repositories, every fetch fails, and the render is of a broken screen.
+- **Forgetting to activate the demo session.** Without
+  `DemoSession.instance.activate()` (or re-activating it after resetting
+  SharedPreferences) `DemoGatewayInterceptor` stands aside, every fetch goes
+  to a real backend and fails, and the render is of a broken screen.
 - **Hand-writing fixtures.** The SDKs own their demo data; reach for marker 3
   only for history a device accumulates through use (an attendance ledger, a
   downloads list), and marker 4 only where no demo implementation exists at

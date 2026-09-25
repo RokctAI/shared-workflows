@@ -22,7 +22,7 @@
 """Tests for the {demo_email} tour placeholder (scripts/tour/merge_fragments.py).
 
 The shared auth fragment signs the guided tour in with one hardcoded demo
-account. MockAuthRepository maps that address to a role, and an app shell whose
+account. auth_sdk's demo login fixtures map that address to a role, and an app shell whose
 session_policy rejects that role (paas_manager allows only 'seller') bounces the
 tour back to /login, so the run captures a handful of screenshots and dies.
 

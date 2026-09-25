@@ -31,20 +31,23 @@
 // element rect the review wants to point a number at. See
 // scripts/render/README.md.
 //
-// DATA COMES FROM THE SDK, NOT FROM HERE. Run with
-// `--dart-define=IS_DEMO=true` and call each SDK's own DI registration: the
-// SDKs already ship their demo fixtures behind `AppConstants.isDemo` and swap
-// them in themselves (DemoLmsRepository, SeededTutorCatalog,
-// MockAuthRepository, MockAddressRepository, ...). Naming the screen should
-// be nearly the whole job. Hand-written fakes are an EXCEPTION with its own
-// marker below - never the default.
+// DATA COMES FROM THE SDK, NOT FROM HERE. The harness switches the process
+// into a demo session (`DemoSession.instance.activate()`, so
+// `DemoSession.demoActive` is true) and calls each SDK's own DI registration.
+// The SDKs register their REAL Http repositories as usual; base_sdk's
+// `DemoGatewayInterceptor` then answers every platform call from the
+// `<cmd>.json` fixtures each SDK registered with
+// `DemoFixtures.registerAssetDirectory`. There are no demo or mock
+// repositories: the render exercises the same repository code the app ships.
+// Naming the screen should be nearly the whole job. Hand-written fakes are an
+// EXCEPTION with its own marker below - never the default.
 //
-// The harness renders demo/seed fixtures and should not be wired to a live
-// client or backend.
+// The harness renders fixtures and should not be wired to a live backend.
+// No build flag is needed (IS_DEMO no longer exists; TOUR_MODE=true also
+// turns demo on, but it is the guided-tour switch and not needed here).
 //
-// Run:  flutter test --dart-define=IS_DEMO=true test/render/render_screen_test.dart
-//       RENDER_SUFFIX=_draft flutter test --dart-define=IS_DEMO=true \
-//           test/render/render_screen_test.dart
+// Run:  flutter test test/render/render_screen_test.dart
+//       RENDER_SUFFIX=_draft flutter test test/render/render_screen_test.dart
 
 import 'dart:convert';
 import 'dart:io';
@@ -71,6 +74,7 @@ import 'package:flutter_test/flutter_test.dart';
 //   import 'package:base_sdk/src/di/base_di.dart';
 //   import 'package:base_sdk/src/presentation/theme/app_style.dart';
 //   import 'package:base_sdk/src/services/local_storage.dart';
+//   import 'package:base_sdk/src/services/demo_session.dart';
 
 // ---------------------------------------------------------------------------
 // Render settings - phone size the reviews are judged at. Only change these
@@ -93,25 +97,35 @@ const double kBottomPadding = 20;
 
 /// TODO(harness) 2/8 - the SDK's own demo data. THIS IS THE MAIN PATH.
 ///
-/// Every SDK already ships its demo fixtures and swaps them in itself behind
-/// `AppConstants.isDemo` (`bool.fromEnvironment('IS_DEMO')`). Run the test
-/// with `--dart-define=IS_DEMO=true` and just call the DI registrations, in
-/// the same order the composed app does: base first, then each feature SDK.
-/// You get the SDK's demo repositories - not fakes you wrote and have to keep
-/// truthful.
+/// Every SDK ships `<cmd>.json` fixtures and registers them from its own DI
+/// via `DemoFixtures.registerAssetDirectory`. Activate the demo session, then
+/// call the DI registrations in the same order the composed app does: base
+/// first, then each feature SDK. Each SDK registers its REAL Http repository;
+/// `DemoGatewayInterceptor` (installed on base_sdk's HTTP client) sees
+/// `DemoSession.demoActive` and answers each `rokct.platform.api` call from
+/// the fixture for its cmd. Nothing you wrote has to be kept truthful.
 ///
+///   SharedPreferences.setMockInitialValues(<String, Object>{});
+///   await LocalStorage.init();
+///   await DemoSession.instance.activate();
 ///   BaseSdkDependencies.register(GetIt.I);
-///   AuthSdkDependencies.register(GetIt.I);   // MockAuthRepository
-///   UsersSdkDependencies.register(GetIt.I);  // MockAddressRepository
-///   LmsSdkDependencies.register(GetIt.I);    // DemoLmsRepository, SeededTutorCatalog
+///   AuthSdkDependencies.register(GetIt.I);
+///   UsersSdkDependencies.register(GetIt.I);
+///   LmsSdkDependencies.register(GetIt.I);
+///
+/// A cmd with no fixture throws `DemoFixtureMissing(cmd)` - that is an SDK
+/// gap to fix in the SDK's fixtures, not something to paper over here.
 ///
 /// Registration is guarded by `isRegistered`, so a host may pre-register its
 /// own implementation first and the SDK will leave it alone - which is also
 /// how the exception hook below works.
 Future<void> registerDemoDependencies() async {
-  // assert(AppConstants.isDemo,
-  //     'run with --dart-define=IS_DEMO=true, or the SDKs register their real '
-  //     'HTTP repositories and the render is of a broken, empty screen');
+  // SharedPreferences.setMockInitialValues(<String, Object>{});
+  // await LocalStorage.init();
+  // await DemoSession.instance.activate();
+  // assert(DemoSession.demoActive,
+  //     'demo session not active: the SDKs would call a real backend and '
+  //     'the render is of a broken, empty screen');
   // BaseSdkDependencies.register(GetIt.I);
 }
 
@@ -120,9 +134,9 @@ Future<void> registerDemoDependencies() async {
 /// Leave this EMPTY for most screens. It exists for one real gap: stores that
 /// accumulate from a device's own usage - an attendance ledger, a downloads
 /// list, a watch history - are written by the app as the user does things, so
-/// demo mode alone leaves them empty (e.g. `DemoLmsRepository`'s
-/// `recordAttendanceEvent` is a deliberate no-op; the ledger is filled by the
-/// schedule as lessons are attended). A widget test never walks that journey.
+/// demo mode alone leaves them empty (a fixture answers the write cmd but
+/// stores nothing; the ledger is filled by the schedule as lessons are
+/// attended). A widget test never walks that journey.
 ///
 /// When a screen genuinely reads such history, seed it through the app's REAL
 /// store API so the derived values (totals, averages, streaks) are still
@@ -137,8 +151,8 @@ Future<void> seedDeviceHistory(WidgetTester tester) async {
 
 /// TODO(harness) 4/8 - EXCEPTION: stub a service with no demo implementation.
 ///
-/// Also usually EMPTY. Reach for it only where an SDK has no `isDemo` path for
-/// something the screen needs. Pre-register the stub in `GetIt.I` BEFORE
+/// Also usually EMPTY. Reach for it only where a service the screen needs does
+/// not go through the platform gateway, so no fixture can answer it. Pre-register the stub in `GetIt.I` BEFORE
 /// `registerDemoDependencies()` runs and the SDK's guarded registration will
 /// stand aside. Let stubs throw from `noSuchMethod` by default: it names the
 /// exact member the screen touches, so the stub cannot quietly grow.
@@ -549,6 +563,9 @@ Future<void> renderVariant(
   //   await tester.runAsync(() async {
   //     await LocalStorage.init();
   //     await LocalStorage.setAppThemeMode(dark);
+  //     // Resetting SharedPreferences drops the persisted demo flag, so
+  //     // activate the demo session again after it.
+  //     await DemoSession.instance.activate();
   //   });
   //   AppStyle.setBrightness(dark ? Brightness.dark : Brightness.light);
 
