@@ -18,8 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""Audits every SDK in the workspace: structure, manifest imports, and
-cross-feature SDK imports (ADR-005).
+"""Audits every SDK in the workspace: structure, manifest imports,
+cross-feature SDK imports (ADR-005), and gateway cmds (every cmd a dart
+half POSTs must be whitelisted by the same SDK's frappe half).
 
 The enforced structure is re-derived from a 2026-08 census of all 25 fleet
 SDKs (directory -> SDKs having it, counted with the same combined
@@ -532,6 +533,148 @@ def validate_cross_sdk_imports(sdk_name, dart_dir, sdk_data, logger):
     return sdk_valid
 
 
+
+# ---------------------------------------------------------------------------
+# Gateway cmd check: Dart cmds must resolve in the SAME SDK's frappe half.
+#
+# Every Dart SDK call POSTs {cmd, payload} to
+# /api/v1/method/rokct.platform.api; the gateway resolves `cmd` against the
+# whitelisted_methods the composed frappe halves register. A cmd string used
+# in an SDK's dart half therefore has to be whitelisted by that same
+# module's frappe half (<module>/frappe/manifest.json), or by a frappe SDK
+# the half declares under app_type.<role>.dependencies (entries there that
+# are not frappe SDK names are pip requirements and are ignored).
+# A whitelisted key matches a cmd when it equals the cmd verbatim (e.g.
+# `control:track_event`) or equals `{app_name}.<cmd>`.
+# ---------------------------------------------------------------------------
+
+# A literal that reads as a gateway cmd: control:<name>, or an optionally
+# role-prefixed dotted api path (api.module.func, tenant.api.func, ...).
+CMD_LITERAL_RE = re.compile(
+    r"^(?:control:[a-z0-9_]+(?:\.[a-z0-9_]+)*"
+    r"|(?:tenant\.|control\.)?api(?:\.[a-z0-9_]+)+)$")
+DART_STRING_RE = re.compile(r"'([^'\\\n]*)'|\"([^\"\\\n]*)\"")
+DART_CONST_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"]([^'\"\n]*)['\"]")
+DART_INTERP_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
+APP_NAME_PREFIX = '{app_name}.'
+
+
+def extract_dart_cmds(text):
+    """Returns the set of gateway cmd strings a Dart source uses.
+
+    Plain literals that look like cmds are taken as-is. Interpolated
+    literals (`'$_cmd.get_x'`) are expanded when every interpolated name is
+    a string constant declared in the same file; a constant that only ever
+    serves as such a prefix (e.g. `_cmd = 'api.blog'`) is not a cmd itself.
+    Comments are stripped first so doc references are not counted.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"(?m)(^|[^:'\"])//.*$", r"\1", text)
+    consts = {}
+    for name, value in DART_CONST_RE.findall(text):
+        if '$' not in value:
+            consts.setdefault(name, value)
+    prefixes = {v for n, v in consts.items()
+                if re.search(r"\$\{?" + re.escape(n) + r"\b\}?\.", text)}
+    cmds = set()
+    for m in DART_STRING_RE.finditer(text):
+        lit = m.group(1) if m.group(1) is not None else m.group(2)
+        if '$' in lit:
+            names = DART_INTERP_RE.findall(lit)
+            if not names or any(n not in consts for n in names):
+                continue
+            lit = DART_INTERP_RE.sub(lambda x: consts[x.group(1)], lit)
+        elif lit in prefixes:
+            continue
+        if CMD_LITERAL_RE.match(lit):
+            cmds.add(lit)
+    return cmds
+
+
+def collect_sdk_cmds(dart_dir):
+    """{cmd: first 'rel/path.dart'} over the dart half's lib/ and templates/."""
+    found = {}
+    for sub in ('lib', 'templates'):
+        base = Path(dart_dir) / sub
+        if not base.is_dir():
+            continue
+        for root, dirs, files in os.walk(base):
+            dirs.sort()
+            for fname in sorted(files):
+                if not fname.endswith('.dart'):
+                    continue
+                fpath = Path(root) / fname
+                try:
+                    text = fpath.read_text(encoding='utf-8-sig', errors='replace')
+                except OSError:
+                    continue
+                rel = os.path.relpath(fpath, dart_dir).replace('\\', '/')
+                for cmd in extract_dart_cmds(text):
+                    found.setdefault(cmd, rel)
+    return found
+
+
+def _collect_whitelisted(node, out):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == 'whitelisted_methods' and isinstance(v, dict):
+                out.update(v.keys())
+            else:
+                _collect_whitelisted(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _collect_whitelisted(v, out)
+
+
+def load_frappe_whitelist(manifest_path):
+    """Returns (whitelisted keys, declared dependency names) of a frappe half."""
+    with open(manifest_path, 'r', encoding='utf-8-sig') as f:
+        data = json.load(f)
+    keys = set()
+    _collect_whitelisted(data, keys)
+    deps = set()
+    blocks = [data] + [b for b in (data.get('app_type') or {}).values()
+                       if isinstance(b, dict)]
+    for block in blocks:
+        for dep in block.get('dependencies') or []:
+            if isinstance(dep, str):
+                deps.add(dep)
+    return keys, deps
+
+
+def cmd_is_whitelisted(cmd, keys):
+    return cmd in keys or (APP_NAME_PREFIX + cmd) in keys
+
+
+def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger):
+    """Checks every Dart cmd of one SDK against its own frappe half (+deps).
+
+    Returns the number of unresolved cmds, or None when the SDK has no
+    frappe half in this workspace (nothing to check against).
+    """
+    root = Path(info['root_dir']).resolve()
+    manifest = frappe_by_root.get(root)
+    if manifest is None:
+        return None
+    keys, deps = load_frappe_whitelist(manifest)
+    for dep in sorted(deps):
+        dep_manifest = frappe_by_name.get(dep)
+        if dep_manifest and dep_manifest != manifest:
+            keys |= load_frappe_whitelist(dep_manifest)[0]
+    missing = 0
+    for cmd, rel in sorted(collect_sdk_cmds(info['dart_dir']).items()):
+        if cmd_is_whitelisted(cmd, keys):
+            continue
+        missing += 1
+        logger.log(
+            f"Gateway cmd '{cmd}' (first used at {rel}) is not whitelisted by "
+            f"this SDK's frappe half ({os.path.relpath(manifest, root.parent).replace(chr(92), '/')})"
+            f"{' or its declared deps' if deps & frappe_by_name.keys() else ''}.",
+            "ERROR", sdk_name)
+    return missing
+
+
 def extract_imports(manifest_data):
     """Collects package: imports from the manifest's structured fields.
 
@@ -765,6 +908,30 @@ def main():
             if not run_compliance_scanner(label, info['flavor_dir'],
                                           info['root_dir'], logger,
                                           scan_dirs=scan_dirs):
+                overall_errors += 1
+
+    # Gateway cmd check (dart -> same SDK's frappe half). Runs after both
+    # passes so the dart and flavor sections above stay byte-identical; SDKs
+    # without a frappe half in this workspace are skipped.
+    frappe_by_root = {Path(i['root_dir']).resolve(): i['manifest_path']
+                      for i in flavor_data.values() if i['flavor'] == 'frappe'}
+    frappe_by_name = {label[:-len(' (frappe)')]: i['manifest_path']
+                      for label, i in flavor_data.items()
+                      if i['flavor'] == 'frappe'}
+    if frappe_by_root:
+        logger.log("--- Gateway cmd check (dart cmds vs own frappe half) ---")
+        for sdk_name, info in sdk_data.items():
+            try:
+                missing = validate_gateway_cmds(sdk_name, info, frappe_by_root,
+                                                frappe_by_name, logger)
+            except Exception as e:
+                logger.log(f"Error running gateway cmd check: {e}", "ERROR",
+                           sdk_name)
+                overall_errors += 1
+                continue
+            if missing:
+                logger.log(f"{sdk_name}: {missing} unresolved gateway cmd(s).",
+                           "WARNING", sdk_name)
                 overall_errors += 1
 
     logger.write_summaries(list(sdk_data.keys()) + list(flavor_data.keys()))
