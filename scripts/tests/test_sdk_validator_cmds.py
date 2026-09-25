@@ -123,7 +123,7 @@ class ValidateGatewayCmdsTest(unittest.TestCase):
                   ["{app_name}.api.shop.get", "control:ping"])
         missing, logger = self._run("shop_sdk")
         self.assertEqual(missing, 0)
-        self.assertFalse([l for l in logger.lines if l[0] == "ERROR"])
+        self.assertFalse([l for l in logger.lines if l[0] == "WARNING"])
 
     def test_cmd_only_in_other_sdk_is_flagged(self):
         self._sdk("base", "x", ["{app_name}.api.system.get_settings"])

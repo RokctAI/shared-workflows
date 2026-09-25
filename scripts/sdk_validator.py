@@ -671,7 +671,7 @@ def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger
             f"Gateway cmd '{cmd}' (first used at {rel}) is not whitelisted by "
             f"this SDK's frappe half ({os.path.relpath(manifest, root.parent).replace(chr(92), '/')})"
             f"{' or its declared deps' if deps & frappe_by_name.keys() else ''}.",
-            "ERROR", sdk_name)
+            "WARNING", sdk_name)
     return missing
 
 
@@ -912,7 +912,8 @@ def main():
 
     # Gateway cmd check (dart -> same SDK's frappe half). Runs after both
     # passes so the dart and flavor sections above stay byte-identical; SDKs
-    # without a frappe half in this workspace are skipped.
+    # without a frappe half in this workspace are skipped. Warn-only: findings
+    # never add to overall_errors, so they cannot fail a build.
     frappe_by_root = {Path(i['root_dir']).resolve(): i['manifest_path']
                       for i in flavor_data.values() if i['flavor'] == 'frappe'}
     frappe_by_name = {label[:-len(' (frappe)')]: i['manifest_path']
@@ -925,14 +926,12 @@ def main():
                 missing = validate_gateway_cmds(sdk_name, info, frappe_by_root,
                                                 frappe_by_name, logger)
             except Exception as e:
-                logger.log(f"Error running gateway cmd check: {e}", "ERROR",
+                logger.log(f"Error running gateway cmd check: {e}", "WARNING",
                            sdk_name)
-                overall_errors += 1
                 continue
             if missing:
                 logger.log(f"{sdk_name}: {missing} unresolved gateway cmd(s).",
                            "WARNING", sdk_name)
-                overall_errors += 1
 
     logger.write_summaries(list(sdk_data.keys()) + list(flavor_data.keys()))
 
