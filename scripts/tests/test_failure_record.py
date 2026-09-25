@@ -87,6 +87,32 @@ class FailureRecordTest(unittest.TestCase):
         self.assertEqual(rec["args"], {"limit": "5", "page": "2"})
         self.assertEqual(rec["failure_class"], "api")
 
+    def test_gateway_cmd_from_json_body(self):
+        path = self.log(
+            "POST https://x.rokct.ai/api/v1/method/rokct.platform.api\n"
+            'data: {"cmd": "pos.get_items", "limit": 5}\n'
+            "DioException [bad response]: status code of 417\n"
+        )
+        rec = fr.build_record(opts(path))
+        self.assertEqual(rec["cmd"], "pos.get_items")
+        self.assertEqual(rec["args"], {"limit": 5})
+        self.assertEqual(rec["failure_class"], "api")
+
+    def test_gateway_cmd_from_query_args(self):
+        path = self.log(
+            "POST /api/v1/method/rokct.platform.api?cmd=auth.login&device=x HTTP 500\n"
+        )
+        rec = fr.build_record(opts(path))
+        self.assertEqual(rec["cmd"], "auth.login")
+        self.assertEqual(rec["args"], {"device": "x"})
+
+    def test_gateway_without_error_is_not_api(self):
+        path = self.log(
+            "POST /api/v1/method/rokct.platform.api\n"
+            '{"cmd": "pos.get_items"}\nall good\n'
+        )
+        self.assertIsNone(fr.build_record(opts(path))["cmd"])
+
     def test_endpoint_without_error_is_not_api(self):
         path = self.log("calls /api/method/foo.bar fine\nError: compile failed\n")
         rec = fr.build_record(opts(path))

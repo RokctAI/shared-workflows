@@ -45,6 +45,14 @@ FAILURE_CLASSES = ("build", "runtime", "api", "contract", "compliance", "infra")
 
 # An API failure only counts when the log shows both an endpoint and an
 # error signal on the same line (or the line right after it).
+# Every platform call goes through the gateway:
+#   POST /api/v1/method/rokct.platform.api  {"cmd": "<name>", ...}
+# The bare /api/method/<name> pattern is only a fallback.
+GATEWAY_ENDPOINT = re.compile(
+    r"/api/v1/method/rokct\.platform\.api\b(?:\?([^\s'\"]*))?"
+)
+GATEWAY_CMD = re.compile(r"""['"]?\bcmd['"]?\s*[:=]\s*['"]?([A-Za-z_][\w.]*)""")
+GATEWAY_WINDOW = 3
 API_ENDPOINT = re.compile(r"/api/method/([A-Za-z_][\w.]*)(?:\?([^\s'\"]*))?")
 API_ERROR = re.compile(
     r"DioException|DioError|HTTP\s*[45]\d\d|status code (?:of )?[45]\d\d|"
@@ -97,13 +105,53 @@ def find_api_call(lines):
     """Return {"cmd", "args"} for the last API call that the log shows failing."""
     found = None
     for i, line in enumerate(lines):
-        m = API_ENDPOINT.search(line)
-        if not m:
+        window = lines[i : i + 1 + GATEWAY_WINDOW]
+        if not any(API_ERROR.search(w) for w in window):
             continue
-        nxt = lines[i + 1] if i + 1 < len(lines) else ""
-        if API_ERROR.search(line) or API_ERROR.search(nxt):
-            found = {"cmd": m.group(1), "args": parse_args(m.group(2))}
+        call = gateway_call(line, window) or fallback_call(line)
+        if call:
+            found = call
     return found
+
+
+def gateway_call(line, window):
+    m = GATEWAY_ENDPOINT.search(line)
+    if not m:
+        return None
+    query_args = parse_args(m.group(1)) or {}
+    query_cmd = query_args.pop("cmd", None)
+    query_args = query_args or None
+    for text in window:
+        body = json_body(text)
+        if body and body.get("cmd"):
+            args = {k: v for k, v in body.items() if k != "cmd"}
+            return {"cmd": str(body["cmd"]), "args": args or query_args}
+    if query_cmd:
+        return {"cmd": query_cmd, "args": query_args}
+    for text in window:
+        c = GATEWAY_CMD.search(text)
+        if c:
+            return {"cmd": c.group(1), "args": query_args}
+    return None
+
+
+def json_body(text):
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        body = json.loads(text[start : end + 1])
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def fallback_call(line):
+    m = API_ENDPOINT.search(line)
+    if not m:
+        return None
+    return {"cmd": m.group(1), "args": parse_args(m.group(2))}
 
 
 def parse_args(query):
