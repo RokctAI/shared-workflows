@@ -37,6 +37,8 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    # Builds run one at a time and this job waits on each, so it needs room.
+    timeout-minutes: 360
     # Tolerable failures (missing PAT, transient org-listing / per-shell /
     # per-SDK API errors) are handled inside the steps, which warn and
     # exit 0. Anything that fails this job is a real script or
@@ -243,27 +245,82 @@ jobs:
             fi
           done < "$SHELLS_FILE"
 
-          # --- 4. Dispatch builds (one per shell; each appears at most once) ----
+          # --- 4. Dispatch builds ONE AT A TIME, stop at the first failure ----
+          # Each build is dispatched, then this step waits for that exact run
+          # to finish before moving on. The first dispatch error, red build or
+          # wait timeout stops the chain: remaining shells are left for the
+          # next weekly poll (detection is anchored to the last green build,
+          # so nothing is lost) and this job goes red.
           DISPATCHED=""
           FAILED=""
           WOULD=""
+          SKIPPED_AFTER_STOP=""
+          STOPPED_AT=""
+          POLL_SECS=30
+          FIND_TRIES=20          # ~10 min to see the dispatched run appear
+          WAIT_TRIES=300         # ~150 min per build
           if [ -s "$NEEDS_FILE" ]; then
             while IFS=$'\t' read -r SHELL_REPO SHELL_BRANCH REASON; do
+              if [ -n "$STOPPED_AT" ]; then
+                SKIPPED_AFTER_STOP="$SKIPPED_AFTER_STOP $SHELL_REPO"
+                continue
+              fi
               if [ "$DRY_RUN" = "true" ]; then
-                echo "DRY RUN: would dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH; $REASON)."
+                echo "DRY RUN: would dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH; $REASON) and wait for it."
                 WOULD="$WOULD $SHELL_REPO"
                 continue
               fi
+              SINCE="$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)"
               CODE="$(curl -sS -o "$WORK/dispatch-resp.json" -w '%{http_code}' -X POST \
                 -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
                 "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/workflows/$WORKFLOW_FILE/dispatches" \
                 -d "{\"ref\":\"$SHELL_BRANCH\"}" || echo 000)"
-              if [ "$CODE" = "204" ]; then
-                echo "Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH; $REASON)"
-                DISPATCHED="$DISPATCHED $SHELL_REPO"
-              else
-                echo "::warning::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(head -c 300 "$WORK/dispatch-resp.json" 2>/dev/null)"
+              if [ "$CODE" != "204" ]; then
+                echo "::error::Failed to dispatch $WORKFLOW_FILE in $ORG/$SHELL_REPO (HTTP $CODE): $(head -c 300 "$WORK/dispatch-resp.json" 2>/dev/null)"
                 FAILED="$FAILED $SHELL_REPO"
+                STOPPED_AT="$SHELL_REPO (dispatch failed, HTTP $CODE)"
+                continue
+              fi
+              echo "Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO (ref: $SHELL_BRANCH; $REASON); waiting for it to finish..."
+              DISPATCHED="$DISPATCHED $SHELL_REPO"
+
+              RUN_ID=""
+              for _ in $(seq 1 "$FIND_TRIES"); do
+                sleep "$POLL_SECS"
+                RUN_ID="$(curl -sSG -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+                  --data-urlencode "branch=$SHELL_BRANCH" \
+                  --data-urlencode "event=workflow_dispatch" \
+                  --data-urlencode "created=>=$SINCE" \
+                  --data-urlencode "per_page=1" \
+                  "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/workflows/$WORKFLOW_FILE/runs" 2>/dev/null \
+                  | jq -r '.workflow_runs[0].id // empty' 2>/dev/null || true)"
+                [ -n "$RUN_ID" ] && break
+              done
+              if [ -z "$RUN_ID" ]; then
+                echo "::error::Dispatched $WORKFLOW_FILE in $ORG/$SHELL_REPO but its run never appeared; stopping."
+                FAILED="$FAILED $SHELL_REPO"
+                STOPPED_AT="$SHELL_REPO (run not found after dispatch)"
+                continue
+              fi
+
+              CONCLUSION=""
+              for _ in $(seq 1 "$WAIT_TRIES"); do
+                RUN_JSON="$(curl -sS -H "$AUTH_HEADER" -H "$JSON_ACCEPT" \
+                  "https://api.github.com/repos/$ORG/$SHELL_REPO/actions/runs/$RUN_ID" 2>/dev/null || true)"
+                if [ "$(echo "$RUN_JSON" | jq -r '.status // empty' 2>/dev/null)" = "completed" ]; then
+                  CONCLUSION="$(echo "$RUN_JSON" | jq -r '.conclusion // "unknown"')"
+                  break
+                fi
+                sleep "$POLL_SECS"
+              done
+              RUN_URL="https://github.com/$ORG/$SHELL_REPO/actions/runs/$RUN_ID"
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "$SHELL_REPO: build succeeded ($RUN_URL)."
+                sed -i "s|^$SHELL_REPO\t\(.*\)\tdispatch (\(.*\))$|$SHELL_REPO\t\1\tbuilt OK (\2)|" "$ROWS_FILE"
+              else
+                echo "::error::$SHELL_REPO: build ${CONCLUSION:-did not finish in time} ($RUN_URL); stopping - remaining shells wait for the next poll."
+                FAILED="$FAILED $SHELL_REPO"
+                STOPPED_AT="$SHELL_REPO (build ${CONCLUSION:-timed out}: $RUN_URL)"
               fi
             done < "$NEEDS_FILE"
           else
@@ -290,6 +347,15 @@ jobs:
               echo "- Dispatches: none"
             fi
             if [ -n "$FAILED" ]; then
-              echo "- Dispatch failures (see warnings):$(echo "$FAILED" | sed 's/ /, /g' | sed 's/^,//')"
+              echo "- Failed:$(echo "$FAILED" | sed 's/ /, /g' | sed 's/^,//')"
+            fi
+            if [ -n "$STOPPED_AT" ]; then
+              echo "- **Stopped at** $STOPPED_AT"
+              if [ -n "$SKIPPED_AFTER_STOP" ]; then
+                echo "- Not dispatched (left for the next poll):$(echo "$SKIPPED_AFTER_STOP" | sed 's/ /, /g' | sed 's/^,//')"
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # A stopped chain is a real failure and must show as a red run.
+          [ -z "$STOPPED_AT" ]
