@@ -507,15 +507,22 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
-      # Composed SDK versions, platform API cmd names and any emulator
-      # screenshot, appended to error_log.md so the failure PR and the
-      # central issue carry them next to the log. Never fatal.
+      # Structured failure record (failure-record.json): SDK, consumer,
+      # stage, API cmd (only when the log shows a failing API call), error
+      # summary, log tail, runner info and a failure class. The failure PR
+      # and the central issue render build_context.md from it. Unknown
+      # fields stay null; never fatal.
       - name: Collect Build Context
         if: env.build_failed == 'true'
         shell: bash
         run: |
           PY="$(command -v python3 || command -v python || true)"
-          if [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
+          FR=.github/shared-workflows/scripts/failure_record.py
+          if [ -n "$PY" ] && [ -f "$FR" ]; then
+            "$PY" "$FR" write --out failure-record.json --stage dependencies --log build_log.txt --class build || true
+            [ -s failure-record.json ] && { "$PY" "$FR" render failure-record.json --out build_context.md || true; }
+          fi
+          if [ ! -s build_context.md ] && [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
             "$PY" .github/shared-workflows/scripts/build_failure_context.py build_context.md || true
           fi
           [ -s build_context.md ] || printf '\n## Build context\n\n_Could not be collected._\n' > build_context.md
@@ -558,6 +565,16 @@ jobs:
           path: |
             error_log.md
             build_context.md
+            failure-record.json
+          if-no-files-found: ignore
+
+      - name: Upload Failure Record
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: failure-record-android
+          path: failure-record.json
+          if-no-files-found: ignore
 
       - name: Fail job if build failed
         if: env.build_failed == 'true'
@@ -1180,15 +1197,22 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
-      # Composed SDK versions, platform API cmd names and any emulator
-      # screenshot, appended to error_log.md so the failure PR and the
-      # central issue carry them next to the log. Never fatal.
+      # Structured failure record (failure-record.json): SDK, consumer,
+      # stage, API cmd (only when the log shows a failing API call), error
+      # summary, log tail, runner info and a failure class. The failure PR
+      # and the central issue render build_context.md from it. Unknown
+      # fields stay null; never fatal.
       - name: Collect Build Context
         if: env.build_failed == 'true'
         shell: bash
         run: |
           PY="$(command -v python3 || command -v python || true)"
-          if [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
+          FR=.github/shared-workflows/scripts/failure_record.py
+          if [ -n "$PY" ] && [ -f "$FR" ]; then
+            "$PY" "$FR" write --out failure-record.json --stage dependencies --log build_log.txt --class build || true
+            [ -s failure-record.json ] && { "$PY" "$FR" render failure-record.json --out build_context.md || true; }
+          fi
+          if [ ! -s build_context.md ] && [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
             "$PY" .github/shared-workflows/scripts/build_failure_context.py build_context.md || true
           fi
           [ -s build_context.md ] || printf '\n## Build context\n\n_Could not be collected._\n' > build_context.md
@@ -1232,6 +1256,16 @@ jobs:
           path: |
             error_log.md
             build_context.md
+            failure-record.json
+          if-no-files-found: ignore
+
+      - name: Upload Failure Record
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: failure-record-windows
+          path: failure-record.json
+          if-no-files-found: ignore
 
       - name: Fail job if build failed
         if: env.build_failed == 'true'
@@ -1706,15 +1740,22 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
         continue-on-error: true
 
-      # Composed SDK versions, platform API cmd names and any emulator
-      # screenshot, appended to error_log.md so the failure PR and the
-      # central issue carry them next to the log. Never fatal.
+      # Structured failure record (failure-record.json): SDK, consumer,
+      # stage, API cmd (only when the log shows a failing API call), error
+      # summary, log tail, runner info and a failure class. The failure PR
+      # and the central issue render build_context.md from it. Unknown
+      # fields stay null; never fatal.
       - name: Collect Build Context
         if: env.build_failed == 'true'
         shell: bash
         run: |
           PY="$(command -v python3 || command -v python || true)"
-          if [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
+          FR=.github/shared-workflows/scripts/failure_record.py
+          if [ -n "$PY" ] && [ -f "$FR" ]; then
+            "$PY" "$FR" write --out failure-record.json --stage dependencies --log build_log.txt --class build || true
+            [ -s failure-record.json ] && { "$PY" "$FR" render failure-record.json --out build_context.md || true; }
+          fi
+          if [ ! -s build_context.md ] && [ -n "$PY" ] && [ -f .github/shared-workflows/scripts/build_failure_context.py ]; then
             "$PY" .github/shared-workflows/scripts/build_failure_context.py build_context.md || true
           fi
           [ -s build_context.md ] || printf '\n## Build context\n\n_Could not be collected._\n' > build_context.md
@@ -1756,6 +1797,16 @@ jobs:
           path: |
             error_log.md
             build_context.md
+            failure-record.json
+          if-no-files-found: ignore
+
+      - name: Upload Failure Record
+        if: env.build_failed == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: failure-record-ios-macos
+          path: failure-record.json
+          if-no-files-found: ignore
 
       - name: Fail job if build failed
         if: env.build_failed == 'true'
