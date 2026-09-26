@@ -27,6 +27,11 @@ on:
         type: string
         default: ""
         description: "Minimum version that has a healthy entrypoint. If prev_version is older, skip Phase 1."
+      pre_deploy_command:
+        required: false
+        type: string
+        default: ""
+        description: "Optional shell command run (in platform/) before any docker compose up, e.g. to create external networks."
     secrets:
       MONOREPO_PAT:
         required: false
@@ -41,6 +46,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Pre-deploy Command
+        if: inputs.pre_deploy_command != ''
+        env:
+          PRE_DEPLOY_COMMAND: ${{ inputs.pre_deploy_command }}
+        run: bash -c "$PRE_DEPLOY_COMMAND"
+
       - name: Log in to Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
