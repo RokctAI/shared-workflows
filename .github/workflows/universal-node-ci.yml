@@ -133,7 +133,12 @@ jobs:
             echo "Registry-template contract not on protocol main. Skipping composition."
             exit 0
           fi
-          TEMPLATE="$PROTOCOL_DIR/core/utils/frappe/composer/${APP_TYPE}.json"
+          # Since the compose split, SDK lists live in the nextjs registry; the
+          # frappe template is an SDK-less role marker. Prefer nextjs, fall back.
+          TEMPLATE="$PROTOCOL_DIR/core/utils/nextjs/composer/${APP_TYPE}.json"
+          if [ ! -f "$TEMPLATE" ]; then
+            TEMPLATE="$PROTOCOL_DIR/core/utils/frappe/composer/${APP_TYPE}.json"
+          fi
           if [ ! -f "$TEMPLATE" ] || ! python3 -c "import json,sys; t=json.load(open(sys.argv[1])); sys.exit(0 if any(s.get('enabled') for s in t.get('sdks', [])) else 1)" "$TEMPLATE"; then
             echo "app_type '${APP_TYPE}' is a plain role marker here. Skipping composition."
             exit 0
