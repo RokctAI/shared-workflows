@@ -17,8 +17,8 @@ on:
       standardizer_bots:
         description: >-
           Comma-separated bot logins (matched case-insensitively) whose
-          "Fleet Standardization" auto-std-* PRs may auto-merge when their diff
-          is whitespace-only. Independent of allowed_users. Empty disables it.
+          PRs may auto-merge, subject to the same .github/workflows/ file gate
+          as allowed_users. Independent of allowed_users. Empty disables it.
         type: string
         default: 'rokctbot[bot]'
     secrets:
@@ -59,60 +59,17 @@ jobs:
           if [[ ",$ALLOWED," == *",$AUTHOR,"* ]]; then
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           elif [ -n "$AUTHOR" ] && [[ ",${BOTS,,}," == *",${AUTHOR,,},"* ]]; then
-            # Standardizer bot: authorized ONLY for the formatter lane; the
-            # trivial gate below still requires a whitespace-only auto-std diff.
+            # Standardizer bot: authorized like allowed_users; the
+            # .github/workflows/ file gate below still applies.
             echo "authorized=true" >> "$GITHUB_OUTPUT"
           else
             echo "authorized=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Check Files + Trivial Diff
+      - name: Check Files
         id: check_files
         run: |
-          # Formatter-only lane for the fleet standardizer (universal-linter's
-          # `auto-std-<branch>` PRs). Returns 0 only when ALL hold:
-          #   - author is in STANDARDIZER_BOTS (case-insensitive exact login),
-          #   - head branch is `auto-std-*` in this same repo (no forks),
-          #   - title contains "Fleet Standardization:",
-          #   - every changed file is `modified` (no adds/deletes/renames),
-          #     at most 100 files, and
-          #   - each file is byte-identical between base and head once all
-          #     whitespace is removed, i.e. the diff only moves whitespace /
-          #     line breaks (dart format, shfmt, prettier reflow). Token
-          #     changes (quotes, trailing commas, ruff --fix) do NOT qualify.
-          # The .github/workflows/ gate runs before this and is unaffected.
-          std_format_only() {
-            local num="$1" author="$2" ref="$3" head_repo="$4" title="$5"
-            local base_sha="$6" head_sha="$7" bot ok=false
-            local bots="${STANDARDIZER_BOTS// /}"
-            IFS=',' read -ra _bots <<< "${bots,,}"
-            for bot in "${_bots[@]}"; do
-              [ -n "$bot" ] && [ "${author,,}" = "$bot" ] && ok=true
-            done
-            [ "$ok" = true ] || return 1
-            [[ "$ref" == auto-std-* ]] || return 1
-            [ "$head_repo" = "$GH_REPO" ] || return 1
-            [[ "$title" == *"Fleet Standardization:"* ]] || return 1
-
-            local files
-            files=$(gh api --paginate "repos/${GH_REPO}/pulls/${num}/files?per_page=100" \
-              --jq '.[] | [.status, .filename] | @tsv') || return 1
-            [ -n "$files" ] || return 1
-            [ "$(printf '%s\n' "$files" | wc -l)" -le 100 ] || return 1
-
-            local status path a b
-            while IFS=$'\t' read -r status path; do
-              [ "$status" = "modified" ] || return 1
-              a=$(gh api -H "Accept: application/vnd.github.raw" \
-                "repos/${GH_REPO}/contents/${path}?ref=${base_sha}" | tr -d '[:space:]' | sha256sum) || return 1
-              b=$(gh api -H "Accept: application/vnd.github.raw" \
-                "repos/${GH_REPO}/contents/${path}?ref=${head_sha}" | tr -d '[:space:]' | sha256sum) || return 1
-              [ "$a" = "$b" ] || return 1
-            done <<< "$files"
-            return 0
-          }
-
           FILES=$(gh pr view "${{ github.event.pull_request.number }}" --json files --jq '.files[].path')
 
           if echo "$FILES" | grep -q ".github/workflows/"; then
@@ -121,38 +78,15 @@ jobs:
             echo "safe=true" >> "$GITHUB_OUTPUT"
           fi
 
-          # GitHub refuses to render diffs for PRs over 300 files (HTTP 406 too_large).
-          # Such a PR is by definition not trivial — treat it as non-trivial, don't fail.
-          if ! DIFF=$(gh pr diff "${{ github.event.pull_request.number }}"); then
-            DIFF="(diff unavailable: too large to render)"
-          fi
-
-          if [ -z "$DIFF" ]; then
-            echo "trivial=true" >> "$GITHUB_OUTPUT"
-          elif std_format_only "$PR_NUMBER" "$PR_AUTHOR" "$PR_HEAD_REF" "$PR_HEAD_REPO" "$PR_TITLE" "$PR_BASE_SHA" "$PR_HEAD_SHA"; then
-            echo "Standardizer PR with whitespace-only diff: treated as trivial."
-            echo "trivial=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "trivial=false" >> "$GITHUB_OUTPUT"
-          fi
           echo "Checked files: $FILES"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          STANDARDIZER_BOTS: ${{ inputs.standardizer_bots }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
       - name: Enable Auto Merge
         if: |
           steps.check_author.outputs.authorized == 'true' &&
-          steps.check_files.outputs.safe == 'true' &&
-          steps.check_files.outputs.trivial == 'true'
+          steps.check_files.outputs.safe == 'true'
         run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -173,7 +107,7 @@ jobs:
   # author gate character-for-character identical to the fast path.
   #
   # Gating is deliberately unchanged: same author list, same
-  # `.github/workflows/` file rule, same trivial-diff rule. Drafts and PRs that
+  # `.github/workflows/` file rule. Drafts and PRs that
   # already have auto-merge armed are skipped — both are strictly narrower than
   # the fast path and only avoid calls that could not succeed anyway.
   #
@@ -193,51 +127,9 @@ jobs:
           ALLOWED="${ALLOWED_USERS// /}"
           BOTS="${STANDARDIZER_BOTS// /}"
 
-          # Formatter-only lane for the fleet standardizer (universal-linter's
-          # `auto-std-<branch>` PRs). Returns 0 only when ALL hold:
-          #   - author is in STANDARDIZER_BOTS (case-insensitive exact login),
-          #   - head branch is `auto-std-*` in this same repo (no forks),
-          #   - title contains "Fleet Standardization:",
-          #   - every changed file is `modified` (no adds/deletes/renames),
-          #     at most 100 files, and
-          #   - each file is byte-identical between base and head once all
-          #     whitespace is removed, i.e. the diff only moves whitespace /
-          #     line breaks (dart format, shfmt, prettier reflow). Token
-          #     changes (quotes, trailing commas, ruff --fix) do NOT qualify.
-          # The .github/workflows/ gate runs before this and is unaffected.
-          std_format_only() {
-            local num="$1" author="$2" ref="$3" head_repo="$4" title="$5"
-            local base_sha="$6" head_sha="$7" bot ok=false
-            local bots="${STANDARDIZER_BOTS// /}"
-            IFS=',' read -ra _bots <<< "${bots,,}"
-            for bot in "${_bots[@]}"; do
-              [ -n "$bot" ] && [ "${author,,}" = "$bot" ] && ok=true
-            done
-            [ "$ok" = true ] || return 1
-            [[ "$ref" == auto-std-* ]] || return 1
-            [ "$head_repo" = "$GH_REPO" ] || return 1
-            [[ "$title" == *"Fleet Standardization:"* ]] || return 1
-
-            local files
-            files=$(gh api --paginate "repos/${GH_REPO}/pulls/${num}/files?per_page=100" \
-              --jq '.[] | [.status, .filename] | @tsv') || return 1
-            [ -n "$files" ] || return 1
-            [ "$(printf '%s\n' "$files" | wc -l)" -le 100 ] || return 1
-
-            local status path a b
-            while IFS=$'\t' read -r status path; do
-              [ "$status" = "modified" ] || return 1
-              a=$(gh api -H "Accept: application/vnd.github.raw" \
-                "repos/${GH_REPO}/contents/${path}?ref=${base_sha}" | tr -d '[:space:]' | sha256sum) || return 1
-              b=$(gh api -H "Accept: application/vnd.github.raw" \
-                "repos/${GH_REPO}/contents/${path}?ref=${head_sha}" | tr -d '[:space:]' | sha256sum) || return 1
-              [ "$a" = "$b" ] || return 1
-            done <<< "$files"
-            return 0
-          }
 
           gh api --paginate "repos/${GH_REPO}/pulls?state=open&per_page=100" \
-            --jq '.[] | [.number, (.draft|tostring), (.auto_merge != null|tostring), .user.login, .html_url, .head.ref, (.head.repo.full_name // ""), .base.sha, .head.sha, .title] | @tsv' \
+            --jq '.[] | [.number, (.draft|tostring), (.auto_merge != null|tostring), .user.login, .html_url] | @tsv' \
             > open_prs.tsv
 
           if [ ! -s open_prs.tsv ]; then
@@ -245,7 +137,7 @@ jobs:
             exit 0
           fi
 
-          while IFS=$'\t' read -r NUM DRAFT ARMED AUTHOR URL HEAD_REF HEAD_REPO BASE_SHA HEAD_SHA TITLE; do
+          while IFS=$'\t' read -r NUM DRAFT ARMED AUTHOR URL; do
             [ -n "$NUM" ] || continue
 
             if [ "$DRAFT" = "true" ]; then
@@ -271,17 +163,6 @@ jobs:
             FILES=$(gh pr view "$NUM" --json files --jq '.files[].path')
             if echo "$FILES" | grep -q ".github/workflows/"; then
               echo "PR #${NUM}: skipped (touches .github/workflows/)"
-              continue
-            fi
-
-            # GitHub refuses to render diffs for PRs over 300 files (HTTP 406 too_large).
-            # Such a PR is by definition not trivial — treat it as non-trivial, don't fail.
-            if ! DIFF=$(gh pr diff "$NUM"); then
-              DIFF="(diff unavailable: too large to render)"
-            fi
-
-            if [ -n "$DIFF" ] && ! std_format_only "$NUM" "$AUTHOR" "$HEAD_REF" "$HEAD_REPO" "$TITLE" "$BASE_SHA" "$HEAD_SHA"; then
-              echo "PR #${NUM}: skipped (diff not trivial)"
               continue
             fi
 
