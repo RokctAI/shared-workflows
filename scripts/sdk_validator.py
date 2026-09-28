@@ -680,6 +680,117 @@ def validate_gateway_cmds(sdk_name, info, frappe_by_root, frappe_by_name, logger
     return missing
 
 
+# ---------------------------------------------------------------------------
+# Raw Frappe path check (report-only). SDK code must reach Frappe through the
+# gateway (rokct.platform.api), not by calling /api/method/... or
+# /api/resource/... directly. A line may opt out with a comment containing
+# "bypasses gateway: <reason>" (e.g. multipart upload, login before session).
+# ---------------------------------------------------------------------------
+
+RAW_PATH_RE = re.compile(r"/api/(?:v1/)?method/|/api/resource\b")
+GATEWAY_PATH_RE = re.compile(r"/api/(?:v1/)?method/rokct\.platform\.api\b")
+BYPASS_ALLOW_RE = re.compile(r"(?://|/\*|#)[^\n]*bypasses gateway:\s*\S")
+RAW_PATH_EXTS = ('.dart', '.ts', '.tsx', '.js', '.jsx', '.mjs')
+SKIP_DIRS = {'node_modules', '.next', 'build', '.dart_tool', 'test', 'tests',
+             '__tests__', 'example', 'examples', 'generated'}
+GENERATED_SUFFIXES = ('.g.dart', '.freezed.dart', '.gr.dart', '.config.dart',
+                      '.mocks.dart', '.d.ts')
+
+
+def find_raw_paths(text):
+    """Returns [(line_no, line)] of lines that call Frappe directly.
+
+    Comment-only lines, lines whose only /api/... match is the gateway path itself, and lines
+    carrying a `bypasses gateway: <reason>` comment, are not reported.
+    """
+    hits = []
+    for no, line in enumerate(text.splitlines(), 1):
+        if re.match(r"\s*(?://|/\*|\*|#)", line):
+            continue  # doc/comment prose, not a call
+        stripped = GATEWAY_PATH_RE.sub('', line)
+        if not RAW_PATH_RE.search(stripped):
+            continue
+        if BYPASS_ALLOW_RE.search(line):
+            continue
+        hits.append((no, line.strip()))
+    return hits
+
+
+# Hardcoded UI string check (report-only, dart). A `Text('Literal')` in lib/
+# should be `Text(AppHelpers.getTranslation(TrKeys.x))`. Opt out per line with
+# `// i18n-ignore: <reason>`. Literals with no letters left once
+# interpolations are removed (e.g. Text('$count'), Text('')) are not UI copy.
+UI_TEXT_RE = re.compile(
+    r"\bText\(\s*(?:'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\")")
+I18N_IGNORE_RE = re.compile(r"//\s*i18n-ignore:\s*\S")
+_INTERP_STRIP_RE = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+
+
+def find_hardcoded_ui_strings(text):
+    """Returns [(line_no, literal)] of Text('...') literals not using TrKeys."""
+    hits = []
+    for no, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith('//') or I18N_IGNORE_RE.search(line):
+            continue
+        for m in UI_TEXT_RE.finditer(line):
+            lit = m.group(1) if m.group(1) is not None else m.group(2)
+            if not re.search(r"[A-Za-z]", _INTERP_STRIP_RE.sub('', lit)):
+                continue
+            hits.append((no, lit))
+    return hits
+
+
+def _iter_source_files(base, exts):
+    base = Path(base)
+    if not base.is_dir():
+        return
+    for root, dirs, files in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS
+                         and not d.startswith('.'))
+        for fname in sorted(files):
+            if not fname.endswith(exts) or fname.endswith(GENERATED_SUFFIXES):
+                continue
+            if re.search(r"(_test|\.test|\.spec)\.[a-z]+$", fname):
+                continue
+            yield Path(root) / fname
+
+
+def _scan_counts(base, rel_to, exts, finder):
+    counts = {}
+    for fpath in _iter_source_files(base, exts):
+        try:
+            text = fpath.read_text(encoding='utf-8-sig', errors='replace')
+        except OSError:
+            continue
+        n = len(finder(text))
+        if n:
+            counts[os.path.relpath(fpath, rel_to).replace('\\', '/')] = n
+    return counts
+
+
+def collect_raw_paths(src_dir, rel_to=None):
+    """{rel file: count} of raw Frappe paths under one SDK half's source."""
+    return _scan_counts(src_dir, rel_to or src_dir, RAW_PATH_EXTS,
+                        find_raw_paths)
+
+
+def collect_hardcoded_ui_strings(dart_dir, rel_to=None):
+    """{rel file: count} of hardcoded Text literals under a dart half's lib/."""
+    return _scan_counts(Path(dart_dir) / 'lib', rel_to or dart_dir,
+                        ('.dart',), find_hardcoded_ui_strings)
+
+
+def _log_counts(title, counts, logger, sdk_name):
+    if not counts:
+        return 0
+    total = sum(counts.values())
+    logger.log(f"{title}: {total} in {len(counts)} file(s).", "WARNING",
+               sdk_name)
+    for rel in sorted(counts):
+        logger.log(f"  {rel}: {counts[rel]}", "WARNING", sdk_name)
+    return total
+
+
 def extract_imports(manifest_data):
     """Collects package: imports from the manifest's structured fields.
 
@@ -817,6 +928,20 @@ def parse_args():
         help="Write the gateway cmd check results as JSON to this path: "
         "{sdk_name: [{cmd, file}]} for every SDK that was checked (an empty "
         "list = fully resolved). Report-only; never changes the exit status.",
+    )
+    parser.add_argument(
+        "--raw-path-report",
+        default=None,
+        help="Write the raw Frappe path check as JSON to this path: "
+        "{sdk_label: {file: count}} for dart and nextjs halves that call "
+        "/api/method or /api/resource directly. Report-only.",
+    )
+    parser.add_argument(
+        "--ui-string-report",
+        default=None,
+        help="Write the hardcoded UI string check as JSON to this path: "
+        "{sdk_name: {file: count}} of dart Text('literal') not routed "
+        "through TrKeys. Report-only.",
     )
     return parser.parse_args()
 
@@ -957,6 +1082,38 @@ def main():
                 f.write('\n')
         except OSError as e:
             logger.log(f"Could not write cmd report: {e}", "WARNING")
+
+    # Raw Frappe path + hardcoded UI string checks. Report-only: findings
+    # never add to overall_errors.
+    raw_report, ui_report = {}, {}
+    logger.log("--- Raw Frappe path check (bypassing the gateway) ---")
+    for sdk_name, info in sdk_data.items():
+        counts = collect_raw_paths(Path(info['dart_dir']) / 'lib',
+                                   info['dart_dir'])
+        if _log_counts("Raw Frappe path(s)", counts, logger, sdk_name):
+            raw_report[sdk_name] = counts
+    for label, info in flavor_data.items():
+        if info['flavor'] != 'nextjs':
+            continue
+        counts = collect_raw_paths(info['flavor_dir'])
+        if _log_counts("Raw Frappe path(s)", counts, logger, label):
+            raw_report[label] = counts
+    logger.log("--- Hardcoded UI string check (dart Text literals) ---")
+    for sdk_name, info in sdk_data.items():
+        counts = collect_hardcoded_ui_strings(info['dart_dir'])
+        if _log_counts("Hardcoded UI string(s)", counts, logger, sdk_name):
+            ui_report[sdk_name] = counts
+
+    for path, report, what in ((args.raw_path_report, raw_report, 'raw path'),
+                               (args.ui_string_report, ui_report, 'UI string')):
+        if not path:
+            continue
+        try:
+            with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                json.dump(report, f, indent=2, sort_keys=True)
+                f.write('\n')
+        except OSError as e:
+            logger.log(f"Could not write {what} report: {e}", "WARNING")
 
     logger.write_summaries(list(sdk_data.keys()) + list(flavor_data.keys()))
 
