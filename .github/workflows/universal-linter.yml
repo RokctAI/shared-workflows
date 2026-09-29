@@ -1404,7 +1404,10 @@ jobs:
           REPORT: ${{ runner.temp }}/cmd_report.json
         run: |
           python3 sw/scripts/sdk_validator.py --root "$GITHUB_WORKSPACE/src" \
-            --cmd-report "$REPORT" > "$RUNNER_TEMP/sdk_validator.log" 2>&1 || true
+            --cmd-report "$REPORT" \
+            --raw-path-report "$RUNNER_TEMP/raw_path_report.json" \
+            --ui-string-report "$RUNNER_TEMP/ui_string_report.json" \
+            > "$RUNNER_TEMP/sdk_validator.log" 2>&1 || true
           python3 - <<'PY' || true
           import json, os
           path = os.environ["REPORT"]
@@ -1431,6 +1434,44 @@ jobs:
                           "| SDK | cmd | first used at |", "|---|---|---|"]
                   out += [f"| `{s}` | `{c}` | `{p}` |" for s, c, p in rows]
                   out += ["", "</details>"]
+          text = "\n".join(out) + "\n"
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(text)
+          PY
+
+      # Raw Frappe paths (SDK code calling /api/method or /api/resource
+      # instead of the gateway) and hardcoded dart Text literals. Both are
+      # report-only, per-file counts; allowlist with `bypasses gateway: why`
+      # or `// i18n-ignore: why` on the line.
+      - name: Report raw Frappe paths and hardcoded UI strings
+        continue-on-error: true
+        run: |
+          python3 - <<'PY' || true
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          out = []
+          for fname, title in (
+                  ("raw_path_report.json",
+                   "### 🚧 Raw Frappe paths bypassing the gateway (report-only)"),
+                  ("ui_string_report.json",
+                   "### 🌐 Hardcoded UI strings not using TrKeys (report-only)")):
+              out += [title, ""]
+              try:
+                  with open(os.path.join(tmp, fname), encoding="utf-8") as f:
+                      report = json.load(f)
+              except (OSError, ValueError):
+                  report = {}
+              if not report:
+                  out += ["None found.", ""]
+                  continue
+              total = sum(sum(v.values()) for v in report.values())
+              out += [f"**{total}** across {len(report)} SDK(s).", "",
+                      "| SDK | File | Count |", "|---|---|---|"]
+              for sdk in sorted(report):
+                  for rel, n in sorted(report[sdk].items()):
+                      out.append(f"| `{sdk}` | `{rel}` | {n} |")
+              out.append("")
           text = "\n".join(out) + "\n"
           print(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
