@@ -780,6 +780,43 @@ def collect_hardcoded_ui_strings(dart_dir, rel_to=None):
                         ('.dart',), find_hardcoded_ui_strings)
 
 
+# Icon set check (report-only, dart + nextjs). The fleet's one icon set is
+# Remixicon: `Remix.*` from package:remixicon in dart, `@remixicon/react`
+# (RiXxxLine) on the web. Material/Cupertino `Icons.*` and other icon
+# packages are flagged. Opt out per line with `// icon-exception: <reason>`.
+DART_ICON_RE = re.compile(r"\b(?:Cupertino)?Icons\.[a-z_]\w*")
+OTHER_ICON_PKG_RE = re.compile(
+    r"""(?:import\s+['"]package:|from\s+['"]|require\(\s*['"])"""
+    r"(font_awesome_flutter|flutter_remix|lucide_icons|heroicons|iconsax"
+    r"|phosphor_flutter|lucide-react|react-icons|@radix-ui/react-icons"
+    r"|@heroicons/|@fortawesome/|@mui/icons-material|@tabler/icons-react"
+    r"|react-feather|@phosphor-icons/)")
+ICON_EXCEPTION_RE = re.compile(r"(?://|/\*|#)[^\n]*icon-exception:\s*\S")
+
+
+def find_non_remix_icons(text):
+    """Returns [(line_no, match)] of icons from a set other than Remixicon."""
+    hits = []
+    for no, line in enumerate(text.splitlines(), 1):
+        if re.match(r"\s*(?://|/\*|\*)", line) or ICON_EXCEPTION_RE.search(line):
+            continue
+        for m in OTHER_ICON_PKG_RE.finditer(line):
+            hits.append((no, m.group(1)))
+        for m in DART_ICON_RE.finditer(line):
+            hits.append((no, m.group(0)))
+    return hits
+
+
+def collect_non_remix_icons(base, rel_to=None, subdirs=None):
+    """{rel file: count} of non-Remixicon icons under one SDK half."""
+    base = Path(base)
+    counts = {}
+    for sub in (subdirs or ['.']):
+        counts.update(_scan_counts(base / sub, rel_to or base, RAW_PATH_EXTS,
+                                   find_non_remix_icons))
+    return counts
+
+
 def _log_counts(title, counts, logger, sdk_name):
     if not counts:
         return 0
@@ -943,6 +980,14 @@ def parse_args():
         "{sdk_name: {file: count}} of dart Text('literal') not routed "
         "through TrKeys. Report-only.",
     )
+    parser.add_argument(
+        "--icon-report",
+        default=None,
+        help="Write the icon set check as JSON to this path: "
+        "{sdk_label: {file: count}} of icons not from Remixicon (dart "
+        "Icons.*/CupertinoIcons.*, lucide-react and other icon packages). "
+        "Report-only.",
+    )
     return parser.parse_args()
 
 
@@ -1104,8 +1149,23 @@ def main():
         if _log_counts("Hardcoded UI string(s)", counts, logger, sdk_name):
             ui_report[sdk_name] = counts
 
+    icon_report = {}
+    logger.log("--- Icon set check (Remixicon only) ---")
+    for sdk_name, info in sdk_data.items():
+        counts = collect_non_remix_icons(info['dart_dir'],
+                                         subdirs=['lib', 'templates'])
+        if _log_counts("Non-Remixicon icon(s)", counts, logger, sdk_name):
+            icon_report[sdk_name] = counts
+    for label, info in flavor_data.items():
+        if info['flavor'] != 'nextjs':
+            continue
+        counts = collect_non_remix_icons(info['flavor_dir'])
+        if _log_counts("Non-Remixicon icon(s)", counts, logger, label):
+            icon_report[label] = counts
+
     for path, report, what in ((args.raw_path_report, raw_report, 'raw path'),
-                               (args.ui_string_report, ui_report, 'UI string')):
+                               (args.ui_string_report, ui_report, 'UI string'),
+                               (args.icon_report, icon_report, 'icon')):
         if not path:
             continue
         try:
