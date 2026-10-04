@@ -21,6 +21,21 @@ on:
           as allowed_users. Independent of allowed_users. Empty disables it.
         type: string
         default: 'rokctbot[bot]'
+      build_workflow:
+        description: >-
+          File name of the caller's build workflow under .github/workflows/
+          (e.g. build.yml). After an auto-merge lands it is dispatched, because
+          the merge itself starts no push-triggered run. Repositories without
+          this workflow, or whose copy has no workflow_dispatch trigger, are
+          skipped. Empty disables the dispatch.
+        type: string
+        default: 'build.yml'
+      build_branches:
+        description: >-
+          Comma-separated branches whose auto-merged PRs get a build dispatched
+          (the branches the build workflow builds on push).
+        type: string
+        default: 'main,develop'
     secrets:
       COUNTER_API_KEY:
         required: false
@@ -47,6 +62,8 @@ jobs:
     needs: telemetry
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    outputs:
+      merged: ${{ steps.merge_state.outputs.merged }}
     steps:
       - name: Check Author
         id: check_author
@@ -90,6 +107,24 @@ jobs:
         run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # `gh pr merge --auto` merges on the spot when nothing is pending. Report
+      # that so post-merge-build can start the build straight away instead of
+      # waiting for the next scheduled sweep.
+      - name: Check Merge State
+        id: merge_state
+        if: |
+          steps.check_author.outputs.authorized == 'true' &&
+          steps.check_files.outputs.safe == 'true'
+        run: |
+          STATE=$(gh pr view "${{ github.event.pull_request.number }}" --json state --jq .state || echo UNKNOWN)
+          echo "PR state: $STATE"
+          if [ "$STATE" = "MERGED" ]; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
   # Second evaluation opportunity for the same PRs the fast path above judges.
   #
@@ -169,3 +204,95 @@ jobs:
             echo "PR #${NUM}: all gates passed — enabling auto-merge"
             gh pr merge --auto --squash "$URL" || echo "PR #${NUM}: enabling auto-merge failed; will retry on the next sweep"
           done < open_prs.tsv
+
+  # Start the build for merges that auto-merge landed.
+  #
+  # Auto-merge is armed with GITHUB_TOKEN, so the merge is attributed to that
+  # token and GitHub starts no workflow run from the resulting push: the caller's
+  # build workflow never runs on main for auto-merged PRs. workflow_dispatch is
+  # the documented exception to that rule, so this job dispatches the build from
+  # the base repository with the same GITHUB_TOKEN. No PAT or App token is
+  # involved, so it behaves the same for outside contributors' PRs.
+  #
+  # It runs right after the fast path when that path merged the PR on the spot,
+  # and on every scheduled sweep for merges that completed later. For each
+  # branch in build_branches it looks only at the branch head, and dispatches
+  # when all of these hold, which is when a normal merge would have built:
+  #   - the head commit came from a merged PR, in the last 24 hours;
+  #   - its message carries no [skip ci]-style marker;
+  #   - it changes something other than Markdown (the build's paths-ignore);
+  #   - the build workflow has no run for that commit yet (so a push build, or
+  #     an earlier dispatch, is never duplicated).
+  post-merge-build:
+    needs: auto-merge
+    runs-on: ubuntu-latest
+    if: |
+      always() && inputs.build_workflow != '' && (
+        github.event_name == 'schedule' ||
+        (github.event_name == 'pull_request' && needs.auto-merge.outputs.merged == 'true')
+      )
+    continue-on-error: true
+    steps:
+      - name: Dispatch Build For Auto-Merged Commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_WORKFLOW: ${{ inputs.build_workflow }}
+          BUILD_BRANCHES: ${{ inputs.build_branches }}
+        run: |
+          if ! gh api "repos/${GH_REPO}/actions/workflows/${BUILD_WORKFLOW}" --jq .state > wf_state 2>/dev/null; then
+            echo "No ${BUILD_WORKFLOW} in ${GH_REPO}; nothing to dispatch."
+            exit 0
+          fi
+          if [ "$(cat wf_state)" != "active" ]; then
+            echo "${BUILD_WORKFLOW} is $(cat wf_state); nothing to dispatch."
+            exit 0
+          fi
+
+          CUTOFF=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          BRANCHES="${BUILD_BRANCHES// /}"
+
+          for BRANCH in ${BRANCHES//,/ }; do
+            [ -n "$BRANCH" ] || continue
+
+            if ! gh api "repos/${GH_REPO}/commits/${BRANCH}" > head.json 2>/dev/null; then
+              echo "${BRANCH}: branch not found; skipped"
+              continue
+            fi
+            SHA=$(jq -r .sha head.json)
+            DATE=$(jq -r .commit.committer.date head.json)
+            MSG=$(jq -r .commit.message head.json)
+
+            if [[ "$DATE" < "$CUTOFF" ]]; then
+              echo "${BRANCH}@${SHA:0:7}: older than 24h; skipped"
+              continue
+            fi
+
+            if printf '%s' "$MSG" | grep -qiE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'; then
+              echo "${BRANCH}@${SHA:0:7}: carries a skip-ci marker; skipped"
+              continue
+            fi
+
+            if ! jq -r '.files[].filename' head.json | grep -qv '\.md$'; then
+              echo "${BRANCH}@${SHA:0:7}: Markdown-only change; skipped"
+              continue
+            fi
+
+            PR=$(gh api "repos/${GH_REPO}/commits/${SHA}/pulls" \
+              --jq '[.[] | select(.merged_at != null) | .number] | first // empty' 2>/dev/null || true)
+            if [ -z "$PR" ]; then
+              echo "${BRANCH}@${SHA:0:7}: not a merged PR; skipped"
+              continue
+            fi
+
+            RUNS=$(gh api "repos/${GH_REPO}/actions/workflows/${BUILD_WORKFLOW}/runs?head_sha=${SHA}&per_page=1" \
+              --jq .total_count 2>/dev/null || echo error)
+            if [ "$RUNS" != "0" ]; then
+              echo "${BRANCH}@${SHA:0:7}: ${BUILD_WORKFLOW} runs for it: ${RUNS}; skipped"
+              continue
+            fi
+
+            echo "${BRANCH}@${SHA:0:7}: PR #${PR} merged with no build; dispatching ${BUILD_WORKFLOW}"
+            gh workflow run "$BUILD_WORKFLOW" --ref "$BRANCH" \
+              || echo "${BRANCH}: dispatch refused (does ${BUILD_WORKFLOW} have a workflow_dispatch trigger?)"
+          done
