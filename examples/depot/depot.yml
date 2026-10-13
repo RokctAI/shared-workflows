@@ -1,0 +1,36 @@
+# depot-workflow-version: 1
+# Installed by depot_sdk into a user's storage repo as .github/workflows/depot.yml.
+# The app writes it; the user never edits it. All logic lives in the reusable
+# workflow, so fixes reach every user without the app re-pushing this file.
+name: Depot
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'import | maintain'
+        required: true
+        default: maintain
+        type: choice
+        options: [maintain, import]
+      picker_session:
+        description: 'Google Photos Picker session (import only)'
+        required: false
+        default: ''
+      google_token:
+        description: 'Short-lived Google token (import only)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  depot:
+    uses: RokctAI/shared-workflows/.github/workflows/universal-depot.yml@main
+    with:
+      job: ${{ github.event_name == 'schedule' && 'maintain' || inputs.job }}
+      picker_session: ${{ inputs.picker_session || '' }}
+      google_token: ${{ inputs.google_token || '' }}

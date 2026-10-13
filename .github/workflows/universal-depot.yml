@@ -1,0 +1,134 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+
+# Repo-side jobs for depot_sdk storage repos (RokctAI/hardware, depot/).
+# Called from the ONE caller file the app installs into a user's private
+# storage repo (examples/depot/depot.yml). Runs on that user's own Actions
+# minutes, with that run's GITHUB_TOKEN only: it never reads or writes any
+# other repo (depot/CONTRACT.md, "the app carries everything between repos").
+#
+# Jobs (input `job`):
+#   import    import the items the user picked in Google Photos (Picker API)
+#             into this repo, page by page; needs `picker_session` and a
+#             short-lived `google_token`.
+#   maintain  size report, then photo details (EXIF), then people: the daily
+#             run, also dispatched by the app after a backup.
+#
+# Every job is chunked and resumable through depot/jobs/<job>.json, so a run
+# that stops (time budget, token expiry, full repo, Actions minutes running
+# out) loses nothing. Scripts: scripts/depot/ in this repo.
+
+name: Depot Storage Jobs
+
+on:
+  workflow_call:
+    inputs:
+      job:
+        description: 'import | maintain'
+        required: true
+        type: string
+      picker_session:
+        description: 'Google Photos Picker session id (import only)'
+        required: false
+        type: string
+        default: ''
+      google_token:
+        description: 'Short-lived Google token, scope photospicker.mediaitems.readonly (import only)'
+        required: false
+        type: string
+        default: ''
+      max_minutes:
+        description: 'Time budget per job, in minutes'
+        required: false
+        type: number
+        default: 50
+      limit_gb:
+        description: 'Repo size at which an import stops with repo_full'
+        required: false
+        type: number
+        default: 9
+
+permissions:
+  contents: write
+
+concurrency:
+  group: depot-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  depot:
+    name: depot ${{ inputs.job }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Mask the Google token
+        if: inputs.google_token != ''
+        env:
+          TOKEN: ${{ inputs.google_token }}
+        run: echo "::add-mask::$TOKEN"
+
+      - name: Check out the storage repo (sparse, no file contents)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: repo
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            depot/index
+            depot/jobs
+            depot/people
+
+      - name: Check out depot scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          path: sw
+          sparse-checkout: scripts/depot
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install image tools
+        env:
+          JOB: ${{ inputs.job }}
+        run: |
+          pip install --quiet pillow numpy
+          if [ "$JOB" = "maintain" ]; then
+            pip install --quiet opencv-python-headless
+          fi
+
+      - name: Import from Google Photos
+        working-directory: sw/scripts
+        if: inputs.job == 'import'
+        env:
+          DEPOT_GOOGLE_TOKEN: ${{ inputs.google_token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SESSION: ${{ inputs.picker_session }}
+          MAX_MINUTES: ${{ inputs.max_minutes }}
+          LIMIT_GB: ${{ inputs.limit_gb }}
+        run: |
+          python3 -m depot.depot_job import --root "$GITHUB_WORKSPACE/repo" \
+            --session "$SESSION" --max-minutes "$MAX_MINUTES" --limit-gb "$LIMIT_GB"
+
+      - name: Size report
+        working-directory: sw/scripts
+        if: inputs.job == 'maintain'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LIMIT_GB: ${{ inputs.limit_gb }}
+        run: python3 -m depot.depot_job size --root "$GITHUB_WORKSPACE/repo" --limit-gb "$LIMIT_GB"
+
+      - name: Photo details
+        working-directory: sw/scripts
+        if: inputs.job == 'maintain'
+        env:
+          MAX_MINUTES: ${{ inputs.max_minutes }}
+        run: python3 -m depot.depot_job exif --root "$GITHUB_WORKSPACE/repo" --max-minutes "$MAX_MINUTES"
+
+      - name: People
+        working-directory: sw/scripts
+        if: inputs.job == 'maintain'
+        env:
+          MAX_MINUTES: ${{ inputs.max_minutes }}
+        run: python3 -m depot.depot_job people --root "$GITHUB_WORKSPACE/repo" --max-minutes "$MAX_MINUTES"
