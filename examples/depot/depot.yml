@@ -1,3 +1,4 @@
+# depot-workflow-version: 1
 # Installed by depot_sdk into a user's storage repo as .github/workflows/depot.yml.
 # The app writes it; the user never edits it. All logic lives in the reusable
 # workflow, so fixes reach every user without the app re-pushing this file.

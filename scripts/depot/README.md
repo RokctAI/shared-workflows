@@ -4,7 +4,10 @@ Repo-side jobs for [depot_sdk](https://github.com/RokctAI/hardware/tree/main/dep
 storage repos: the private repos where the photos and drive apps keep a
 user's files. They run in **the user's** repo, on **the user's** Actions
 minutes, through `.github/workflows/universal-depot.yml`, called from the one
-caller file the app installs there (`examples/depot/depot.yml`).
+caller file the app installs there (`examples/depot/depot.yml`). depot_sdk
+carries a byte-identical copy (`depotWorkflowYaml` in `depot_workflow.dart`);
+its first line `# depot-workflow-version: N` tells the app when to replace an
+older copy, so bump it on both sides whenever the caller changes.
 
 The only credential is that run's `GITHUB_TOKEN`, which reaches the repo the
 job runs in and nothing else. Anything that crosses repos (creating the next
