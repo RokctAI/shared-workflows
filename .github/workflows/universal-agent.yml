@@ -22,6 +22,14 @@ on:
         type: boolean
         required: false
         default: true
+      # Repo whose .rokct/agent queue the agent-run job processes (and commits
+      # back to), checked out with MONOREPO_PAT. Empty = the calling repo.
+      # The factory engine sets it to its private content repo (RokctAI/books),
+      # where the Level 0/1 prompts and job cards live since the factory split.
+      content-repo:
+        type: string
+        required: false
+        default: ''
       mode:
         type: string
         required: false
@@ -70,6 +78,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          repository: ${{ inputs.content-repo || github.repository }}
+          token: ${{ inputs.content-repo != '' && secrets.MONOREPO_PAT || github.token }}
           fetch-depth: 2
 
       - name: Set up Python
