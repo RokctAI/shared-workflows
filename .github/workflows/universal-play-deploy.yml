@@ -696,20 +696,29 @@ jobs:
             echo "BUILD_NUMBER=$BUILD_NUMBER"
           } >> "$GITHUB_ENV"
 
-      - name: Build Android AppBundle
+      # Deploy the AAB that universal-release.yml already built and attached to
+      # the latest published release, instead of building it again. A release is
+      # the build that was tested and shipped, so the store receives those same
+      # bytes. Drafts and pre-releases are skipped.
+      - name: Download Latest Release AAB
         id: build_aab
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          BUILD_ARGS=(--release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER")
-          if [ -f .env/production.env ]; then
-            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
-          fi
-          flutter build appbundle "${BUILD_ARGS[@]}"
-
-          AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
-          if [ ! -f "$AAB_PATH" ]; then
-            echo "❌ AAB build failed or file not found."
+          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')
+          if [ -z "$TAG" ]; then
+            echo "::error::No published release was found in $GITHUB_REPOSITORY, so there is no AAB to deploy."
             exit 1
           fi
+          mkdir -p build/deploy
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.aab' --dir build/deploy --clobber
+          COUNT=$(ls build/deploy/*.aab 2>/dev/null | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Release $TAG has $COUNT .aab assets; expected exactly one."
+            exit 1
+          fi
+          AAB_PATH=$(ls build/deploy/*.aab)
+          echo "Deploying $AAB_PATH from release $TAG"
           echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Locate Play Store Service Account Key
