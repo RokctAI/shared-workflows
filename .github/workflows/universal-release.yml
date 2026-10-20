@@ -2157,16 +2157,65 @@ jobs:
               exit 1
             fi
 
+      # The debug slot is the guided-tour APK when the repo has a tour set up
+      # (tour/app.tour.yaml plus integration_test/guided_tour_test.dart), and
+      # the normal debug APK otherwise. Either way the release carries exactly
+      # one debug-slot asset, named app-debug-<tag>.apk.
+      - name: Detect Guided Tour Setup
+        id: tour_setup
+        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        shell: bash
+        run: |
+          if [ -f tour/app.tour.yaml ] && [ -f integration_test/guided_tour_test.dart ]; then
+            echo "tour=true" >> "$GITHUB_OUTPUT"
+            echo "Guided tour is set up - the debug slot builds the tour APK."
+          else
+            echo "tour=false" >> "$GITHUB_OUTPUT"
+            echo "No guided tour in this repo - the debug slot builds the normal debug APK."
+          fi
+
+      - name: Checkout Tour Tooling (shared-workflows)
+        if: steps.tour_setup.outputs.tour == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          ref: main
+          path: .tour-tools
+
+      # Same merge the tour workflow runs: the tour runner imports the
+      # generated integration_test/tour_steps.g.dart, which is not committed.
+      - name: Generate Tour Runner
+        if: steps.tour_setup.outputs.tour == 'true'
+        shell: bash
+        env:
+          PIP_BREAK_SYSTEM_PACKAGES: 1
+        run: |
+          python3 -m pip install --quiet pyyaml pillow
+          python3 .tour-tools/scripts/tour/merge_fragments.py \
+            --app-manifest tour/app.tour.yaml \
+            --composer composer.json \
+            --cache-dir .rokct/cache \
+            --fragments-ref main \
+            --fallback-ref main \
+            --out-json tour.resolved.json \
+            --out-dart integration_test/tour_steps.g.dart
+
       - name: Build Android APK (Debug)
         id: build_debug_apk
         if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
+        env:
+          TOUR_SETUP: ${{ steps.tour_setup.outputs.tour }}
         run: |
              echo "Building Android Debug APK..."
-             if [ -f .env/production.env ]; then
-               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
-             else
-               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+             TARGET_ARGS=()
+             if [ "$TOUR_SETUP" = "true" ]; then
+               echo "Tour build: -t integration_test/guided_tour_test.dart with TOUR_MODE=true."
+               TARGET_ARGS+=(-t integration_test/guided_tour_test.dart --dart-define=TOUR_MODE=true)
              fi
+             if [ -f .env/production.env ]; then
+               TARGET_ARGS+=(--dart-define-from-file=.env/production.env)
+             fi
+             flutter build apk --debug "${TARGET_ARGS[@]}" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 
              DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
              if [ -f "$DEBUG_APK_PATH" ]; then
