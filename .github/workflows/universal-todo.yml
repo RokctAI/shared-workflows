@@ -11,10 +11,12 @@ on:
           skipped when scanning for TODOs. Each pattern is anchored at the
           start of the repository-relative file path. Defaults to skipping the
           `templates/` tree, whose TODO markers are intentional fill-in
-          placeholders for whoever copies the scaffold, not work items.
+          placeholders for whoever copies the scaffold, not work items, and
+          `test/render/`, whose render-harness markers are finished-harness
+          labels rather than open work.
         required: false
         type: string
-        default: '^templates/'
+        default: '^templates/|^test/render/'
     secrets:
       GH_TOKEN:
         required: false
