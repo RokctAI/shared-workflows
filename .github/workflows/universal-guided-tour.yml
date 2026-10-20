@@ -499,15 +499,33 @@ jobs:
             --out-json tour.resolved.json \
             --out-dart integration_test/tour_steps.g.dart
 
-      - name: Build Demo Debug APK (warm cache + compile gate)
+      # The tour runs the latest published release's debug APK instead of
+      # building its own, so the emulator legs never compile the app. The
+      # APK must have been built with --dart-define=TOUR_MODE=true (demo
+      # fixtures); the release build in universal-release.yml must set that
+      # define or the tour runs against the production sign-in flow. The file
+      # is downloaded to the path every later step reads.
+      - name: Download Latest Release Debug APK
         id: build-apk
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          BUILD_ARGS=(--debug --dart-define=TOUR_MODE=true)
-          if [ -f .env/production.env ]; then
-            BUILD_ARGS+=(--dart-define-from-file=.env/production.env)
+          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')
+          if [ -z "$TAG" ]; then
+            echo "::error::No published release in $GITHUB_REPOSITORY, so there is no debug APK for the tour."
+            exit 1
           fi
-          flutter build apk "${BUILD_ARGS[@]}"
+          rm -rf build/tour-download
+          mkdir -p build/tour-download build/app/outputs/flutter-apk
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'app-debug-*.apk' --dir build/tour-download --clobber
+          COUNT=$(ls build/tour-download/app-debug-*.apk 2>/dev/null | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Release $TAG has $COUNT app-debug-*.apk assets; expected exactly one."
+            exit 1
+          fi
+          mv build/tour-download/app-debug-*.apk build/app/outputs/flutter-apk/app-debug.apk
+          echo "Tour uses the debug APK of release $TAG."
 
       # The debug build leaves a Gradle daemon (and a Kotlin compile daemon)
       # resident, idling on their multi-GB heaps for hours by default. The
@@ -924,22 +942,34 @@ jobs:
           CAP_PID=$!
 
           TEST_EXIT=0
-          TEST_ARGS=(--dart-define=TOUR_MODE=true)
-          if [ -f .env/production.env ]; then
-            TEST_ARGS+=(--dart-define-from-file=.env/production.env)
+          # The debug-slot APK downloaded above already contains the tour
+          # runner (release.yml builds it with -t integration_test/
+          # guided_tour_test.dart and TOUR_MODE=true), so the runner runs
+          # against that binary and nothing is compiled here. flutter drive
+          # is the command that takes a prebuilt APK; it needs a driver entry
+          # point, which is generated when the repo does not ship one.
+          mkdir -p test_driver
+          if [ ! -f test_driver/integration_test.dart ]; then
+            cat > test_driver/integration_test.dart <<'DRIVER'
+          import 'package:integration_test/integration_test_driver.dart';
+
+          Future<void> main() => integrationDriver();
+          DRIVER
           fi
-          # Bound the whole flutter test invocation (test-APK build, install,
-          # on-device run). On run 32456359666 a degraded runner left
-          # `flutter test` wedged after a 699s install with no output and no
-          # exit - unbounded, it consumed the entire 150-minute job, so the
-          # fresh-AVD retry leg never even got a chance. 35 minutes is over
-          # 2x the active phase observed on a healthy runner.
+          # Bound the whole flutter drive invocation (install and on-device
+          # run). On run 32456359666 a degraded runner left the tool wedged
+          # after a 699s install with no output and no exit - unbounded, it
+          # consumed the entire 150-minute job. 35 minutes is over 2x the
+          # active phase observed on a healthy runner.
           # Output is tee'd so the capture watcher can read markers from the
-          # host-side test console too - under `flutter test`, Dart prints
-          # reach the host, not logcat.
+          # host-side test console too - Dart prints reach the host, not
+          # logcat.
           timeout --kill-after=60 2100 \
-            flutter test integration_test/guided_tour_test.dart \
-            -d emulator-5554 --timeout none "${TEST_ARGS[@]}" 2>&1 \
+            flutter drive \
+            --driver=test_driver/integration_test.dart \
+            --target=integration_test/guided_tour_test.dart \
+            --use-application-binary=build/app/outputs/flutter-apk/app-debug.apk \
+            -d emulator-5554 2>&1 \
             | tee "$TEST_LOG"
           TEST_EXIT=${PIPESTATUS[0]}
           if [ "$TEST_EXIT" -eq 124 ] || [ "$TEST_EXIT" -eq 137 ]; then
