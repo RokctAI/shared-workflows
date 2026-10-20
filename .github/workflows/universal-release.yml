@@ -2163,9 +2163,9 @@ jobs:
         run: |
              echo "Building Android Debug APK..."
              if [ -f .env/production.env ]; then
-               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
+               flutter build apk --debug --dart-define=TOUR_MODE=true --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
              else
-               flutter build apk --debug --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+               flutter build apk --debug --dart-define=TOUR_MODE=true --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
              fi
 
              DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
@@ -2175,30 +2175,6 @@ jobs:
                 echo "debug_apk_path=build/app/outputs/flutter-apk/app-debug-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
              else
                 echo "Debug APK build failed or file not found."
-                exit 1
-             fi
-
-      - name: Build Android APK (Tour Debug)
-        # The guided tour's demo build, published as its own asset so the tour
-        # does not have to compile it again. Same flags as the debug APK plus
-        # --dart-define=TOUR_MODE=true (in-app fixtures, no backend, no
-        # sign-in). The normal app-debug asset above is unchanged.
-        id: build_tour_debug_apk
-        if: inputs.build_android == true && env.TAG_NAME != '' && (steps.mode.outputs.mode != 'none')
-        run: |
-             echo "Building Android Tour Debug APK (TOUR_MODE=true)..."
-             if [ -f .env/production.env ]; then
-               flutter build apk --debug --dart-define=TOUR_MODE=true --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
-             else
-               flutter build apk --debug --dart-define=TOUR_MODE=true --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
-             fi
-
-             DEBUG_APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
-             if [ -f "$DEBUG_APK_PATH" ]; then
-                mv "$DEBUG_APK_PATH" "build/app/outputs/flutter-apk/app-tour-debug-${{ env.TAG_NAME }}.apk"
-                echo "tour_debug_apk_path=build/app/outputs/flutter-apk/app-tour-debug-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
-             else
-                echo "Tour debug APK build failed or file not found."
                 exit 1
              fi
 
@@ -2540,7 +2516,6 @@ jobs:
             if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
             if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
             if [ -f "${{ steps.build_debug_apk.outputs.debug_apk_path }}" ]; then FILES+=("${{ steps.build_debug_apk.outputs.debug_apk_path }}"); fi
-            if [ -f "${{ steps.build_tour_debug_apk.outputs.tour_debug_apk_path }}" ]; then FILES+=("${{ steps.build_tour_debug_apk.outputs.tour_debug_apk_path }}"); fi
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
 
            # Windows asset: the Inno Setup installer, which already carries the
