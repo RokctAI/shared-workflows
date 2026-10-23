@@ -1270,7 +1270,134 @@ def pick_hero_step(chapters, shots, feature_step=""):
     return None
 
 
-def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, font_path):
+def _hex_rgb(value, fallback):
+    """'#RRGGBB' -> (r, g, b); the fallback when absent or malformed."""
+    s = str(value or "").strip().lstrip("#")
+    if len(s) == 6:
+        try:
+            return tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            pass
+    return tuple(fallback)
+
+
+def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, logo_path, brand_bg, font_path, style):
+    """store.feature_style variant of the feature graphic (opt-in per app).
+
+    Keys (all optional): bg, bg2 (diagonal gradient end), ink, accent,
+    layout (right | left | duo), tilt (degrees), shape (circle | band |
+    stripes | none), headline (big text; the app name becomes a small
+    label), hero2 (second phone for ``duo``, resolved by the caller).
+    """
+    from PIL import Image, ImageDraw
+
+    w, h = FEATURE_W * FEATURE_SS, FEATURE_H * FEATURE_SS
+    bg = _hex_rgb(style.get("bg"), brand_bg)
+    bg2 = _hex_rgb(style.get("bg2"), bg) if style.get("bg2") else None
+    ink = _hex_rgb(style.get("ink"), ink_for(bg))
+    accent = _hex_rgb(style.get("accent"), ink)
+    muted = tuple(round(0.72 * i + 0.28 * b) for i, b in zip(ink, bg))
+    layout = str(style.get("layout") or "right").strip()
+    shape = str(style.get("shape") or "none").strip()
+    tilt = float(style.get("tilt") or 0)
+
+    canvas = Image.new("RGBA", (w, h), bg + (255,))
+    if bg2:
+        grad = Image.new("RGBA", (w, h))
+        gp = grad.load()
+        for y in range(h):
+            for x in range(0, w):
+                k = (x / w * 0.6 + y / h * 0.4)
+                gp[x, y] = tuple(round(a + (b - a) * k) for a, b in zip(bg, bg2)) + (255,)
+        canvas = grad
+    draw = ImageDraw.Draw(canvas)
+
+    on_right = layout != "left"
+    phone_cx = int(w * 0.76) if on_right else int(w * 0.24)
+    if layout == "duo":
+        phone_cx = int(w * 0.70)
+    if shape == "circle":
+        r = int(h * 0.62)
+        draw.ellipse((phone_cx - r, h // 2 - r + 90, phone_cx + r, h // 2 + r + 90), fill=accent)
+    elif shape == "band":
+        draw.polygon([(phone_cx - 420, h), (phone_cx + 120, 0), (phone_cx + 560, 0), (phone_cx + 20, h)], fill=accent)
+    elif shape == "stripes":
+        for i in range(5):
+            x0 = phone_cx - 700 + i * 170
+            draw.polygon([(x0, h), (x0 + 360, 0), (x0 + 400, 0), (x0 + 40, h)], fill=accent)
+    draw = ImageDraw.Draw(canvas)
+
+    def place(shot_path, cx, top, max_w, max_h, angle):
+        with Image.open(shot_path) as raw:
+            card = phone_card(raw.convert("RGB"), max_w, max_h)
+        if angle:
+            card = card.rotate(angle, resample=Image.BICUBIC, expand=True)
+        canvas.alpha_composite(card, (cx - card.width // 2, top))
+
+    if layout == "duo" and hero2_shot_path:
+        place(hero2_shot_path, phone_cx - 250, 300, 520, 1000, -tilt if tilt else 0)
+        place(hero_shot_path, phone_cx + 170, 110 - FRAME_MARGIN, 560, 1100, tilt)
+    else:
+        place(hero_shot_path, phone_cx, 130 - FRAME_MARGIN, 620, 1200, tilt)
+
+    # Text column on the opposite side of the phone.
+    if layout == "left":
+        margin, text_max = int(w * 0.50), int(w * 0.43)
+    elif layout == "duo":
+        margin, text_max = 130, int(w * 0.29)
+    else:
+        margin, text_max = 160, 880
+    name = str(app.get("name") or "")
+    headline = str(style.get("headline") or "").strip()
+    big, small = (headline, name) if headline else (name, "")
+    size = 130 if headline else 150
+    font = load_font(size, font_path)
+    lines = wrap_text(draw, big, font, text_max)
+    while size > 70 and (len(lines) > (3 if headline else 1) or any(draw.textlength(l, font=font) > text_max for l in lines)):
+        size -= 10
+        font = load_font(size, font_path)
+        lines = wrap_text(draw, big, font, text_max)
+    tag_font = load_font(54, font_path)
+    tag_lines = wrap_text(draw, str(app.get("tagline") or ""), tag_font, text_max)
+    small_font = load_font(52, font_path)
+    logo = None
+    if logo_path and os.path.exists(logo_path):
+        try:
+            with Image.open(logo_path) as raw:
+                logo = raw.convert("RGBA")
+            logo.thumbnail((200, 200), Image.LANCZOS)
+        except OSError:
+            logo = None
+    fa, fd = font.getmetrics()
+    ta, td = tag_font.getmetrics()
+    sa, sd = small_font.getmetrics()
+    line_h, tag_h = fa + fd + 4, ta + td + 8
+    block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
+    if logo:
+        block += logo.height + 40
+    if small:
+        block += sa + sd + 24
+    y = (h - block) // 2
+    if logo:
+        canvas.alpha_composite(logo, (margin, y))
+        y += logo.height + 40
+    if small:
+        draw.text((margin, y), small.upper(), font=small_font, fill=accent if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else muted)
+        y += sa + sd + 24
+    for line in lines:
+        draw.text((margin, y), line, font=font, fill=ink)
+        y += line_h
+    y += 28
+    for line in tag_lines:
+        draw.text((margin, y), line, font=tag_font, fill=muted)
+        y += tag_h
+
+    out_path = os.path.join(out_dir, "store", "feature-graphic.png")
+    canvas.convert("RGB").resize((FEATURE_W, FEATURE_H), Image.LANCZOS).save(out_path, format="PNG")
+    log(f"wrote {out_path} ({FEATURE_W}x{FEATURE_H}, styled)")
+
+
+def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, font_path, style=None, hero2_shot_path=None):
     """<out>/store/feature-graphic.png — the Play listing's 1024x500 banner.
 
     Brand-primary canvas; logo mark, app name and tagline stacked on the
@@ -1281,6 +1408,10 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
     a play button on it when it fronts the promo video). Rendered at
     FEATURE_SS x and downscaled so the type stays crisp.
     """
+    if style:
+        return write_feature_graphic_styled(
+            out_dir, app, hero_shot_path, hero2_shot_path, logo_path, brand_bg, font_path, style
+        )
     from PIL import Image, ImageDraw
 
     w, h = FEATURE_W * FEATURE_SS, FEATURE_H * FEATURE_SS
@@ -1590,8 +1721,12 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 feature_logo = str(store_cfg["logo"]).strip()
                 if not feature_logo:
                     log("feature graphic: store.logo is empty — no logo mark")
+            style = store_cfg.get("feature_style")
+            style = style if isinstance(style, dict) and style else None
+            hero2 = shots.get(str((style or {}).get("hero2") or "").strip())
             write_feature_graphic(
-                out_dir, app, shots[hero["key"]], feature_logo, brand_bg, font_path
+                out_dir, app, shots[hero["key"]], feature_logo, brand_bg, font_path,
+                style=style, hero2_shot_path=hero2,
             )
         write_app_icon(out_dir, logo_path, brand_bg)
     else:

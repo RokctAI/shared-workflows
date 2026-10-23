@@ -238,6 +238,15 @@ store:                        # optional; Play feature-graphic overrides
   feature_step: schedule      # step key whose screenshot is the hero
                               # (convention: the app's HOME step)
   logo: ""                    # feature-graphic logo override; ""/~ = none
+  feature_style:              # optional per-app look; absent = default layout
+    bg: "#0B1F3A"             # canvas colour (bg2 = diagonal gradient end)
+    ink: "#FFFFFF"            # text colour; accent: shape/label colour
+    accent: "#F5B942"
+    shape: band               # circle | band | stripes | none
+    layout: left              # right | left | duo (duo needs hero2)
+    tilt: -6                  # degrees
+    headline: "Big line"      # app name becomes a small label
+    hero2: league             # step key of the second phone (duo)
 setup:                        # optional Dart run once before app.main()
   imports:
     - "import 'package:base_sdk/src/services/local_storage.dart';"
