@@ -655,6 +655,9 @@ def main():
             # Feature-graphic logo override: None (key absent) = use
             # app.logo; a path = use that path; "" = draw no logo mark.
             "logo": str(store.get("logo") or "").strip() if "logo" in store else None,
+            # Optional per-app feature-graphic look (see assemble.py
+            # write_feature_graphic_styled); absent = the default layout.
+            "feature_style": store.get("feature_style") if isinstance(store.get("feature_style"), dict) else None,
         },
         "steps": [
             {
