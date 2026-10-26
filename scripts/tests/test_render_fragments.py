@@ -60,6 +60,19 @@ class RenderFragments(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertFalse(os.path.exists(os.path.join(self.root, "out", "render_screens.g.dart")))
 
+    def test_no_fragments_needs_no_pyyaml(self):
+        blocker = os.path.join(self.root, "blocker")
+        os.makedirs(blocker)
+        with open(os.path.join(blocker, "yaml.py"), "w") as f:
+            f.write("raise ImportError('no yaml here')\n")
+        env = dict(os.environ, PYTHONPATH=blocker)
+        r = subprocess.run(
+            [sys.executable, SCRIPT, "--cache-dir", os.path.join(self.root, "cache"),
+             "--pubspec", os.path.join(self.root, "pubspec.yaml"),
+             "--out-dir", os.path.join(self.root, "out")],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_duplicate_name_fails(self):
         self.frag(FRAG)
         self.frag(FRAG, sdk="other_sdk")

@@ -32,15 +32,21 @@ import os
 import re
 import sys
 
-try:
-    import yaml
-except ImportError:
-    print("::error::merge_render_fragments.py requires pyyaml (pip install pyyaml)")
-    sys.exit(2)
+yaml = None  # imported lazily: with no fragments the script must not need PyYAML
 
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 REQUIRED = ("name", "widget", "import")
+
+
+def require_yaml():
+    global yaml
+    try:
+        import yaml as _yaml
+    except ImportError:
+        print("::error::merge_render_fragments.py requires pyyaml (pip install pyyaml)")
+        sys.exit(2)
+    yaml = _yaml
 
 
 def package_name(pubspec):
@@ -137,6 +143,7 @@ def main():
     if not paths:
         print("ℹ️  No render fragments found in the composed SDKs - nothing generated.")
         return 0
+    require_yaml()
     screens = load_screens(paths, package_name(args.pubspec))
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "render_screens.g.dart"), "w", encoding="utf-8", newline="\n") as f:
