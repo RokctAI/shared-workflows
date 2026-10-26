@@ -1365,7 +1365,12 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
         try:
             with Image.open(logo_path) as raw:
                 logo = raw.convert("RGBA")
-            logo.thumbnail((200, 200), Image.LANCZOS)
+            # A wide wordmark (the app's full logo) gets the width of the text
+            # column and stands in for the name label; a square icon stays small.
+            wordmark = logo.width >= 2.2 * logo.height
+            logo.thumbnail((text_max, 150) if wordmark else (200, 200), Image.LANCZOS)
+            if wordmark:
+                small = ""
         except OSError:
             logo = None
     fa, fd = font.getmetrics()
