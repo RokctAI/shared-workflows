@@ -747,3 +747,26 @@ render covers, it updates that screen's render config - and its example, where
 one is committed - in the same PR, exactly as it updates the tour fragment and
 the seeds. A render that lags the code stops being evidence and becomes another
 drawing, which is the one thing this tool exists to avoid.
+
+---
+
+## SDK render fragments
+
+Instead of each shell hand-naming SDK screens, an SDK ships
+`<sdk>/dart/templates/render/<name>.render.yaml` next to its tour fragment:
+
+```yaml
+screens:
+  - name: tutors                       # lower_snake, unique across SDKs
+    caption: Tutors
+    widget: TutorDiscoveryRouteView    # the real screen widget
+    import: package:{package}/presentation/routes/lms_route_pages.dart
+    construct: const TutorDiscoveryRouteView()   # optional
+```
+
+`merge_render_fragments.py` (called by `run_strip.sh` when the SDK cache
+exists) writes `test/render/render_screens.g.dart` (`kGeneratedScreens`) and
+`strip.frames.g.json` (a dark and a light frame per screen). The shell's render
+test loops over `kGeneratedScreens`; the shell still owns its harness wrapper,
+demo seeding and fonts. A fragment names a real screen only - the in-app
+tutorial layer is never drawn. SDKs with no fragment are skipped.

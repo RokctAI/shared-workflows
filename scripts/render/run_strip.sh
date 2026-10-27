@@ -84,6 +84,15 @@ for pair in ${DEFINE_PAIRS[@]+"${DEFINE_PAIRS[@]}"}; do
   DEFINES+=(--dart-define="$pair")
 done
 
+# Screens the composed SDKs declare themselves (<sdk>/templates/render/*.render.yaml)
+# become test/render/render_screens.g.dart for the shell's test to loop over.
+# Nothing is generated when no SDK ships a fragment.
+if [ -d "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" ]; then
+  python3 "$RENDER_TOOLS_DIR/scripts/render/merge_render_fragments.py" \
+    --cache-dir "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" \
+    --out-dir "$(dirname "$RENDER_TEST")" || fail "Merging the SDK render fragments failed."
+fi
+
 echo "🖼️  Rendering $RENDER_TEST (${#DEFINES[@]} dart-define(s), suffix '${RENDER_SUFFIX}')..."
 if ! flutter test ${DEFINES[@]+"${DEFINES[@]}"} "$RENDER_TEST" 2>&1 | tee "$RENDER_LOG"; then
   fail "The render test failed. This gates everything downstream: the screens do not compile or do not lay out."

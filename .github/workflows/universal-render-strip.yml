@@ -260,6 +260,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      # scripts/render/merge_render_fragments.py reads the SDKs' render
+      # fragments with PyYAML when any exist.
+      - name: Install PyYAML
+        if: steps.check.outputs.has_render == 'true'
+        run: python3 -m pip install --quiet pyyaml
+
       # The composer resolves the private SDK modules; it reads MONOREPO_PAT
       # from the job env set above.
       #
