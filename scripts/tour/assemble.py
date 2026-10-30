@@ -1104,7 +1104,47 @@ def encode_frames(ffmpeg, out_path, codec, container, fps, frames):
     return count
 
 
-def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
+def themed_backdrop(w, h, bg, style, accent):
+    """Caption-card / reel backdrop: a flat ``bg`` unless the app declares
+    store.feature_style, then the same gradient (bg -> bg2) and a soft
+    low-contrast copy of its feature-graphic shape, so every image of the
+    app shares one theme. The shape is drawn faint so caption ink stays legible.
+    """
+    from PIL import Image, ImageDraw
+
+    base = Image.new("RGBA", (w, h), tuple(bg) + (255,))
+    if not isinstance(style, dict) or not style:
+        return base
+    bg2 = _hex_rgb(style.get("bg2"), bg) if style.get("bg2") else None
+    if bg2:
+        # diagonal gradient on a small canvas, scaled up (cheap, smooth)
+        sw, sh = 96, round(96 * h / w)
+        small = Image.new("RGB", (sw, sh))
+        px = small.load()
+        for y in range(sh):
+            for x in range(sw):
+                k = x / sw * 0.4 + y / sh * 0.6
+                px[x, y] = tuple(round(p + (q - p) * k) for p, q in zip(bg, bg2))
+        base = small.resize((w, h), Image.BILINEAR).convert("RGBA")
+    shape = str(style.get("shape") or "none").strip()
+    acc = _hex_rgb(style.get("accent"), tuple(accent))
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    fill = tuple(acc) + (96,)
+    if shape == "circle":
+        r = int(w * 0.62)
+        d.ellipse((w // 2 - r, int(h * 0.42) - r, w // 2 + r, int(h * 0.42) + r), fill=fill)
+    elif shape == "band":
+        d.polygon([(-w * 0.1, h), (w * 0.45, 0), (w * 0.8, 0), (w * 0.25, h)], fill=fill)
+    elif shape == "stripes":
+        for i in range(5):
+            x0 = -w * 0.2 + i * w * 0.24
+            d.polygon([(x0, h), (x0 + w * 0.5, 0), (x0 + w * 0.56, 0), (x0 + w * 0.06, h)], fill=fill)
+    base.alpha_composite(layer)
+    return base
+
+
+def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path, feature_style=None):
     """One wide-reel beat's static parts: (backdrop+caption, card, x, y_at).
 
     Landscape composition: the caption column fills the LEFT half of the
@@ -1121,7 +1161,7 @@ def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
             card = phone_card(raw.convert("RGB"), WIDE_FULL_MAX_W, WIDE_FULL_MAX_H)
         else:
             card = phone_card(raw.convert("RGB"), WIDE_FRAME_MAX_W, WIDE_FRAME_MAX_H)
-    backdrop = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(brand_bg) + (255,))
+    backdrop = themed_backdrop(WIDE_W, WIDE_H, brand_bg, feature_style, accent)
     backdrop.alpha_composite(
         caption_column(
             step.get("caption") or step.get("title") or "",
@@ -1186,7 +1226,7 @@ def select_wide_beats(chapters, shots, chapter_anchor):
 
 def render_wide_video(
     out_dir, beats, opening_image, end_image, brand_bg, accent, font_path, shots,
-    ffmpeg, codec, container, fps, per_step,
+    ffmpeg, codec, container, fps, per_step, feature_style=None,
 ):
     """Render the single landscape highlight reel: <out>/tour-wide.<container>.
 
@@ -1212,7 +1252,8 @@ def render_wide_video(
         step_frames = int(round(per_step * fps))
         for step, anchor in beats:
             backdrop, card, x, y_at = build_wide_beat(
-                step, anchor, shots[step["key"]], brand_bg, accent, font_path
+                step, anchor, shots[step["key"]], brand_bg, accent, font_path,
+                feature_style=feature_style,
             )
             for i in range(step_frames):
                 progress = i / max(1, step_frames - 1)
@@ -1551,6 +1592,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     ):
         os.remove(stale)
 
+    feature_style = (resolved.get("store") or {}).get("feature_style") if isinstance(resolved.get("store"), dict) else None
     brand_bg = parse_color(video_cfg.get("brand_color"), CARD_BG)
     accent = parse_color(video_cfg.get("accent_color"), ACCENT)
     hook = str(video_cfg.get("hook") or "").strip()
@@ -1613,7 +1655,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 card = phone_card(raw.convert("RGB"), FULL_MAX_W, FULL_MAX_H)
             else:
                 card = phone_card(raw.convert("RGB"))
-        backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
+        backdrop = themed_backdrop(WIDTH, HEIGHT, brand_bg, feature_style, accent)
         x = (WIDTH - card.width) // 2
         phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
         crop = round(CROP_FRACTION * phone_h)
@@ -1770,7 +1812,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         )
         render_wide_video(
             out_dir, beats, wide_opening, wide_end, brand_bg, accent, font_path, shots,
-            ffmpeg, codec, container, fps, per_step,
+            ffmpeg, codec, container, fps, per_step, feature_style=feature_style,
         )
 
 
