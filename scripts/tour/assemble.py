@@ -175,6 +175,9 @@ CHIP_RADIUS = 18
 # graphic and ONE widescreen 16:9 promo reel across all chapters.
 WIDE_W, WIDE_H = 1920, 1080
 FEATURE_W, FEATURE_H = 1024, 500
+# Bezel width / top edge of the phone on the supersampled feature graphic (single
+# hero: phone_card(620, 1200) -> 588 wide, placed at y = 130); shapes are scaled from these.
+GRAPHIC_PHONE_W, GRAPHIC_PHONE_TOP = 588, 130
 FEATURE_SS = 2  # the feature graphic renders supersampled, then downscales
 # Wide-reel phone boxes: the portrait phone sits in the RIGHT half of the
 # landscape canvas (caption in the left half), gently edge-cropped; the
@@ -418,6 +421,11 @@ def readable_accent(accent, bg, fallback):
     return tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(fallback)
 
 
+# Set by write_video from store.feature_style.chip: the app's own chip colour,
+# used even where it is close to the canvas (the chip text takes contrast ink).
+CHIP_FORCED = None
+
+
 def chip_colors(accent, bg):
     """(fill, keyword ink) for the highlight chip on canvas ``bg``.
 
@@ -427,6 +435,8 @@ def chip_colors(accent, bg):
     canvas instead — either way the chip itself always reads. The keyword
     ink is then black or white against the CHIP fill, never the canvas.
     """
+    if CHIP_FORCED is not None:
+        return CHIP_FORCED, tuple(ink_for(CHIP_FORCED))
     fill = tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(ink_for(bg))
     return fill, tuple(ink_for(fill))
 
@@ -1104,7 +1114,87 @@ def encode_frames(ffmpeg, out_path, codec, container, fps, frames):
     return count
 
 
-def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
+def themed_backdrop(w, h, bg, style, accent, phone=None, idx=None):
+    """Caption-card / reel backdrop: a flat ``bg`` unless the app declares
+    store.feature_style, then the same gradient (bg -> bg2) and a soft
+    low-contrast copy of its feature-graphic shape, so every image of the
+    app shares one theme. The shape is drawn faint so caption ink stays legible.
+    """
+    from PIL import Image, ImageDraw
+
+    base = Image.new("RGBA", (w, h), tuple(bg) + (255,))
+    if not isinstance(style, dict) or not style:
+        return base
+    bg2 = _hex_rgb(style.get("bg2"), bg) if style.get("bg2") else None
+    if bg2:
+        # diagonal gradient on a small canvas, scaled up (cheap, smooth)
+        sw, sh = 96, round(96 * h / w)
+        small = Image.new("RGB", (sw, sh))
+        px = small.load()
+        for y in range(sh):
+            for x in range(sw):
+                k = x / sw * 0.4 + y / sh * 0.6
+                px[x, y] = tuple(round(p + (q - p) * k) for p, q in zip(bg, bg2))
+        base = small.resize((w, h), Image.BILINEAR).convert("RGBA")
+    shape = str(style.get("shape") or "none").strip()
+    acc = _hex_rgb(style.get("accent"), tuple(accent))
+    # Keep the feature graphic's PROPORTION of shape to phone (the graphic
+    # draws at FEATURE_SS x with a bezel GRAPHIC_PHONE_W wide and its top
+    # at GRAPHIC_PHONE_TOP): scale every shape by this card's bezel width
+    # over the graphic's and anchor it on the phone. What spills off the
+    # canvas is cropped, as it is on the graphic.
+    pcx, ptop, pw = phone if phone else (w // 2, int(h * 0.27) + 130, GRAPHIC_PHONE_W)
+    k = pw / GRAPHIC_PHONE_W
+    # Store stills sit side by side in Play: each neighbouring pair shares ONE
+    # shape, centred on the pair's boundary, so the left screen shows its left
+    # half and the right screen the other (feature_style.pair: false opts out).
+    if idx is not None and style.get("pair", True):
+        pcx = w if idx % 2 == 0 else 0
+    gh = FEATURE_H * FEATURE_SS
+    y0 = ptop - GRAPHIC_PHONE_TOP * k  # where the graphic's top edge would sit
+    S = lambda v: v * k
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    fill = tuple(acc) + (255,)
+    if shape == "circle":
+        r = S(gh * 0.62)
+        # optional per-app offset (feature_style.circle_dx / circle_dy, in
+        # phone widths); default keeps the circle on the phone as on the graphic
+        cy = y0 + S(gh // 2 + 90) + float(style.get("circle_dy") or 0) * pw
+        ccx = pcx + float(style.get("circle_dx") or 0) * pw
+        d.ellipse((ccx - r, cy - r, ccx + r, cy + r), fill=fill)
+    elif shape in ("band", "stripes"):
+        # Same slope and thickness as the graphic, but run far past the top
+        # and bottom of the canvas so the line ends never show.
+        def run(bx, tx, width_top, width_bot):
+            # bottom point (bx, y0+gh), top point (tx, y0), widths at each end
+            dx, dy = (tx - bx), -S(gh)
+            quad = []
+            for t, wd in ((-2.0, width_bot), (3.0, width_top)):
+                quad.append((bx + dx * t, y0 + S(gh) + dy * t, wd))
+            (x1, y1, w1), (x2, y2, w2) = quad
+            d.polygon([(x1, y1), (x2, y2), (x2 + w2, y2), (x1 + w1, y1)], fill=fill)
+        if shape == "band":
+            run(pcx - S(420), pcx + S(120), S(440), S(440))
+        else:
+            for i in range(5):
+                x0 = pcx - S(700) + i * S(170)
+                run(x0, x0 + S(360), S(40), S(40))
+    if shape in ("band", "stripes"):
+        # Fade the lines out behind the caption (no visible end, readable
+        # text), full strength from the phone's top edge down.
+        import numpy as np
+
+        arr = np.array(layer)
+        ys = np.arange(h)[:, None]
+        ramp = np.clip((ys - (ptop - 460 * k)) / (500 * k), 0.0, 1.0)
+        arr[:, :, 3] = (arr[:, :, 3] * ramp).astype("uint8")
+        layer = Image.fromarray(arr, "RGBA")
+    base.alpha_composite(layer)
+    return base
+
+
+def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path, feature_style=None):
     """One wide-reel beat's static parts: (backdrop+caption, card, x, y_at).
 
     Landscape composition: the caption column fills the LEFT half of the
@@ -1121,7 +1211,16 @@ def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path):
             card = phone_card(raw.convert("RGB"), WIDE_FULL_MAX_W, WIDE_FULL_MAX_H)
         else:
             card = phone_card(raw.convert("RGB"), WIDE_FRAME_MAX_W, WIDE_FRAME_MAX_H)
-    backdrop = Image.new("RGBA", (WIDE_W, WIDE_H), tuple(brand_bg) + (255,))
+    x = min(max(0, WIDE_W - card.width), WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2)
+    phone_h = card.height - 2 * FRAME_MARGIN
+    rest_top = (WIDE_H - card.height) // 2 if anchor == "full" else (
+        -round(WIDE_CROP_FRACTION * phone_h) - FRAME_MARGIN if anchor == "top"
+        else WIDE_H + round(WIDE_CROP_FRACTION * phone_h) - FRAME_MARGIN - phone_h
+    )
+    backdrop = themed_backdrop(
+        WIDE_W, WIDE_H, brand_bg, feature_style, accent,
+        phone=(x + card.width // 2, rest_top + FRAME_MARGIN, card.width - 2 * FRAME_MARGIN),
+    )
     backdrop.alpha_composite(
         caption_column(
             step.get("caption") or step.get("title") or "",
@@ -1186,7 +1285,7 @@ def select_wide_beats(chapters, shots, chapter_anchor):
 
 def render_wide_video(
     out_dir, beats, opening_image, end_image, brand_bg, accent, font_path, shots,
-    ffmpeg, codec, container, fps, per_step,
+    ffmpeg, codec, container, fps, per_step, feature_style=None,
 ):
     """Render the single landscape highlight reel: <out>/tour-wide.<container>.
 
@@ -1212,7 +1311,8 @@ def render_wide_video(
         step_frames = int(round(per_step * fps))
         for step, anchor in beats:
             backdrop, card, x, y_at = build_wide_beat(
-                step, anchor, shots[step["key"]], brand_bg, accent, font_path
+                step, anchor, shots[step["key"]], brand_bg, accent, font_path,
+                feature_style=feature_style,
             )
             for i in range(step_frames):
                 progress = i / max(1, step_frames - 1)
@@ -1551,8 +1651,16 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     ):
         os.remove(stale)
 
+    feature_style = (resolved.get("store") or {}).get("feature_style") if isinstance(resolved.get("store"), dict) else None
     brand_bg = parse_color(video_cfg.get("brand_color"), CARD_BG)
     accent = parse_color(video_cfg.get("accent_color"), ACCENT)
+    # store.feature_style.chip: the theme colour for the highlighted-word
+    # chip when the accent is too pale or dark to fill it (e.g. white).
+    global CHIP_FORCED
+    CHIP_FORCED = None
+    if isinstance(feature_style, dict) and feature_style.get("chip"):
+        accent = _hex_rgb(feature_style.get("chip"), accent)
+        CHIP_FORCED = tuple(accent)
     hook = str(video_cfg.get("hook") or "").strip()
     offer = str(video_cfg.get("offer") or "").strip()
     logo_path = str(app.get("logo") or "").strip()
@@ -1597,7 +1705,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             anchor = "bottom"
         return anchor
 
-    def build_beat(step, anchor):
+    def build_beat(step, anchor, idx=None):
         """One beat's static parts: (backdrop, caption, phone card, x, y_at).
 
         y_at(ease) is the card paste position for an entrance progress in
@@ -1613,7 +1721,6 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 card = phone_card(raw.convert("RGB"), FULL_MAX_W, FULL_MAX_H)
             else:
                 card = phone_card(raw.convert("RGB"))
-        backdrop = Image.new("RGBA", (WIDTH, HEIGHT), tuple(brand_bg) + (255,))
         x = (WIDTH - card.width) // 2
         phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
         crop = round(CROP_FRACTION * phone_h)
@@ -1627,6 +1734,12 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         else:  # bottom
             y_rest = HEIGHT + crop - FRAME_MARGIN - phone_h
             y_start = HEIGHT  # fully below the canvas, shadow and all
+
+        backdrop = themed_backdrop(
+            WIDTH, HEIGHT, brand_bg, feature_style, accent,
+            phone=(WIDTH // 2, y_rest + FRAME_MARGIN, card.width - 2 * FRAME_MARGIN),
+            idx=idx,
+        )
 
         def y_at(ease):
             return round(y_rest + (y_start - y_rest) * (1.0 - ease))
@@ -1669,7 +1782,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 if step["key"] not in shots:
                     continue
                 number += 1
-                backdrop, caption, card, x, y_at = build_beat(step, anchor)
+                backdrop, caption, card, x, y_at = build_beat(step, anchor, idx=number - 1)
                 still = backdrop.copy()
                 still.alpha_composite(caption)
                 still.paste(card, (x, y_at(1.0)), card)
@@ -1770,7 +1883,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         )
         render_wide_video(
             out_dir, beats, wide_opening, wide_end, brand_bg, accent, font_path, shots,
-            ffmpeg, codec, container, fps, per_step,
+            ffmpeg, codec, container, fps, per_step, feature_style=feature_style,
         )
 
 
