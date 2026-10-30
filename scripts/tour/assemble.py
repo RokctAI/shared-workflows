@@ -418,6 +418,11 @@ def readable_accent(accent, bg, fallback):
     return tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(fallback)
 
 
+# Set by write_video from store.feature_style.chip: the app's own chip colour,
+# used even where it is close to the canvas (the chip text takes contrast ink).
+CHIP_FORCED = None
+
+
 def chip_colors(accent, bg):
     """(fill, keyword ink) for the highlight chip on canvas ``bg``.
 
@@ -427,6 +432,8 @@ def chip_colors(accent, bg):
     canvas instead — either way the chip itself always reads. The keyword
     ink is then black or white against the CHIP fill, never the canvas.
     """
+    if CHIP_FORCED is not None:
+        return CHIP_FORCED, tuple(ink_for(CHIP_FORCED))
     fill = tuple(accent) if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else tuple(ink_for(bg))
     return fill, tuple(ink_for(fill))
 
@@ -1600,6 +1607,13 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
     feature_style = (resolved.get("store") or {}).get("feature_style") if isinstance(resolved.get("store"), dict) else None
     brand_bg = parse_color(video_cfg.get("brand_color"), CARD_BG)
     accent = parse_color(video_cfg.get("accent_color"), ACCENT)
+    # store.feature_style.chip: the theme colour for the highlighted-word
+    # chip when the accent is too pale or dark to fill it (e.g. white).
+    global CHIP_FORCED
+    CHIP_FORCED = None
+    if isinstance(feature_style, dict) and feature_style.get("chip"):
+        accent = _hex_rgb(feature_style.get("chip"), accent)
+        CHIP_FORCED = tuple(accent)
     hook = str(video_cfg.get("hook") or "").strip()
     offer = str(video_cfg.get("offer") or "").strip()
     logo_path = str(app.get("logo") or "").strip()

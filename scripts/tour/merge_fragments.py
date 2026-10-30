@@ -600,7 +600,7 @@ def main():
     # image of the app shares the feature graphic's theme.
     fstyle = store.get("feature_style") if isinstance(store.get("feature_style"), dict) else {}
     brand_color = brand_color or str(fstyle.get("bg") or "").strip()
-    accent_color = accent_color or str(fstyle.get("accent") or "").strip()
+    accent_color = accent_color or str(fstyle.get("chip") or fstyle.get("accent") or "").strip()
     if not (brand_color and accent_color):
         derived = derive_brand_colors(args.cache_dir, args.app_theme)
         brand_color = brand_color or derived.get("brand_color", "")

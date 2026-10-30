@@ -247,6 +247,7 @@ store:                        # optional; Play feature-graphic overrides
     tilt: -6                  # degrees
     headline: "Big line"      # app name becomes a small label
     hero2: league             # step key of the second phone (duo)
+    chip: "#FF6600"           # optional; highlighted-word chip colour on tour cards
 setup:                        # optional Dart run once before app.main()
   imports:
     - "import 'package:base_sdk/src/services/local_storage.dart';"
