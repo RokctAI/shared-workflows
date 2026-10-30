@@ -1128,18 +1128,23 @@ def themed_backdrop(w, h, bg, style, accent):
         base = small.resize((w, h), Image.BILINEAR).convert("RGBA")
     shape = str(style.get("shape") or "none").strip()
     acc = _hex_rgb(style.get("accent"), tuple(accent))
+    # Same absolute size and colour as the feature graphic's shape (its
+    # canvas is FEATURE_W x FEATURE_H); here it sits behind the phone, in the
+    # band below the caption, and anything that does not fit is cropped.
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    fill = tuple(acc) + (96,)
+    fill = tuple(acc) + (255,)
+    # straddle the phone's top edge so the shape shows beside and above it
+    cx, oy = (w - 90 if shape in ("circle", "band") else w // 2), int(h * 0.27)
     if shape == "circle":
-        r = int(w * 0.62)
-        d.ellipse((w // 2 - r, int(h * 0.42) - r, w // 2 + r, int(h * 0.42) + r), fill=fill)
+        r = int(FEATURE_H * 0.62)
+        d.ellipse((cx - r, oy + FEATURE_H // 2 - r + 90, cx + r, oy + FEATURE_H // 2 + r + 90), fill=fill)
     elif shape == "band":
-        d.polygon([(-w * 0.1, h), (w * 0.45, 0), (w * 0.8, 0), (w * 0.25, h)], fill=fill)
+        d.polygon([(cx - 420, oy + FEATURE_H), (cx + 120, oy), (cx + 560, oy), (cx + 20, oy + FEATURE_H)], fill=fill)
     elif shape == "stripes":
         for i in range(5):
-            x0 = -w * 0.2 + i * w * 0.24
-            d.polygon([(x0, h), (x0 + w * 0.5, 0), (x0 + w * 0.56, 0), (x0 + w * 0.06, h)], fill=fill)
+            x0 = cx - 700 + i * 170
+            d.polygon([(x0, oy + FEATURE_H), (x0 + 360, oy), (x0 + 400, oy), (x0 + 40, oy + FEATURE_H)], fill=fill)
     base.alpha_composite(layer)
     return base
 
