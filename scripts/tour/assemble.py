@@ -1153,8 +1153,10 @@ def themed_backdrop(w, h, bg, style, accent, phone=None):
     fill = tuple(acc) + (255,)
     if shape == "circle":
         r = S(gh * 0.62)
-        cy = y0 + S(gh // 2 + 90)
-        d.ellipse((pcx - r, cy - r, pcx + r, cy + r), fill=fill)
+        cy = y0 + S(gh // 2 + 90) - 0.30 * pw
+        # off-centre: the phone need not sit in the middle of the circle
+        ccx = pcx + (-0.55 if str(style.get("layout") or "right") == "left" else 0.55) * pw
+        d.ellipse((ccx - r, cy - r, ccx + r, cy + r), fill=fill)
     elif shape in ("band", "stripes"):
         # Same slope and thickness as the graphic, but run far past the top
         # and bottom of the canvas so the line ends never show.
