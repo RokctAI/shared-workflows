@@ -175,6 +175,9 @@ CHIP_RADIUS = 18
 # graphic and ONE widescreen 16:9 promo reel across all chapters.
 WIDE_W, WIDE_H = 1920, 1080
 FEATURE_W, FEATURE_H = 1024, 500
+# Bezel width / top edge of the phone on the supersampled feature graphic (single
+# hero: phone_card(620, 1200) -> 588 wide, placed at y = 130); shapes are scaled from these.
+GRAPHIC_PHONE_W, GRAPHIC_PHONE_TOP = 588, 130
 FEATURE_SS = 2  # the feature graphic renders supersampled, then downscales
 # Wide-reel phone boxes: the portrait phone sits in the RIGHT half of the
 # landscape canvas (caption in the left half), gently edge-cropped; the
@@ -1111,7 +1114,7 @@ def encode_frames(ffmpeg, out_path, codec, container, fps, frames):
     return count
 
 
-def themed_backdrop(w, h, bg, style, accent):
+def themed_backdrop(w, h, bg, style, accent, phone=None):
     """Caption-card / reel backdrop: a flat ``bg`` unless the app declares
     store.feature_style, then the same gradient (bg -> bg2) and a soft
     low-contrast copy of its feature-graphic shape, so every image of the
@@ -1135,23 +1138,29 @@ def themed_backdrop(w, h, bg, style, accent):
         base = small.resize((w, h), Image.BILINEAR).convert("RGBA")
     shape = str(style.get("shape") or "none").strip()
     acc = _hex_rgb(style.get("accent"), tuple(accent))
-    # Same absolute size and colour as the feature graphic's shape (its
-    # canvas is FEATURE_W x FEATURE_H); here it sits behind the phone, in the
-    # band below the caption, and anything that does not fit is cropped.
+    # Keep the feature graphic's PROPORTION of shape to phone (the graphic
+    # draws at FEATURE_SS x with a bezel GRAPHIC_PHONE_W wide and its top
+    # at GRAPHIC_PHONE_TOP): scale every shape by this card's bezel width
+    # over the graphic's and anchor it on the phone. What spills off the
+    # canvas is cropped, as it is on the graphic.
+    pcx, ptop, pw = phone if phone else (w // 2, int(h * 0.27) + 130, GRAPHIC_PHONE_W)
+    k = pw / GRAPHIC_PHONE_W
+    gh = FEATURE_H * FEATURE_SS
+    y0 = ptop - GRAPHIC_PHONE_TOP * k  # where the graphic's top edge would sit
+    S = lambda v: v * k
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     fill = tuple(acc) + (255,)
-    # straddle the phone's top edge so the shape shows beside and above it
-    cx, oy = (w - 90 if shape in ("circle", "band") else w // 2), int(h * 0.27)
     if shape == "circle":
-        r = int(FEATURE_H * 0.62)
-        d.ellipse((cx - r, oy + FEATURE_H // 2 - r + 90, cx + r, oy + FEATURE_H // 2 + r + 90), fill=fill)
+        r = S(gh * 0.62)
+        cy = y0 + S(gh // 2 + 90)
+        d.ellipse((pcx - r, cy - r, pcx + r, cy + r), fill=fill)
     elif shape == "band":
-        d.polygon([(cx - 420, oy + FEATURE_H), (cx + 120, oy), (cx + 560, oy), (cx + 20, oy + FEATURE_H)], fill=fill)
+        d.polygon([(pcx - S(420), y0 + S(gh)), (pcx + S(120), y0), (pcx + S(560), y0), (pcx + S(20), y0 + S(gh))], fill=fill)
     elif shape == "stripes":
         for i in range(5):
-            x0 = cx - 700 + i * 170
-            d.polygon([(x0, oy + FEATURE_H), (x0 + 360, oy), (x0 + 400, oy), (x0 + 40, oy + FEATURE_H)], fill=fill)
+            x0 = pcx - S(700) + i * S(170)
+            d.polygon([(x0, y0 + S(gh)), (x0 + S(360), y0), (x0 + S(400), y0), (x0 + S(40), y0 + S(gh))], fill=fill)
     base.alpha_composite(layer)
     return base
 
@@ -1173,7 +1182,16 @@ def build_wide_beat(step, anchor, shot_path, brand_bg, accent, font_path, featur
             card = phone_card(raw.convert("RGB"), WIDE_FULL_MAX_W, WIDE_FULL_MAX_H)
         else:
             card = phone_card(raw.convert("RGB"), WIDE_FRAME_MAX_W, WIDE_FRAME_MAX_H)
-    backdrop = themed_backdrop(WIDE_W, WIDE_H, brand_bg, feature_style, accent)
+    x = min(max(0, WIDE_W - card.width), WIDE_W // 2 + (WIDE_W // 2 - card.width) // 2)
+    phone_h = card.height - 2 * FRAME_MARGIN
+    rest_top = (WIDE_H - card.height) // 2 if anchor == "full" else (
+        -round(WIDE_CROP_FRACTION * phone_h) - FRAME_MARGIN if anchor == "top"
+        else WIDE_H + round(WIDE_CROP_FRACTION * phone_h) - FRAME_MARGIN - phone_h
+    )
+    backdrop = themed_backdrop(
+        WIDE_W, WIDE_H, brand_bg, feature_style, accent,
+        phone=(x + card.width // 2, rest_top + FRAME_MARGIN, card.width - 2 * FRAME_MARGIN),
+    )
     backdrop.alpha_composite(
         caption_column(
             step.get("caption") or step.get("title") or "",
@@ -1674,7 +1692,6 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 card = phone_card(raw.convert("RGB"), FULL_MAX_W, FULL_MAX_H)
             else:
                 card = phone_card(raw.convert("RGB"))
-        backdrop = themed_backdrop(WIDTH, HEIGHT, brand_bg, feature_style, accent)
         x = (WIDTH - card.width) // 2
         phone_h = card.height - 2 * FRAME_MARGIN  # the bezel rect itself
         crop = round(CROP_FRACTION * phone_h)
@@ -1688,6 +1705,11 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         else:  # bottom
             y_rest = HEIGHT + crop - FRAME_MARGIN - phone_h
             y_start = HEIGHT  # fully below the canvas, shadow and all
+
+        backdrop = themed_backdrop(
+            WIDTH, HEIGHT, brand_bg, feature_style, accent,
+            phone=(WIDTH // 2, y_rest + FRAME_MARGIN, card.width - 2 * FRAME_MARGIN),
+        )
 
         def y_at(ease):
             return round(y_rest + (y_start - y_rest) * (1.0 - ease))
