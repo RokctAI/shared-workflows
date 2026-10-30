@@ -1120,7 +1120,7 @@ def themed_backdrop(w, h, bg, style, accent, phone=None, idx=None):
     low-contrast copy of its feature-graphic shape, so every image of the
     app shares one theme. The shape is drawn faint so caption ink stays legible.
     """
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageChops, ImageDraw
 
     base = Image.new("RGBA", (w, h), tuple(bg) + (255,))
     if not isinstance(style, dict) or not style:
@@ -1183,13 +1183,16 @@ def themed_backdrop(w, h, bg, style, accent, phone=None, idx=None):
     if shape in ("band", "stripes"):
         # Fade the lines out behind the caption (no visible end, readable
         # text), full strength from the phone's top edge down.
-        import numpy as np
-
-        arr = np.array(layer)
-        ys = np.arange(h)[:, None]
-        ramp = np.clip((ys - (ptop - 460 * k)) / (500 * k), 0.0, 1.0)
-        arr[:, :, 3] = (arr[:, :, 3] * ramp).astype("uint8")
-        layer = Image.fromarray(arr, "RGBA")
+        # Pillow only: the tour job installs pyyaml and pillow, not numpy.
+        top = ptop - 460 * k
+        span = 500 * k
+        column = Image.new("L", (1, h))
+        column.putdata(
+            [round(255 * min(1.0, max(0.0, (y - top) / span))) for y in range(h)]
+        )
+        ramp = column.resize((w, h))
+        r, g, b, a = layer.split()
+        layer = Image.merge("RGBA", (r, g, b, ImageChops.multiply(a, ramp)))
     base.alpha_composite(layer)
     return base
 
