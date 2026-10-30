@@ -1155,12 +1155,33 @@ def themed_backdrop(w, h, bg, style, accent, phone=None):
         r = S(gh * 0.62)
         cy = y0 + S(gh // 2 + 90)
         d.ellipse((pcx - r, cy - r, pcx + r, cy + r), fill=fill)
-    elif shape == "band":
-        d.polygon([(pcx - S(420), y0 + S(gh)), (pcx + S(120), y0), (pcx + S(560), y0), (pcx + S(20), y0 + S(gh))], fill=fill)
-    elif shape == "stripes":
-        for i in range(5):
-            x0 = pcx - S(700) + i * S(170)
-            d.polygon([(x0, y0 + S(gh)), (x0 + S(360), y0), (x0 + S(400), y0), (x0 + S(40), y0 + S(gh))], fill=fill)
+    elif shape in ("band", "stripes"):
+        # Same slope and thickness as the graphic, but run far past the top
+        # and bottom of the canvas so the line ends never show.
+        def run(bx, tx, width_top, width_bot):
+            # bottom point (bx, y0+gh), top point (tx, y0), widths at each end
+            dx, dy = (tx - bx), -S(gh)
+            quad = []
+            for t, wd in ((-2.0, width_bot), (3.0, width_top)):
+                quad.append((bx + dx * t, y0 + S(gh) + dy * t, wd))
+            (x1, y1, w1), (x2, y2, w2) = quad
+            d.polygon([(x1, y1), (x2, y2), (x2 + w2, y2), (x1 + w1, y1)], fill=fill)
+        if shape == "band":
+            run(pcx - S(420), pcx + S(120), S(440), S(440))
+        else:
+            for i in range(5):
+                x0 = pcx - S(700) + i * S(170)
+                run(x0, x0 + S(360), S(40), S(40))
+    if shape in ("band", "stripes"):
+        # Fade the lines out behind the caption (no visible end, readable
+        # text), full strength from the phone's top edge down.
+        import numpy as np
+
+        arr = np.array(layer)
+        ys = np.arange(h)[:, None]
+        ramp = np.clip((ys - (ptop - 460 * k)) / (500 * k), 0.0, 1.0)
+        arr[:, :, 3] = (arr[:, :, 3] * ramp).astype("uint8")
+        layer = Image.fromarray(arr, "RGBA")
     base.alpha_composite(layer)
     return base
 
