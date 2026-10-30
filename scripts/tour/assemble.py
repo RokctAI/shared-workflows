@@ -1114,7 +1114,7 @@ def encode_frames(ffmpeg, out_path, codec, container, fps, frames):
     return count
 
 
-def themed_backdrop(w, h, bg, style, accent, phone=None):
+def themed_backdrop(w, h, bg, style, accent, phone=None, idx=None):
     """Caption-card / reel backdrop: a flat ``bg`` unless the app declares
     store.feature_style, then the same gradient (bg -> bg2) and a soft
     low-contrast copy of its feature-graphic shape, so every image of the
@@ -1145,6 +1145,11 @@ def themed_backdrop(w, h, bg, style, accent, phone=None):
     # canvas is cropped, as it is on the graphic.
     pcx, ptop, pw = phone if phone else (w // 2, int(h * 0.27) + 130, GRAPHIC_PHONE_W)
     k = pw / GRAPHIC_PHONE_W
+    # Store stills sit side by side in Play: each neighbouring pair shares ONE
+    # shape, centred on the pair's boundary, so the left screen shows its left
+    # half and the right screen the other (feature_style.pair: false opts out).
+    if idx is not None and style.get("pair", True):
+        pcx = w if idx % 2 == 0 else 0
     gh = FEATURE_H * FEATURE_SS
     y0 = ptop - GRAPHIC_PHONE_TOP * k  # where the graphic's top edge would sit
     S = lambda v: v * k
@@ -1700,7 +1705,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
             anchor = "bottom"
         return anchor
 
-    def build_beat(step, anchor):
+    def build_beat(step, anchor, idx=None):
         """One beat's static parts: (backdrop, caption, phone card, x, y_at).
 
         y_at(ease) is the card paste position for an entrance progress in
@@ -1733,6 +1738,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
         backdrop = themed_backdrop(
             WIDTH, HEIGHT, brand_bg, feature_style, accent,
             phone=(WIDTH // 2, y_rest + FRAME_MARGIN, card.width - 2 * FRAME_MARGIN),
+            idx=idx,
         )
 
         def y_at(ease):
@@ -1776,7 +1782,7 @@ def write_video(resolved, shots, out_dir, ffmpeg, codec, container, fps, font_pa
                 if step["key"] not in shots:
                     continue
                 number += 1
-                backdrop, caption, card, x, y_at = build_beat(step, anchor)
+                backdrop, caption, card, x, y_at = build_beat(step, anchor, idx=number - 1)
                 still = backdrop.copy()
                 still.alpha_composite(caption)
                 still.paste(card, (x, y_at(1.0)), card)
