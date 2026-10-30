@@ -1153,9 +1153,10 @@ def themed_backdrop(w, h, bg, style, accent, phone=None):
     fill = tuple(acc) + (255,)
     if shape == "circle":
         r = S(gh * 0.62)
-        cy = y0 + S(gh // 2 + 90) - 0.30 * pw
-        # off-centre: the phone need not sit in the middle of the circle
-        ccx = pcx + (-0.55 if str(style.get("layout") or "right") == "left" else 0.55) * pw
+        # optional per-app offset (feature_style.circle_dx / circle_dy, in
+        # phone widths); default keeps the circle on the phone as on the graphic
+        cy = y0 + S(gh // 2 + 90) + float(style.get("circle_dy") or 0) * pw
+        ccx = pcx + float(style.get("circle_dx") or 0) * pw
         d.ellipse((ccx - r, cy - r, ccx + r, cy + r), fill=fill)
     elif shape in ("band", "stripes"):
         # Same slope and thickness as the graphic, but run far past the top
