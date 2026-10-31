@@ -54,6 +54,11 @@ on:
         type: boolean
         default: false
         description: "Build Android APK and include in release"
+      build_hms:
+        required: false
+        type: boolean
+        default: false
+        description: "Also build a separate Huawei (HMS) APK, attached to the release as app-huawei-<tag>.apk. Only attached when an agconnect-services.json is available, so its presence on a release means a real HMS build exists."
       build_windows:
         required: false
         type: boolean
@@ -104,6 +109,8 @@ on:
       ALIAS_PASSWORD:
         required: false
       GOOGLE_SERVICES_JSON:
+        required: false
+      AGCONNECT_SERVICES_JSON:
         required: false
       IOS_CERTIFICATE_PASSWORD:
         required: false
@@ -2157,6 +2164,101 @@ jobs:
               exit 1
             fi
 
+      # Separate Huawei APK. Never a copy of the Android APK: it is built again
+      # with BUILD_HMS=true so the AGConnect plugin is applied, and it is only
+      # produced when a valid agconnect-services.json can be obtained (local >
+      # Occultation > secret, same precedence as the Google Services file).
+      # Without one the step is a no-op, so no app-huawei-<tag>.apk asset
+      # exists and the sites hide the Huawei badge.
+      - name: Build Huawei APK (Release, HMS)
+        if: inputs.build_android == true && inputs.build_hms == true && env.TAG_NAME != '' && github.ref_name != 'develop' && (steps.mode.outputs.mode != 'none')
+        id: build_hms_apk
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          CLIENT_PREFIX: ${{ steps.mode.outputs.client_upper }}
+          CLIENT_JSON: ${{ steps.mode.outputs.client_upper != '' && secrets[format('AGCONNECT_SERVICES_JSON_{0}', steps.mode.outputs.client_upper)] || '' }}
+          DEFAULT_JSON: ${{ secrets.AGCONNECT_SERVICES_JSON }}
+        run: |
+            AGC=android/app/agconnect-services.json
+            if [ ! -f "$AGC" ]; then
+              FILE_NAME="agconnect-services.json"
+              if [ -n "$CLIENT_PREFIX" ]; then
+                FILE_NAME="$(echo "$CLIENT_PREFIX" | tr '[:upper:]' '[:lower:]')_agconnect-services.json"
+              fi
+              mkdir -p android/app
+              if [ -n "$GH_TOKEN" ] && gh api "repos/RokctAI/Occultation/contents/.env/$FILE_NAME" -H "Accept: application/vnd.github.v3.raw" > "$AGC" 2>/dev/null; then
+                echo "Synced $FILE_NAME from Occultation."
+              else
+                JSON_CONTENT="$DEFAULT_JSON"
+                if [ -n "$CLIENT_JSON" ]; then JSON_CONTENT="$CLIENT_JSON"; fi
+                if [ -n "$JSON_CONTENT" ]; then
+                  echo "$JSON_CONTENT" | base64 --decode > "$AGC" 2>/dev/null || true
+                fi
+              fi
+            fi
+
+            # Presence/shape check only - the file contents are never printed.
+            if [ ! -s "$AGC" ] || ! python3 -c "import json; json.load(open('$AGC'))" 2>/dev/null; then
+              rm -f "$AGC"
+              echo "::warning::build_hms was requested but no valid agconnect-services.json was found (local, Occultation, AGCONNECT_SERVICES_JSON). Skipping the Huawei APK: the release carries no app-huawei asset."
+              exit 0
+            fi
+
+            # Remove the config on every exit so the debug APK and the AAB below
+            # stay GMS-only.
+            trap 'rm -f "$AGC"' EXIT
+            echo "Building Huawei (HMS) Release APK..."
+            # The Huawei APK is best effort: any problem here warns and leaves
+            # the release without an app-huawei asset instead of blocking the
+            # Google release. -v so Gradle's own "skipping AGConnect plugin"
+            # warnings reach the log.
+            HMS_ARGS=(--release -v --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER")
+            if [ -f .env/production.env ]; then HMS_ARGS+=(--dart-define-from-file=.env/production.env); fi
+            set +e
+            BUILD_HMS=true flutter build apk "${HMS_ARGS[@]}" > hms_build_log.txt 2>&1
+            HMS_STATUS=$?
+            set -e
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+            if [ "$HMS_STATUS" -ne 0 ] || [ ! -f "$APK_PATH" ]; then
+              # Verbose Flutter echoes the Gradle command line, including
+              # -Pdart-defines=<base64 of .env/production.env>, which GitHub
+              # does not mask: print only error lines, with that redacted.
+              grep -E 'FAILURE|error|Error|AGConnect' hms_build_log.txt | tail -n 40 | sed -E 's/(dart-defines=)[^ ]+/\1***/g' || true
+              rm -f "$APK_PATH"
+              echo "::warning::The Huawei (HMS) APK build failed. Skipping it: the release carries no app-huawei asset."
+              exit 0
+            fi
+
+            # build.gradle silently falls back to a plain GMS build when the
+            # config does not cover the app's package id. Such an APK must never
+            # be attached under a Huawei name, so refuse it two ways: Gradle's
+            # own warning in the log, and a direct package check of the APK
+            # against the config that was used.
+            if grep -q "skipping AGConnect plugin" hms_build_log.txt; then
+              rm -f "$APK_PATH"
+              echo "::warning::Gradle skipped the AGConnect plugin, so this would be a GMS-only build. Skipping the Huawei APK: the release carries no app-huawei asset."
+              exit 0
+            fi
+            AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
+            APK_PKG=""
+            if [ -n "$AAPT" ]; then
+              APK_PKG=$("$AAPT" dump badging "$APK_PATH" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            fi
+            if [ -z "$APK_PKG" ] || ! APK_PKG="$APK_PKG" AGC="$AGC" python3 -c "
+            import json, os
+            d = json.load(open(os.environ['AGC']))
+            pkg = os.environ['APK_PKG']
+            ok = (d.get('client') or {}).get('package_name') == pkg or any((a or {}).get('package_name') == pkg for a in d.get('appInfos') or [])
+            raise SystemExit(0 if ok else 1)
+            " 2>/dev/null; then
+              rm -f "$APK_PATH"
+              echo "::warning::agconnect-services.json does not cover the APK's package id (${APK_PKG:-unknown}). Skipping the Huawei APK: the release carries no app-huawei asset."
+              exit 0
+            fi
+
+            mv "$APK_PATH" "build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk"
+            echo "hms_apk_path=build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
+
       # The debug slot is the guided-tour APK when the repo has a tour set up
       # (tour/app.tour.yaml plus integration_test/guided_tour_test.dart), and
       # the normal debug APK otherwise. Either way the release carries exactly
@@ -2564,6 +2666,7 @@ jobs:
             if [ -f "${{ steps.delta_zip.outputs.zip_path }}" ]; then FILES+=("${{ steps.delta_zip.outputs.zip_path }}"); fi
             if [ -f "${{ steps.dev_bundle.outputs.dev_pack_path }}" ]; then FILES+=("${{ steps.dev_bundle.outputs.dev_pack_path }}"); fi
             if [ -f "${{ steps.build_apk.outputs.apk_path }}" ]; then FILES+=("${{ steps.build_apk.outputs.apk_path }}"); fi
+            if [ -f "${{ steps.build_hms_apk.outputs.hms_apk_path }}" ]; then FILES+=("${{ steps.build_hms_apk.outputs.hms_apk_path }}"); fi
             if [ -f "${{ steps.build_debug_apk.outputs.debug_apk_path }}" ]; then FILES+=("${{ steps.build_debug_apk.outputs.debug_apk_path }}"); fi
             if [ -f "${{ steps.build_aab.outputs.aab_path }}" ]; then FILES+=("${{ steps.build_aab.outputs.aab_path }}"); fi
 
