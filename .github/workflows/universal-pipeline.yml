@@ -450,6 +450,7 @@ jobs:
       version_format: ${{ inputs.version_format || '##.##.##' }}
       brain_endpoint: ${{ inputs.brain_endpoint }}
       build_android: ${{ inputs.build_android }}
+      build_hms: ${{ inputs.build_hms }}
       build_windows: ${{ inputs.build_windows }}
       windows_installer: ${{ inputs.windows_installer }}
       app_display_name: ${{ inputs.app_display_name }}
