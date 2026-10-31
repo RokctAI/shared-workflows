@@ -2204,23 +2204,57 @@ jobs:
               exit 0
             fi
 
+            # Remove the config on every exit so the debug APK and the AAB below
+            # stay GMS-only.
+            trap 'rm -f "$AGC"' EXIT
             echo "Building Huawei (HMS) Release APK..."
-            if [ -f .env/production.env ]; then
-              BUILD_HMS=true flutter build apk --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" --dart-define-from-file=.env/production.env
-            else
-              BUILD_HMS=true flutter build apk --release --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
-            fi
-            # Remove the config so the debug APK and the AAB below stay GMS-only.
-            rm -f "$AGC"
-
+            # The Huawei APK is best effort: any problem here warns and leaves
+            # the release without an app-huawei asset instead of blocking the
+            # Google release. -v so Gradle's own "skipping AGConnect plugin"
+            # warnings reach the log.
+            HMS_ARGS=(--release -v --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER")
+            if [ -f .env/production.env ]; then HMS_ARGS+=(--dart-define-from-file=.env/production.env); fi
+            set +e
+            BUILD_HMS=true flutter build apk "${HMS_ARGS[@]}" > hms_build_log.txt 2>&1
+            HMS_STATUS=$?
+            set -e
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-            if [ -f "$APK_PATH" ]; then
-              mv "$APK_PATH" "build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk"
-              echo "hms_apk_path=build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
-            else
-              echo "::error::Huawei APK build produced no app-release.apk"
-              exit 1
+            if [ "$HMS_STATUS" -ne 0 ] || [ ! -f "$APK_PATH" ]; then
+              tail -n 40 hms_build_log.txt
+              rm -f "$APK_PATH"
+              echo "::warning::The Huawei (HMS) APK build failed. Skipping it: the release carries no app-huawei asset."
+              exit 0
             fi
+
+            # build.gradle silently falls back to a plain GMS build when the
+            # config does not cover the app's package id. Such an APK must never
+            # be attached under a Huawei name, so refuse it two ways: Gradle's
+            # own warning in the log, and a direct package check of the APK
+            # against the config that was used.
+            if grep -q "skipping AGConnect plugin" hms_build_log.txt; then
+              rm -f "$APK_PATH"
+              echo "::warning::Gradle skipped the AGConnect plugin, so this would be a GMS-only build. Skipping the Huawei APK: the release carries no app-huawei asset."
+              exit 0
+            fi
+            AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt 2>/dev/null | sort -V | tail -n 1)
+            APK_PKG=""
+            if [ -n "$AAPT" ]; then
+              APK_PKG=$("$AAPT" dump badging "$APK_PATH" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            fi
+            if [ -z "$APK_PKG" ] || ! APK_PKG="$APK_PKG" AGC="$AGC" python3 -c "
+            import json, os
+            d = json.load(open(os.environ['AGC']))
+            pkg = os.environ['APK_PKG']
+            ok = (d.get('client') or {}).get('package_name') == pkg or any((a or {}).get('package_name') == pkg for a in d.get('appInfos') or [])
+            raise SystemExit(0 if ok else 1)
+            " 2>/dev/null; then
+              rm -f "$APK_PATH"
+              echo "::warning::agconnect-services.json does not cover the APK's package id (${APK_PKG:-unknown}). Skipping the Huawei APK: the release carries no app-huawei asset."
+              exit 0
+            fi
+
+            mv "$APK_PATH" "build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk"
+            echo "hms_apk_path=build/app/outputs/flutter-apk/app-huawei-${{ env.TAG_NAME }}.apk" >> "$GITHUB_OUTPUT"
 
       # The debug slot is the guided-tour APK when the repo has a tour set up
       # (tour/app.tour.yaml plus integration_test/guided_tour_test.dart), and
