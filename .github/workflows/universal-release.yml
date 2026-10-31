@@ -2220,7 +2220,10 @@ jobs:
             set -e
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
             if [ "$HMS_STATUS" -ne 0 ] || [ ! -f "$APK_PATH" ]; then
-              tail -n 40 hms_build_log.txt
+              # Verbose Flutter echoes the Gradle command line, including
+              # -Pdart-defines=<base64 of .env/production.env>, which GitHub
+              # does not mask: print only error lines, with that redacted.
+              grep -E 'FAILURE|error|Error|AGConnect' hms_build_log.txt | tail -n 40 | sed -E 's/(dart-defines=)[^ ]+/\1***/g' || true
               rm -f "$APK_PATH"
               echo "::warning::The Huawei (HMS) APK build failed. Skipping it: the release carries no app-huawei asset."
               exit 0
