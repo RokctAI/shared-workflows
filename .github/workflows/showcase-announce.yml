@@ -46,6 +46,15 @@
 #   A card whose services leave out "website" is logo-only: url and shots
 #   may be left out, and it must have logo art.
 #
+#   Optional since hosting_sdk 1.17.0 (the award badge):
+#     "award": "Top 200 · GSE 2026 Digital Startup Accelerator"
+#     "award": {"label":"Top 200","detail":"GSE 2026 Digital Startup Accelerator"}
+#       a string is split at its first " · " into label and detail. label:
+#       up to 40 characters; detail: optional (or null), up to 90. Lengths
+#       count with runs of whitespace collapsed, as the studio reads them.
+#       The card is copied byte for byte, so the field reaches the registry
+#       unchanged.
+#
 # Callable from any site repo:
 #   on:
 #     push:
@@ -136,7 +145,7 @@ jobs:
               sys.exit(1)
 
           required = ["name", "kind", "tagline", "repo", "rank"]
-          optional = ["url", "shots", "logo_back", "services", "logo"]
+          optional = ["url", "shots", "logo_back", "services", "logo", "award"]
           SERVICES = ("website", "logo", "social-posts", "business-plan", "pitch-deck", "print")
           PICTURE_EXT = (".webp", ".png", ".jpg", ".jpeg", ".avif")
           for key in required:
@@ -229,6 +238,34 @@ jobs:
                   has_branch = "branch" in logo or (isinstance(shots, dict) and "branch" in shots)
                   if not has_branch:
                       fail("'logo.branch' is required when the card has no shots")
+
+          # award: optional (hosting_sdk 1.17.0), a string or {label, detail?}.
+          def award_part(field, value, limit):
+              if not isinstance(value, str) or not value.strip():
+                  fail(f"'{field}' must be a non-empty string")
+              elif any(ord(c) < 32 for c in value):
+                  fail(f"'{field}' must be one line (no line breaks or control characters)")
+              elif len(" ".join(value.split())) > limit:
+                  fail(f"'{field}' must be at most {limit} characters")
+
+          if "award" in card:
+              award = card["award"]
+              if isinstance(award, str):
+                  label, sep, detail = award.partition(" · ")
+                  award_part("award", label, 40)
+                  if sep:
+                      award_part("award (after ' · ')", detail, 90)
+              elif isinstance(award, dict):
+                  for key in sorted(set(award) - {"label", "detail"}):
+                      fail(f"unknown field 'award.{key}' (the schema is fixed)")
+                  if "label" not in award:
+                      fail("'award.label' is required")
+                  else:
+                      award_part("award.label", award["label"], 40)
+                  if award.get("detail") is not None:
+                      award_part("award.detail", award["detail"], 90)
+              else:
+                  fail("'award' must be a string or an object with label (and optionally detail)")
 
           art = logo_back == "rokct" or isinstance(logo, dict)
           if "logo" in services and not art:
