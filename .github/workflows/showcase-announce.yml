@@ -31,8 +31,9 @@
 #    "url":"https://...","repo":"RokctAI/polaris-web","rank":8,
 #    "shots":{"branch":"site-shots","desktop":"<path>","phone":"<path>"},
 #    "logo_back":null}
-#   rank: integer 1-10 (10 is best). logo_back: "rokct" for the ROKCT studio
-#   site (RokctAI/hosting) only, otherwise null. Pictures resolve as
+#   rank: integer 1-10 (10 is best). logo_back: "rokct" for ROKCT's own
+#   sites (RokctAI/hosting, RokctAI/RokctAI_frontend) only, otherwise null.
+#   Pictures resolve as
 #   https://raw.githubusercontent.com/<repo>/<shots.branch>/<path>.
 #
 # Callable from any site repo:
@@ -107,6 +108,8 @@ jobs:
 
           path, calling_repo = sys.argv[1], sys.argv[2]
           errors = []
+          # The sites that carry the ROKCT logos on their studio card.
+          ROKCT_OWN_SITES = ("RokctAI/hosting", "RokctAI/RokctAI_frontend")
 
           def fail(msg):
               errors.append(msg)
@@ -165,8 +168,8 @@ jobs:
           if "logo_back" in card:
               if logo_back not in (None, "rokct"):
                   fail("'logo_back' must be null or \"rokct\"")
-              elif logo_back == "rokct" and calling_repo != "RokctAI/hosting":
-                  fail("'logo_back' is \"rokct\" only for the ROKCT studio site (RokctAI/hosting)")
+              elif logo_back == "rokct" and calling_repo not in ROKCT_OWN_SITES:
+                  fail("'logo_back' is \"rokct\" only for ROKCT's own sites (" + ", ".join(ROKCT_OWN_SITES) + ")")
 
           if errors:
               for msg in errors:
