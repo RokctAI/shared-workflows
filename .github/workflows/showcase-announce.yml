@@ -32,9 +32,19 @@
 #    "shots":{"branch":"site-shots","desktop":"<path>","phone":"<path>"},
 #    "logo_back":null}
 #   rank: integer 1-10 (10 is best). logo_back: "rokct" for ROKCT's own
-#   sites (RokctAI/hosting, RokctAI/RokctAI_frontend) only, otherwise null.
-#   Pictures resolve as
+#   sites (RokctAI/hosting, RokctAI/RokctAI_frontend) only, otherwise null
+#   (optional since hosting_sdk 1.14.0). Pictures resolve as
 #   https://raw.githubusercontent.com/<repo>/<shots.branch>/<path>.
+#
+#   Optional since hosting_sdk 1.14.0 (the /work service filters):
+#     "services": ["website","logo"]  what the studio made, from website,
+#       logo, social-posts, business-plan, pitch-deck, print; absent means
+#       ["website"]. "logo" needs logo art (`logo`, or logo_back "rokct").
+#     "logo": {"branch":"site-shots","light":"<path>","dark":"<path>"}
+#       the card's logo side: raster pictures (webp, png, jpg, avif) on the
+#       repo's branch; branch defaults to shots.branch, dark is optional.
+#   A card whose services leave out "website" is logo-only: url and shots
+#   may be left out, and it must have logo art.
 #
 # Callable from any site repo:
 #   on:
@@ -125,12 +135,34 @@ jobs:
               print(f"::error file={path}::The card must be a JSON object.")
               sys.exit(1)
 
-          required = ["name", "kind", "tagline", "url", "repo", "rank", "shots", "logo_back"]
+          required = ["name", "kind", "tagline", "repo", "rank"]
+          optional = ["url", "shots", "logo_back", "services", "logo"]
+          SERVICES = ("website", "logo", "social-posts", "business-plan", "pitch-deck", "print")
+          PICTURE_EXT = (".webp", ".png", ".jpg", ".jpeg", ".avif")
           for key in required:
               if key not in card:
                   fail(f"missing field '{key}'")
-          for key in sorted(set(card) - set(required)):
+          for key in sorted(set(card) - set(required) - set(optional)):
               fail(f"unknown field '{key}' (the schema is fixed)")
+
+          # services: optional, ["website"] when absent.
+          services = card.get("services", ["website"])
+          if not isinstance(services, list) or not services or not all(isinstance(x, str) for x in services):
+              fail("'services' must be a non-empty list of: " + ", ".join(SERVICES))
+              services = ["website"]
+          else:
+              for x in services:
+                  if x not in SERVICES:
+                      fail(f"unknown service '{x}' (one of: {', '.join(SERVICES)})")
+              if len(set(services)) != len(services):
+                  fail("'services' lists a service twice")
+          website = "website" in services
+
+          # A site card needs its address and shots; a logo-only card may leave them out.
+          if website:
+              for key in ["url", "shots"]:
+                  if key not in card:
+                      fail(f"missing field '{key}' (a card with the website service needs it)")
 
           for key in ["name", "kind", "tagline", "url", "repo"]:
               if key in card and (not isinstance(card[key], str) or not card[key].strip()):
@@ -150,6 +182,9 @@ jobs:
           if "rank" in card and (isinstance(rank, bool) or not isinstance(rank, int) or not 1 <= rank <= 10):
               fail("'rank' must be a whole number from 1 to 10 (10 is best)")
 
+          def plain_path(value):
+              return not (value.startswith("/") or ".." in value.split("/") or any(c.isspace() for c in value))
+
           shots = card.get("shots")
           if "shots" in card:
               if not isinstance(shots, dict):
@@ -159,7 +194,7 @@ jobs:
                       value = shots.get(key)
                       if not isinstance(value, str) or not value.strip():
                           fail(f"'shots.{key}' must be a non-empty string")
-                      elif value.startswith("/") or ".." in value.split("/") or any(c.isspace() for c in value):
+                      elif not plain_path(value):
                           fail(f"'shots.{key}' must be a plain relative path (no leading /, no .., no spaces)")
                   for key in sorted(set(shots) - {"branch", "desktop", "phone"}):
                       fail(f"unknown field 'shots.{key}' (the schema is fixed)")
@@ -170,6 +205,36 @@ jobs:
                   fail("'logo_back' must be null or \"rokct\"")
               elif logo_back == "rokct" and calling_repo not in ROKCT_OWN_SITES:
                   fail("'logo_back' is \"rokct\" only for ROKCT's own sites (" + ", ".join(ROKCT_OWN_SITES) + ")")
+
+          logo = card.get("logo")
+          if "logo" in card:
+              if not isinstance(logo, dict):
+                  fail("'logo' must be an object with light (and optionally branch and dark)")
+                  logo = None
+              else:
+                  for key in sorted(set(logo) - {"branch", "light", "dark"}):
+                      fail(f"unknown field 'logo.{key}' (the schema is fixed)")
+                  if "light" not in logo:
+                      fail("'logo.light' is required")
+                  for key in ["branch", "light", "dark"]:
+                      if key not in logo:
+                          continue
+                      value = logo[key]
+                      if not isinstance(value, str) or not value.strip():
+                          fail(f"'logo.{key}' must be a non-empty string")
+                      elif not plain_path(value):
+                          fail(f"'logo.{key}' must be a plain relative path (no leading /, no .., no spaces)")
+                      elif key != "branch" and not value.lower().endswith(PICTURE_EXT):
+                          fail(f"'logo.{key}' must be a picture ({', '.join(PICTURE_EXT)}); SVG does not draw from raw.githubusercontent.com")
+                  has_branch = "branch" in logo or (isinstance(shots, dict) and "branch" in shots)
+                  if not has_branch:
+                      fail("'logo.branch' is required when the card has no shots")
+
+          art = logo_back == "rokct" or isinstance(logo, dict)
+          if "logo" in services and not art:
+              fail("the 'logo' service needs logo art: a 'logo' object (or logo_back \"rokct\" on ROKCT's own sites)")
+          if not website and not art:
+              fail("a card without the website service is logo-only and needs a 'logo' object")
 
           if errors:
               for msg in errors:
