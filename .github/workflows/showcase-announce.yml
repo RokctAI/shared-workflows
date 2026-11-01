@@ -1,0 +1,316 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+
+# Showcase Announce
+#
+# "Sites announce themselves": every website the studio builds keeps a
+# showcase card at .rokct/showcase.json in its own repo. When that card
+# changes on main, the site's repo calls this workflow, which
+#
+#   1. validates the card (required fields, rank 1-10, an https url, and a
+#      `repo` equal to the calling repository);
+#   2. checks out the registry repo (RokctAI/hosting) with MONOREPO_PAT;
+#   3. writes the card, byte for byte, to showcase/<owner>__<repo>.json;
+#   4. keeps ONE open pull request per site: if one is already open from a
+#      branch under showcase/<owner>__<repo>/, it adds a commit there;
+#      otherwise it opens a new one from a fresh branch
+#      showcase/<owner>__<repo>/<run id> cut from the registry's main.
+#
+# Nothing changes until a person merges that pull request; the studio page
+# then reads the registry folder. If main already holds an identical card,
+# the workflow does nothing.
+#
+# Branches are only ever appended to, never force-pushed or deleted. A
+# branch whose PR was merged (squash or merge commit) or closed is left
+# behind and never reused: reusing it after a squash merge would replay the
+# pre-squash history and hit an add/add conflict, while a fresh branch from
+# main cannot. Do not create a branch named exactly showcase/<owner>__<repo>:
+# git cannot hold it beside showcase/<owner>__<repo>/<run id>.
+#
+# Card schema (the studio UI depends on it; unknown keys are rejected):
+#   {"name":"Polaris","kind":"Lender","tagline":"one line",
+#    "url":"https://...","repo":"RokctAI/polaris-web","rank":8,
+#    "shots":{"branch":"site-shots","desktop":"<path>","phone":"<path>"},
+#    "logo_back":null}
+#   rank: integer 1-10 (10 is best). logo_back: "rokct" for the ROKCT studio
+#   site (RokctAI/hosting) only, otherwise null. Pictures resolve as
+#   https://raw.githubusercontent.com/<repo>/<shots.branch>/<path>.
+#
+# Callable from any site repo:
+#   on:
+#     push:
+#       branches: [ main ]
+#       paths: [ '.rokct/showcase.json' ]
+#     workflow_dispatch:
+#   jobs:
+#     announce:
+#       uses: RokctAI/shared-workflows/.github/workflows/showcase-announce.yml@main
+#       secrets:
+#         MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
+
+name: Showcase Announce
+
+on:
+  workflow_call:
+    inputs:
+      card_path:
+        description: 'Path of the showcase card in the calling repo'
+        type: string
+        required: false
+        default: '.rokct/showcase.json'
+      registry_repo:
+        description: 'owner/name of the repo that holds the showcase/ registry'
+        type: string
+        required: false
+        default: 'RokctAI/hosting'
+      registry_base:
+        description: 'Branch of the registry repo the pull request targets'
+        type: string
+        required: false
+        default: 'main'
+    secrets:
+      MONOREPO_PAT:
+        description: 'Org token that can push branches and open pull requests in registry_repo'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: showcase-announce-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    name: Validate card and announce it
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARD_PATH: ${{ inputs.card_path }}
+      REGISTRY_REPO: ${{ inputs.registry_repo }}
+      REGISTRY_BASE: ${{ inputs.registry_base }}
+    steps:
+      - name: Checkout the site repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate the showcase card
+        id: card
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CARD_PATH" ]; then
+            echo "::error file=$CARD_PATH::No showcase card at $CARD_PATH."
+            exit 1
+          fi
+          python3 - "$CARD_PATH" "$GITHUB_REPOSITORY" <<'PY'
+          import json, os, sys
+
+          path, calling_repo = sys.argv[1], sys.argv[2]
+          errors = []
+
+          def fail(msg):
+              errors.append(msg)
+
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  card = json.load(fh)
+          except (OSError, ValueError) as exc:
+              print(f"::error file={path}::Not valid JSON: {exc}")
+              sys.exit(1)
+
+          if not isinstance(card, dict):
+              print(f"::error file={path}::The card must be a JSON object.")
+              sys.exit(1)
+
+          required = ["name", "kind", "tagline", "url", "repo", "rank", "shots", "logo_back"]
+          for key in required:
+              if key not in card:
+                  fail(f"missing field '{key}'")
+          for key in sorted(set(card) - set(required)):
+              fail(f"unknown field '{key}' (the schema is fixed)")
+
+          for key in ["name", "kind", "tagline", "url", "repo"]:
+              if key in card and (not isinstance(card[key], str) or not card[key].strip()):
+                  fail(f"'{key}' must be a non-empty string")
+              elif key in card and any(ord(c) < 32 for c in card[key]):
+                  fail(f"'{key}' must be one line (no line breaks or control characters)")
+
+          url = card.get("url")
+          if isinstance(url, str) and (not url.startswith("https://") or len(url) <= len("https://")):
+              fail("'url' must start with https://")
+
+          repo = card.get("repo")
+          if isinstance(repo, str) and repo != calling_repo:
+              fail(f"'repo' is '{repo}' but this card lives in '{calling_repo}'")
+
+          rank = card.get("rank")
+          if "rank" in card and (isinstance(rank, bool) or not isinstance(rank, int) or not 1 <= rank <= 10):
+              fail("'rank' must be a whole number from 1 to 10 (10 is best)")
+
+          shots = card.get("shots")
+          if "shots" in card:
+              if not isinstance(shots, dict):
+                  fail("'shots' must be an object with branch, desktop and phone")
+              else:
+                  for key in ["branch", "desktop", "phone"]:
+                      value = shots.get(key)
+                      if not isinstance(value, str) or not value.strip():
+                          fail(f"'shots.{key}' must be a non-empty string")
+                      elif value.startswith("/") or ".." in value.split("/") or any(c.isspace() for c in value):
+                          fail(f"'shots.{key}' must be a plain relative path (no leading /, no .., no spaces)")
+                  for key in sorted(set(shots) - {"branch", "desktop", "phone"}):
+                      fail(f"unknown field 'shots.{key}' (the schema is fixed)")
+
+          logo_back = card.get("logo_back")
+          if "logo_back" in card:
+              if logo_back not in (None, "rokct"):
+                  fail("'logo_back' must be null or \"rokct\"")
+              elif logo_back == "rokct" and calling_repo != "RokctAI/hosting":
+                  fail("'logo_back' is \"rokct\" only for the ROKCT studio site (RokctAI/hosting)")
+
+          if errors:
+              for msg in errors:
+                  print(f"::error file={path}::{msg}")
+              sys.exit(1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"name={card['name'].strip()}\n")
+          print(f"Card OK: {card['name']} ({card['kind']}), rank {card['rank']}.")
+          PY
+
+      - name: Check MONOREPO_PAT availability
+        id: guard
+        env:
+          TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::MONOREPO_PAT was not passed; the card is valid but no registry pull request can be opened."
+            {
+              echo "## Showcase Announce"
+              echo ""
+              echo "The card is valid, but \`MONOREPO_PAT\` was not available, so no pull request was opened in \`$REGISTRY_REPO\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout the registry repo
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ inputs.registry_repo }}
+          ref: ${{ inputs.registry_base }}
+          token: ${{ secrets.MONOREPO_PAT }}
+          path: .showcase-registry
+          fetch-depth: 1
+
+      - name: Write the card and open or update the pull request
+        if: steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          SITE_NAME: ${{ steps.card.outputs.name }}
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          NAME="${GITHUB_REPOSITORY#*/}"
+          SLUG="${OWNER}__${NAME}"
+          PREFIX="showcase/${SLUG}"
+          FILE="showcase/${SLUG}.json"
+          CARD="$GITHUB_WORKSPACE/$CARD_PATH"
+
+          cd .showcase-registry
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -f "$FILE" ] && cmp -s "$CARD" "$FILE"; then
+            echo "$REGISTRY_REPO@$REGISTRY_BASE already shows this card; nothing to do."
+            {
+              echo "## Showcase Announce"
+              echo ""
+              echo "\`$FILE\` on \`$REGISTRY_REPO@$REGISTRY_BASE\` already matches this card. Nothing to do."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -f "$FILE" ]; then VERB="update"; else VERB="add"; fi
+          TITLE="chore(showcase): ${VERB} ${SITE_NAME}"
+
+          # One open PR per site. If one is open from a branch under
+          # $PREFIX/, add to it (never force-pushed). Otherwise start a fresh
+          # branch from the registry's current main, so a squash-merged or
+          # closed PR's old branch is never reused.
+          PRS="$(gh pr list --repo "$REGISTRY_REPO" --base "$REGISTRY_BASE" --state open --limit 200 \
+            --json url,headRefName,isCrossRepository \
+            --jq '.[] | [.url, .headRefName, (.isCrossRepository | tostring)] | @tsv')"
+          PR_URL=""
+          BRANCH=""
+          while IFS=$'\t' read -r url ref cross; do
+            [ -n "$url" ] && [ "$cross" = "false" ] || continue
+            if [ "$ref" = "$PREFIX" ] || [ "${ref#"$PREFIX/"}" != "$ref" ]; then
+              PR_URL="$url"
+              BRANCH="$ref"
+              break
+            fi
+          done <<< "$PRS"
+
+          if [ -n "$BRANCH" ]; then
+            echo "Open pull request $PR_URL (branch $BRANCH); adding to it."
+            git fetch -q --depth 1 origin "refs/heads/$BRANCH"
+            git checkout -q -B "$BRANCH" FETCH_HEAD
+          else
+            if git ls-remote --exit-code --heads origin "$PREFIX" > /dev/null; then
+              echo "::error::A branch named exactly $PREFIX exists in $REGISTRY_REPO, which blocks branches under $PREFIX/. Rename or delete it."
+              exit 1
+            fi
+            BRANCH="$PREFIX/$GITHUB_RUN_ID"
+            if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+              # A re-run attempt of this run already pushed the branch.
+              git fetch -q --depth 1 origin "refs/heads/$BRANCH"
+              git checkout -q -B "$BRANCH" FETCH_HEAD
+            else
+              git checkout -q -b "$BRANCH"
+            fi
+          fi
+
+          mkdir -p showcase
+          cp "$CARD" "$FILE"
+          git add "$FILE"
+          CHANGED=false
+          if git diff --cached --quiet; then
+            echo "Branch $BRANCH already carries this card."
+          else
+            CHANGED=true
+            git commit -q -m "$TITLE" \
+              -m "From $GITHUB_REPOSITORY@$GITHUB_SHA ($CARD_PATH)." \
+              -m "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            git push -q origin "HEAD:refs/heads/$BRANCH"
+            echo "Pushed $FILE to $BRANCH."
+          fi
+
+          BODY_FILE="$RUNNER_TEMP/showcase-pr-body.md"
+          {
+            echo "Before: the studio page does not show the latest showcase card for \`$GITHUB_REPOSITORY\`."
+            echo ""
+            echo "After: merging this puts the card from \`$GITHUB_REPOSITORY@$GITHUB_SHA\` at \`$FILE\`, and the studio page shows it."
+            echo ""
+            echo "How: opened by \`showcase-announce.yml\` (RokctAI/shared-workflows) when \`$CARD_PATH\` changed on the site's main branch. The card was validated first. One pull request per site; later changes update this one."
+            echo ""
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$BODY_FILE"
+
+          if [ -n "$PR_URL" ] && [ "$CHANGED" = "false" ]; then
+            echo "$PR_URL already proposes this card; nothing to do."
+            exit 0
+          elif [ -n "$PR_URL" ]; then
+            gh pr edit "$PR_URL" --title "$TITLE" --body-file "$BODY_FILE" > /dev/null
+            echo "Updated $PR_URL"
+          else
+            PR_URL="$(gh pr create --repo "$REGISTRY_REPO" --head "$BRANCH" --base "$REGISTRY_BASE" --title "$TITLE" --body-file "$BODY_FILE")"
+            echo "Opened $PR_URL"
+          fi
+          {
+            echo "## Showcase Announce"
+            echo ""
+            echo "$TITLE: $PR_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
