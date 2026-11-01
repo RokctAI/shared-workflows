@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(
 
 import compose_strip  # noqa: E402
 import frame_quality  # noqa: E402
+import svg_fonts  # noqa: E402
 
 
 def _png(width, height, pixel, alpha=False):
@@ -191,6 +192,87 @@ class ComposerGateTest(unittest.TestCase):
     def test_frame_can_opt_out_for_a_deliberate_before_shot(self):
         out, _ = self.run_compose(blank_screen, {'quality_gate': False})
         self.assertTrue(os.path.isfile(out))
+
+    def test_vector_render_beside_the_png_is_exported(self):
+        vector = ('<svg xmlns="http://www.w3.org/2000/svg" width="100" '
+                  'height="100"><rect width="10" height="10"/></svg>\n')
+        with open(os.path.join(self.dir, 'a.vector.svg'), 'w') as handle:
+            handle.write(vector)
+        _, svg = self.run_compose(good_screen)
+        names = sorted(os.listdir(svg))
+        vectors = [n for n in names if n.endswith('.vector.svg')]
+        self.assertEqual(len(vectors), 1, names)
+        with open(os.path.join(svg, vectors[0])) as handle:
+            self.assertIn('<rect width="10"', handle.read())
+
+    def test_no_vector_file_means_no_vector_export(self):
+        _, svg = self.run_compose(good_screen)
+        self.assertFalse([n for n in os.listdir(svg)
+                          if n.endswith('.vector.svg')])
+
+
+def _tiny_font_b64():
+    """A one-glyph TrueType font (a square for 'A'), base64."""
+    import base64
+    import io
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    pen = TTGlyphPen(None)
+    pen.moveTo((100, 0))
+    pen.lineTo((100, 700))
+    pen.lineTo((600, 700))
+    pen.lineTo((600, 0))
+    pen.closePath()
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder(['.notdef', 'A'])
+    fb.setupCharacterMap({ord('A'): 'A'})
+    fb.setupGlyf({'.notdef': TTGlyphPen(None).glyph(), 'A': pen.glyph()})
+    fb.setupHorizontalMetrics({'.notdef': (500, 0), 'A': (700, 100)})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({'familyName': 'Tiny', 'styleName': 'Regular'})
+    fb.setupOS2()
+    fb.setupPost()
+    out = io.BytesIO()
+    fb.save(out)
+    return base64.b64encode(out.getvalue()).decode('ascii')
+
+
+def _vector_svg_with_font():
+    face = ("@font-face{font-family:'Tiny';font-weight:400;"
+            "font-style:normal;src:url(data:font/ttf;base64,"
+            + _tiny_font_b64() + ") format('truetype');}")
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="50" height="20">'
+            f'<style>{face}</style>\n'
+            '<text xml:space="preserve" x="1 11" y="15" '
+            "font-family=\"'Tiny'\" font-size=\"10\" fill=\"#112233\">"
+            'AA</text>\n</svg>\n')
+
+
+try:
+    import fontTools  # noqa: F401
+    HAVE_FONTTOOLS = True
+except ImportError:
+    HAVE_FONTTOOLS = False
+
+
+@unittest.skipUnless(HAVE_FONTTOOLS, 'fontTools not installed')
+class SvgFontsTest(unittest.TestCase):
+
+    def test_subset_keeps_text_and_shrinks_to_woff(self):
+        out = svg_fonts.process(_vector_svg_with_font(), 'subset')
+        self.assertIn('>AA</text>', out)
+        self.assertIn('data:font/woff;base64,', out)
+
+    def test_outline_turns_text_into_paths_at_the_laid_out_x(self):
+        out = svg_fonts.process(_vector_svg_with_font(), 'outline')
+        self.assertNotIn('<text', out)
+        self.assertNotIn('@font-face', out)
+        # Glyph square starts at 100 units = 1 px at 10 px/1000 units, so
+        # the two copies start at x=2 and x=12.
+        self.assertRegex(out, r'<path d="M2 15')
+        self.assertIn('M12 15', out)
+        self.assertIn('fill="#112233"', out)
 
 
 if __name__ == '__main__':

@@ -36,7 +36,8 @@ Locally, the throwaway package with path deps is still the fastest loop.
 3. If a feature SDK does not compile standalone, run the host repo's
    `dart run tool/inject_tr_keys.dart` first, and `git checkout --` the clone
    afterwards - it writes into the base_sdk clone.
-4. Copy `render_screen_test.dart` to `test/` and work the eight
+4. Copy `render_screen_test.dart` AND `vector_svg.dart` (the opt-in vector
+   SVG export it imports, see `scripts/render/README.md` §10.1) to `test/` and work the eight
    `TODO(harness)` markers in order: imports, the SDK demo-mode DI, the two
    exception hooks, screen registration, the widget under test, the element
    specs and `readyFinders()` (the widgets the demo data produces - the

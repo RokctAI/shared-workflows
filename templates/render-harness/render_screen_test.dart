@@ -58,6 +58,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// Copy vector_svg.dart next to this file (same template folder).
+import 'vector_svg.dart';
+
 // TODO(harness) 1/8 - imports of the code under test.
 // Import the REAL screen, its section/route registry and whatever the screen
 // reads (notifiers, stores, theme seam). Importing `src/...` paths directly is
@@ -404,6 +407,8 @@ Future<void> loadRealFonts() async {
       loader.addFont(Future.value(ByteData.view(bytes.buffer)));
     }
     await loader.load();
+    // The vector SVG export embeds the same files.
+    VectorSvgFonts.register(family, [for (final p in files) File(p)]);
   }
 
   // google_fonts resolves a family PLUS its variant name (e.g. `Inter_600`),
@@ -893,6 +898,25 @@ Future<void> renderVariant(
       '${outDir.path}/$name.json',
     ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(sidecar));
   });
+
+  // Opt-in: the same frame as a true vector SVG (real shapes and `<text>`),
+  // written next to the PNG as `out/<name>.vector.svg`. The composer picks it
+  // up and writes `<slug>.vector.svg` beside the per-frame SVGs, with the
+  // embedded fonts cut down to the characters used (scripts/render/
+  // svg_fonts.py). Turned on with RENDER_VECTOR=1 (the workflows'
+  // `render-vector` input).
+  if (Platform.environment['RENDER_VECTOR'] == '1') {
+    final recorder = VectorSvgRecorder(devicePixelRatio: kDevicePixelRatio)
+      ..paint(boundaryKey.currentContext!.findRenderObject()!);
+    final svg = await tester.runAsync(recorder.finish);
+    File('${outDir.path}/$name.vector.svg').writeAsStringSync(svg!);
+    // ignore: avoid_print
+    print(
+      'vector: $name.vector.svg - ${recorder.vectorTexts} text runs, '
+      '${recorder.rasterFallbacks} bitmap fallback(s)'
+      '${recorder.warnings.isEmpty ? '' : '; ${recorder.warnings.toSet().join('; ')}'}',
+    );
+  }
 }
 
 bool _fontsLoaded = false;

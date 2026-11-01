@@ -28,6 +28,7 @@ Two halves, used together:
 | Render harness | [`templates/render-harness/`](../../templates/render-harness/) | A Dart widget test you copy into a throwaway package. Pumps a real screen at phone size with real fonts, writes `out/<name>.png` and `out/<name>.json`. |
 | Strip composer | [`compose_strip.py`](compose_strip.py) | Reads those PNGs + rect JSONs plus a small config, writes ONE self-contained HTML page. |
 | CI runner | [`run_strip.sh`](run_strip.sh) | Runs both halves against an already-composed tree. One implementation, called by both workflows below. |
+| Vector export | `vector_svg.dart` + [`svg_fonts.py`](svg_fonts.py) | Opt-in (`RENDER_VECTOR=1`): each frame also as a true vector SVG with real text - see [§10.1](#101-true-vector-svg-experimental-opt-in). |
 | Quality gate | [`frame_quality.py`](frame_quality.py) | Run by the composer before it writes anything: refuses frames that look blank, still show a spinner, or draw text as block glyphs - see [§12](#12-quality-gate---no-broken-frame-is-ever-written). |
 | Placement export | `compose_strip.py --emit-svg` | One SVG per frame, annotated and clean, for dropping a screen into a user guide or a deck - see [§10](#10-svg-per-frame-for-a-guide-or-a-deck). |
 | CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional manual button. Composes the SDKs on a runner, renders, uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
@@ -738,6 +739,34 @@ Both CI lanes write them: the tour commits them to
 the `render-strip` artifact.
 
 ---
+
+### 10.1 True vector SVG (experimental, opt-in)
+
+The annotated and clean SVGs wrap the PNG, so they blur when scaled. With
+`RENDER_VECTOR=1` (workflow input `render-vector: true`) the harness also
+paints the same frame a second time into
+[`templates/render-harness/vector_svg.dart`](../../templates/render-harness/vector_svg.dart),
+a recording canvas that writes SVG instead of pixels: shapes become `<rect>`,
+`<circle>` and `<path>`; each RenderParagraph becomes `<text>` with one x
+position per character taken from Flutter's own layout, in the font files
+the harness loaded; opacity and colour-matrix filters become SVG groups and
+filters. What SVG cannot express (a gradient shader, text with inline
+widgets, vertices) is drawn by the engine into a small embedded bitmap, so
+nothing goes missing. The composer writes it as `DIR/<variant>.vector.svg`,
+with [`svg_fonts.py`](svg_fonts.py) cutting each embedded face down to the
+characters used.
+
+Measured on the sticks team page (390 x 548, 2026-11-01): rasterised in
+Chromium at 3x it differs from the PNG by a mean of 1.2/255 per channel, with
+1.1% of pixels off by more than 32 (anti-aliased edges and the tab bar's
+backdrop blur, which is not exported). Size: 1.4 MB with whole fonts, 77-104
+KB subset (the PNG is ~207 KB). `svg_fonts.py --outline` turns the text into
+glyph paths instead (~210-230 KB) for design tools that ignore embedded
+fonts.
+
+Limits: paths are re-sampled from their contours (`ui.Path` is opaque), an
+ellipsis glyph from `TextOverflow.ellipsis` is not drawn, backdrop/image
+filters and non-srcOver blend modes are ignored (the run logs each one).
 
 ## 11. Keeping the render in sync with the screen
 

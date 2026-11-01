@@ -701,11 +701,17 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
         + '\n'.join(parts) + '\n</svg>\n')
 
 
-def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None):
+def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None,
+                     base_dir=None):
     """Write <slug>.annotated.svg + <slug>.clean.svg per frame.
 
     One file per frame, not one combined file: these are placed individually
     into a document. Returns the list of paths written, in frame order.
+
+    When the harness also wrote a true vector render next to the PNG
+    (`<png stem>.vector.svg`, RENDER_VECTOR=1), it is written as
+    `<slug>.vector.svg` with its embedded fonts subset to the characters
+    used (svg_fonts.py; left whole when fontTools is not installed).
     """
     os.makedirs(out_dir, exist_ok=True)
     written = []
@@ -725,6 +731,17 @@ def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None):
                                        mapping, present=present,
                                        roles=roles))
             written.append(path)
+        if base_dir is not None:
+            vector = _resolve(base_dir,
+                              os.path.splitext(frame['png'])[0] + '.vector.svg')
+            if os.path.isfile(vector):
+                import svg_fonts
+                with open(vector, encoding='utf-8') as handle:
+                    svg = svg_fonts.process(handle.read())
+                path = os.path.join(out_dir, f'{slug}.vector.svg')
+                with open(path, 'w', encoding='utf-8', newline='\n') as handle:
+                    handle.write(svg)
+                written.append(path)
     return written
 
 
@@ -986,7 +1003,8 @@ def compose(config_path, out_path, emit_numbering=None, base_dir=None,
             json.dump(merged_numbering(config, mapping), handle, indent=2)
             handle.write('\n')
 
-    svgs = (write_frame_svgs(loaded, config, mapping, emit_svg, roles_by_frame)
+    svgs = (write_frame_svgs(loaded, config, mapping, emit_svg, roles_by_frame,
+                             base_dir=resolved_base)
             if emit_svg else [])
     return page, mapping, assigned, svgs
 
