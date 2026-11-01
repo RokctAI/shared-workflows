@@ -28,6 +28,7 @@ Two halves, used together:
 | Render harness | [`templates/render-harness/`](../../templates/render-harness/) | A Dart widget test you copy into a throwaway package. Pumps a real screen at phone size with real fonts, writes `out/<name>.png` and `out/<name>.json`. |
 | Strip composer | [`compose_strip.py`](compose_strip.py) | Reads those PNGs + rect JSONs plus a small config, writes ONE self-contained HTML page. |
 | CI runner | [`run_strip.sh`](run_strip.sh) | Runs both halves against an already-composed tree. One implementation, called by both workflows below. |
+| Quality gate | [`frame_quality.py`](frame_quality.py) | Run by the composer before it writes anything: refuses frames that look blank, still show a spinner, or draw text as block glyphs - see [§12](#12-quality-gate---no-broken-frame-is-ever-written). |
 | Placement export | `compose_strip.py --emit-svg` | One SVG per frame, annotated and clean, for dropping a screen into a user guide or a deck - see [§10](#10-svg-per-frame-for-a-guide-or-a-deck). |
 | CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional manual button. Composes the SDKs on a runner, renders, uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
 | CI gate | [`universal-guided-tour.yml`](../../.github/workflows/universal-guided-tour.yml) | Automatic. Renders the strip BEFORE the tour's emulator legs and fails the run if it does not render - see [§8.1](#81-the-guided-tour-runs-it-automatically-first). |
@@ -307,20 +308,20 @@ Both `expect`s matter. They are what turn a silent wrapper fault into a loud
 one: if the trigger disappears or stops opening the sheet, the render fails
 with a reason instead of quietly producing a frame of the host page alone.
 
-Call it in the render body immediately after the first `_drain`, before pass
-1 measures:
+Call it in the render body immediately after the first `_pumpUntilReady`,
+before the frame is fitted:
 
 ```dart
 await tester.pumpWidget(
   RepaintBoundary(key: boundaryKey, child: buildScreen(dark: dark)),
 );
-await _drain(tester);
+await _pumpUntilReady(tester, phase: ' ($name)');
 await openSheet(tester);      // <- the modal is now over its host
 ```
 
 > **Note.** That last line is currently a hand-edit inside the region the
 > template tells you to leave alone. The template has no seam between the
-> first drain and pass-1 measurement, so every shell with a modal has to add
+> first ready-wait and the height fit, so every shell with a modal has to add
 > it by hand. If that turns out to be more than a one-off, the fix is a
 > no-op `afterFirstPump` hook in the template rather than each harness
 > editing the proven mechanism.
@@ -749,6 +750,33 @@ the seeds. A render that lags the code stops being evidence and becomes another
 drawing, which is the one thing this tool exists to avoid.
 
 ---
+
+## 12. Quality gate - no broken frame is ever written
+
+A green render test is not proof of a usable frame. Three broken shapes
+shipped from the tour bot before this gate existed: blank frames (captured
+before the demo data arrived), frames with a loading spinner, and frames
+whose text was solid Ahem blocks (a font family never registered). So the
+composer checks every frame before it writes the page or any SVG, and exits
+non-zero if one fails - `run_strip.sh` then fails, and the tour bot has
+nothing to commit.
+
+| Check | Refused when | Measured on real frames |
+|---|---|---|
+| Blank | under 400 distinct colours, or under 5% of pixels off the background colour | blank 170-920 colours / 0.1-1.9%; good 1000-3500 / 15-65% |
+| Loading | the sidecar's `quality.spinners` is non-zero (harness-reported) | - |
+| Block glyphs | more than 6 solid square-cornered bars on a flat ground, or `quality.blockGlyphTexts` non-zero | Ahem frames 34-41 bars; good frames 0 |
+
+The harness template does its half too: it pumps until `readyFinders()`
+match and no `CircularProgressIndicator` is left (failing after 30 s instead
+of capturing), fails on any text laid out at exactly one em per character
+(the block font), and writes both counts into the sidecar's `quality` block.
+
+Run the gate on its own with `python scripts/render/frame_quality.py
+out/*.png`. A frame that is deliberately broken (a BEFORE shown for contrast)
+can opt out with `"quality_gate": false` in its config entry; `--no-quality-gate`
+turns it off for a whole local run. No third-party packages are needed
+(Pillow is used only if present).
 
 ## SDK render fragments
 

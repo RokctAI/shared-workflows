@@ -114,7 +114,11 @@ if [ -n "$RENDER_SVG_DIR" ]; then
   COMPOSE_ARGS+=(--emit-svg "$RENDER_SVG_DIR")
 fi
 
-python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip failed."
+# The composer runs the frame quality gate (frame_quality.py) before it
+# writes anything: a frame that looks blank, still shows a loading spinner,
+# or draws its text as block glyphs fails this step, so no page and no SVG
+# is written and the tour bot has nothing broken to commit.
+python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip failed (a refused frame is listed above: blank, loading or block-glyph renders are never written)."
 
 [ -s "$RENDER_OUTPUT_FILE" ] || fail "The composer wrote no page at $RENDER_OUTPUT_FILE."
 echo "✅ Review strip composed at $RENDER_OUTPUT_FILE ($(wc -c <"$RENDER_OUTPUT_FILE") bytes)."
