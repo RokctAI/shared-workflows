@@ -246,7 +246,7 @@ jobs:
           PR_URL=""
           BRANCH=""
           while IFS=$'\t' read -r url ref cross; do
-            [ -n "$url" ] && [ "$cross" = "false" ] || continue
+            if [ -z "$url" ] || [ "$cross" != "false" ]; then continue; fi
             if [ "$ref" = "$PREFIX" ] || [ "${ref#"$PREFIX/"}" != "$ref" ]; then
               PR_URL="$url"
               BRANCH="$ref"
