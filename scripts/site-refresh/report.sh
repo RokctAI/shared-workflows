@@ -30,20 +30,37 @@ RUN_URL="${RUN_URL:-}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 NOW_UTC="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
 WRITE=true
-if [ "$DRY_RUN" = "true" ] || [ -z "${GH_TOKEN:-}" ]; then WRITE=false; fi
+if [ "$DRY_RUN" = "true" ] || [ -z "${GH_TOKEN:-}" ]; then
+  WRITE=false
+fi
 
-field() { if [ -s "$1" ]; then head -1 "$1"; else printf '%s' "${2:-}"; fi; }
+field() {
+  if [ -s "$1" ]; then
+    head -1 "$1"
+  else
+    printf '%s' "${2:-}"
+  fi
+}
 # Table cells: no pipes or line breaks.
-cell() { tr '\n|' '  ' <<< "$1" | cut -c1-300; }
+cell() {
+  tr '\n|' '  ' <<<"$1" | cut -c1-300
+}
 
-REPOS="$(find "$RESULTS" -mindepth 1 -maxdepth 1 -type d \( -name 'refresh-*' -o -name 'health-*' \) -printf '%f\n' \
-  | sed -E 's/^(refresh|health)-//' | sort -u)"
+REPOS="$(find "$RESULTS" -mindepth 1 -maxdepth 1 -type d \( -name 'refresh-*' -o -name 'health-*' \) -printf '%f\n' |
+  sed -E 's/^(refresh|health)-//' | sort -u)"
 
-declare -A REFRESH_LABEL=(
-  [up-to-date]="Up to date" [merged]="Refreshed and merged (build green)"
-  [auto-merge-armed]="PR opened, auto-merge armed" [pr-open]="PR opened, not merged yet"
-  [dry-run]="Dry run" [skipped]="Skipped" [failed]="FAILED"
-)
+refresh_label() {
+  case "$1" in
+    up-to-date) echo "Up to date" ;;
+    merged) echo "Refreshed and merged (build green)" ;;
+    auto-merge-armed) echo "PR opened, auto-merge armed" ;;
+    pr-open) echo "PR opened, not merged yet" ;;
+    dry-run) echo "Dry run" ;;
+    skipped) echo "Skipped" ;;
+    failed) echo "FAILED" ;;
+    *) echo "$1" ;;
+  esac
+}
 
 {
   echo "## Weekly site refresh$([ "$DRY_RUN" = "true" ] && echo " (dry run)")"
@@ -59,11 +76,13 @@ declare -A REFRESH_LABEL=(
       HD="$RESULTS/health-$R"
       if [ -d "$RD" ]; then
         RS="$(field "$RD/status" failed)"
-        REFRESH="${REFRESH_LABEL[$RS]:-$RS}"
+        REFRESH="$(refresh_label "$RS")"
         WHY="$(cell "$(field "$RD/detail" "no result was recorded (the job stopped early)")")"
         PR="$(field "$RD/pr" "-")"
       else
-        REFRESH="not refreshed (no compose shell)"; WHY="-"; PR="-"
+        REFRESH="not refreshed (no compose shell)"
+        WHY="-"
+        PR="-"
       fi
       if [ -d "$HD" ]; then
         HS="$(field "$HD/status" error)"
@@ -78,7 +97,7 @@ declare -A REFRESH_LABEL=(
         LIVE="-"
       fi
       echo "| \`$R\` | $REFRESH | $WHY | $PR | $LIVE |"
-    done <<< "$REPOS"
+    done <<<"$REPOS"
   fi
   echo ""
   if [ "$WRITE" = "true" ]; then
@@ -86,13 +105,13 @@ declare -A REFRESH_LABEL=(
   else
     echo "Issues in \`$CENTRAL_REPO\` were not touched (dry run or no token); the log lists what would have been filed or closed."
   fi
-} >> "$SUMMARY"
+} >>"$SUMMARY"
 
 [ -n "$REPOS" ] || exit 0
 
 find_open_issue() { # <label> <title>
-  gh issue list -R "$CENTRAL_REPO" --state open --label "$1" --json number,title --limit 200 2> /dev/null \
-    | jq -r --arg t "$2" '[.[] | select(.title == $t)][0].number // empty'
+  gh issue list -R "$CENTRAL_REPO" --state open --label "$1" --json number,title --limit 200 2>/dev/null |
+    jq -r --arg t "$2" '[.[] | select(.title == $t)][0].number // empty'
 }
 
 # report_issue <fail|ok> <label> <label description> <title> <repo> <body file>
@@ -105,33 +124,35 @@ report_issue() {
   existing="$(find_open_issue "$label" "$title" || true)"
   if [ "$action" = "fail" ]; then
     gh label create "$label" -R "$CENTRAL_REPO" --color "$([ "$label" = build-failure ] && echo B60205 || echo D93F0B)" \
-      --description "$label_desc" 2> /dev/null || true
+      --description "$label_desc" 2>/dev/null || true
     gh label create "app:${repo}" -R "$CENTRAL_REPO" --color "1D76DB" \
-      --description "Build reports for ${repo}" 2> /dev/null || true
+      --description "Build reports for ${repo}" 2>/dev/null || true
     if [ -n "$existing" ]; then
       echo "Open issue #$existing already tracks '$title'; adding a comment."
       {
         echo "Still failing (weekly site refresh, ${NOW_UTC})."
         echo ""
         sed -n '/^### What failed$/,$p' "$body"
-      } > "$body.comment"
-      gh issue comment "$existing" -R "$CENTRAL_REPO" --body-file "$body.comment" \
-        || echo "::warning::Failed to comment on issue #$existing."
+      } >"$body.comment"
+      gh issue comment "$existing" -R "$CENTRAL_REPO" --body-file "$body.comment" ||
+        echo "::warning::Failed to comment on issue #$existing."
     else
-      gh issue create -R "$CENTRAL_REPO" --title "$title" --label "$label" --label "app:${repo}" --body-file "$body" \
-        || gh issue create -R "$CENTRAL_REPO" --title "$title" --body-file "$body" \
-        || echo "::warning::Failed to open '$title'."
+      gh issue create -R "$CENTRAL_REPO" --title "$title" --label "$label" --label "app:${repo}" --body-file "$body" ||
+        gh issue create -R "$CENTRAL_REPO" --title "$title" --body-file "$body" ||
+        echo "::warning::Failed to open '$title'."
     fi
   elif [ -n "$existing" ]; then
     echo "Recovered: closing #$existing ('$title')."
-    gh issue close "$existing" -R "$CENTRAL_REPO" --comment "$(cat "$body")" \
-      || echo "::warning::Failed to close issue #$existing."
+    gh issue close "$existing" -R "$CENTRAL_REPO" --comment "$(cat "$body")" ||
+      echo "::warning::Failed to close issue #$existing."
   fi
 }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-footer() { printf '\n---\n_Generated by [Claude Code](https://claude.ai/code)_\n'; }
+footer() {
+  printf '\n---\n_Generated by [Claude Code](https://claude.ai/code)_\n'
+}
 
 while read -r R; do
   RD="$RESULTS/refresh-$R"
@@ -159,7 +180,7 @@ while read -r R; do
         echo ""
         field "$RD/detail" "no result was recorded (the job stopped early)"
         echo ""
-        if [ -s "$RD/versions.md" ] && [ "$(wc -l < "$RD/versions.md")" -gt 2 ]; then
+        if [ -s "$RD/versions.md" ] && [ "$(wc -l <"$RD/versions.md")" -gt 2 ]; then
           echo ""
           echo "### Building blocks this refresh tried to move"
           echo ""
@@ -168,7 +189,7 @@ while read -r R; do
         echo ""
         echo "Nothing red is ever merged: the live site keeps its current pins. This issue stays open until a weekly refresh of ${R} succeeds (or finds it already up to date), which closes it automatically."
         footer
-      } > "$B"
+      } >"$B"
       report_issue fail build-failure "Automated report: an app build is failing on mainline" "$TITLE" "$R" "$B"
     elif [ "$RS" = "up-to-date" ] || [ "$RS" = "merged" ]; then
       {
@@ -177,7 +198,7 @@ while read -r R; do
         echo "- **Run:** ${RUN_URL}"
         echo "- **Time:** ${NOW_UTC}"
         footer
-      } > "$B"
+      } >"$B"
       report_issue ok build-failure "" "$TITLE" "$R" "$B"
     fi
   fi
@@ -203,8 +224,8 @@ while read -r R; do
         echo ""
         echo "The site-shots health gate (real Chromium, 1440 and 390 wide, light and dark) against the live site:"
         echo ""
-        jq -r '.problems[] | "- " + .' "$HD/health.json" 2> /dev/null | cut -c1-600 | head -20
-        FAILED_REQ="$(jq -r '[.checks[].failedRequests[]?] | unique | .[:10][] | "- " + .' "$HD/health.json" 2> /dev/null || true)"
+        jq -r '.problems[] | "- " + .' "$HD/health.json" 2>/dev/null | cut -c1-600 | head -20
+        FAILED_REQ="$(jq -r '[.checks[].failedRequests[]?] | unique | .[:10][] | "- " + .' "$HD/health.json" 2>/dev/null || true)"
         if [ -n "$FAILED_REQ" ]; then
           echo ""
           echo "Failed requests:"
@@ -216,7 +237,7 @@ while read -r R; do
         echo ""
         echo "This issue stays open until a weekly check finds ${URL} healthy, which closes it automatically."
         footer
-      } > "$B"
+      } >"$B"
       report_issue fail site-health "Automated report: a live website fails the health gate" "$TITLE" "$R" "$B"
     elif [ "$HS" = "healthy" ]; then
       {
@@ -225,8 +246,8 @@ while read -r R; do
         echo "- **Run:** ${RUN_URL}"
         echo "- **Time:** ${NOW_UTC}"
         footer
-      } > "$B"
+      } >"$B"
       report_issue ok site-health "" "$TITLE" "$R" "$B"
     fi
   fi
-done <<< "$REPOS"
+done <<<"$REPOS"

@@ -33,7 +33,7 @@ API_URL="${API_URL:-https://api.github.com}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-: > "$SKIPPED"
+: >"$SKIPPED"
 REPOS="$WORK/repos.tsv"
 BASE_CURL=(curl -sS --retry 3 --retry-delay 2)
 if [ -n "${GH_TOKEN:-}" ]; then
@@ -43,16 +43,16 @@ CURL=("${BASE_CURL[@]}" -H "Accept: application/vnd.github+json")
 RAW_CURL=("${BASE_CURL[@]}" -H "Accept: application/vnd.github.raw")
 
 ROW='.[] | [.name, (.default_branch // "main"), (.archived|tostring), (.fork|tostring), .owner.login, (.homepage // "")] | @tsv'
-: > "$WORK/all.tsv"
+: >"$WORK/all.tsv"
 
 # One repo's metadata appended to all.tsv; fails loudly when unreadable.
 add_repo() {
   "${CURL[@]}" -o "$WORK/one.json" "$API_URL/repos/$ORG/$1"
-  if ! jq -e '.name' "$WORK/one.json" > /dev/null 2>&1; then
+  if ! jq -e '.name' "$WORK/one.json" >/dev/null 2>&1; then
     echo "::error::cannot read $ORG/$1: $(jq -r '.message // "unknown error"' "$WORK/one.json" 2>/dev/null)" >&2
     return 1
   fi
-  jq -r "[.] | $ROW" "$WORK/one.json" >> "$WORK/all.tsv"
+  jq -r "[.] | $ROW" "$WORK/one.json" >>"$WORK/all.tsv"
 }
 
 if [ -n "${ONLY_REPO:-}" ]; then
@@ -65,8 +65,8 @@ if [ -n "${ONLY_REPO:-}" ]; then
 elif [ -n "${REPOS_TSV:-}" ]; then
   while IFS=$'\t' read -r NAME _; do
     [ -n "$NAME" ] || continue
-    add_repo "$NAME" || printf '%s\tunreadable\n' "$NAME" >> "$SKIPPED"
-  done < "$REPOS_TSV"
+    add_repo "$NAME" || printf '%s\tunreadable\n' "$NAME" >>"$SKIPPED"
+  done <"$REPOS_TSV"
 else
   PAGE=1
   while :; do
@@ -77,7 +77,7 @@ else
       exit 1
     fi
     [ "$COUNT" -eq 0 ] && break
-    jq -r "$ROW" "$WORK/page.json" >> "$WORK/all.tsv"
+    jq -r "$ROW" "$WORK/page.json" >>"$WORK/all.tsv"
     [ "$COUNT" -lt 100 ] && break
     PAGE=$((PAGE + 1))
   done
@@ -85,19 +85,19 @@ fi
 
 # Never touch archived repos, forks, or anything not owned by the org itself
 # (frappenize/* forks included).
-: > "$REPOS"
+: >"$REPOS"
 while IFS=$'\t' read -r NAME BRANCH ARCHIVED FORK OWNER HOMEPAGE; do
   [ -n "$NAME" ] || continue
   if [ "$OWNER" != "$ORG" ]; then
-    printf '%s\tnot owned by %s\n' "$NAME" "$ORG" >> "$SKIPPED"
+    printf '%s\tnot owned by %s\n' "$NAME" "$ORG" >>"$SKIPPED"
   elif [ "$ARCHIVED" = "true" ]; then
-    printf '%s\tarchived\n' "$NAME" >> "$SKIPPED"
+    printf '%s\tarchived\n' "$NAME" >>"$SKIPPED"
   elif [ "$FORK" = "true" ]; then
-    printf '%s\tfork\n' "$NAME" >> "$SKIPPED"
+    printf '%s\tfork\n' "$NAME" >>"$SKIPPED"
   else
-    printf '%s\t%s\t%s\n' "$NAME" "$BRANCH" "$HOMEPAGE" >> "$REPOS"
+    printf '%s\t%s\t%s\n' "$NAME" "$BRANCH" "$HOMEPAGE" >>"$REPOS"
   fi
-done < "$WORK/all.tsv"
+done <"$WORK/all.tsv"
 
 # HTTP status of one file on a branch ("200" when it exists).
 file_status() {
@@ -110,27 +110,27 @@ is_shell() {
   local name="$1" branch="$2" code
   code="$(file_status "$name" "$branch" scripts/compose.sh)"
   if [ "$code" != "200" ]; then
-    printf '%s\tno scripts/compose.sh (HTTP %s)\n' "$name" "$code" >> "$SKIPPED"
+    printf '%s\tno scripts/compose.sh (HTTP %s)\n' "$name" "$code" >>"$SKIPPED"
     return 1
   fi
   code="$(file_status "$name" "$branch" .rokct/lock.json)"
   if [ "$code" != "200" ]; then
-    printf '%s\tno .rokct/lock.json (HTTP %s)\n' "$name" "$code" >> "$SKIPPED"
+    printf '%s\tno .rokct/lock.json (HTTP %s)\n' "$name" "$code" >>"$SKIPPED"
     return 1
   fi
   code="$(file_status "$name" "$branch" package.json)"
   if [ "$code" != "200" ]; then
-    printf '%s\tno package.json (HTTP %s)\n' "$name" "$code" >> "$SKIPPED"
+    printf '%s\tno package.json (HTTP %s)\n' "$name" "$code" >>"$SKIPPED"
     return 1
   fi
-  if ! jq -e '((.dependencies // {}) + (.devDependencies // {})) | has("next")' "$WORK/file" > /dev/null 2>&1; then
-    printf '%s\tpackage.json does not depend on next\n' "$name" >> "$SKIPPED"
+  if ! jq -e '((.dependencies // {}) + (.devDependencies // {})) | has("next")' "$WORK/file" >/dev/null 2>&1; then
+    printf '%s\tpackage.json does not depend on next\n' "$name" >>"$SKIPPED"
     return 1
   fi
 }
 
-: > "$WORK/shells.tsv"
-: > "$WORK/sites.tsv"
+: >"$WORK/shells.tsv"
+: >"$WORK/sites.tsv"
 while IFS=$'\t' read -r NAME BRANCH HOMEPAGE; do
   # Live URL: the showcase card's url, else the repo homepage.
   URL=""
@@ -144,17 +144,17 @@ while IFS=$'\t' read -r NAME BRANCH HOMEPAGE; do
 
   if ! is_shell "$NAME" "$BRANCH"; then
     if [ "$HAS_CARD" = "true" ]; then
-      printf '%s\t%s\n' "$NAME" "$URL" >> "$WORK/sites.tsv"
+      printf '%s\t%s\n' "$NAME" "$URL" >>"$WORK/sites.tsv"
     fi
     continue
   fi
-  printf '%s\t%s\n' "$NAME" "$BRANCH" >> "$WORK/shells.tsv"
-  printf '%s\t%s\n' "$NAME" "$URL" >> "$WORK/sites.tsv"
-done < "$REPOS"
+  printf '%s\t%s\n' "$NAME" "$BRANCH" >>"$WORK/shells.tsv"
+  printf '%s\t%s\n' "$NAME" "$URL" >>"$WORK/sites.tsv"
+done <"$REPOS"
 
 jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | {repo: .[0], branch: .[1]})' \
-  "$WORK/shells.tsv" > "$OUT"
+  "$WORK/shells.tsv" >"$OUT"
 echo "Site shells in $ORG: $(jq -r 'map(.repo) | join(", ") | if . == "" then "(none)" else . end' "$OUT")"
 jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | {repo: .[0], url: (.[1] // "")})' \
-  "$WORK/sites.tsv" > "$SITES_OUT"
+  "$WORK/sites.tsv" >"$SITES_OUT"
 echo "Live sites to health-check: $(jq -r 'map(.repo + " " + (if .url == "" then "(no URL)" else .url end)) | join(", ") | if . == "" then "(none)" else . end' "$SITES_OUT")"

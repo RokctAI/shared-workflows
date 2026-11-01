@@ -32,8 +32,8 @@ OUT="$(cd "$OUT" && pwd)"
 STATE_REL=".rokct/cache/install_state.json"
 
 finish() {
-  printf '%s\n' "$1" > "$OUT/status"
-  printf '%s\n' "$2" > "$OUT/detail"
+  printf '%s\n' "$1" >"$OUT/status"
+  printf '%s\n' "$2" >"$OUT/detail"
   echo "[$1] $2"
   exit 0
 }
@@ -43,8 +43,8 @@ finish() {
 on_exit() {
   local rc=$?
   if [ "$rc" -ne 0 ] && [ ! -s "$OUT/status" ]; then
-    echo failed > "$OUT/status"
-    echo "refresh.sh stopped unexpectedly (exit $rc)" > "$OUT/detail"
+    echo failed >"$OUT/status"
+    echo "refresh.sh stopped unexpectedly (exit $rc)" >"$OUT/detail"
   fi
 }
 trap on_exit EXIT
@@ -69,7 +69,7 @@ if [ "$RC" -ne 0 ]; then
   LAST="$(grep -E '^\[!\]' "$OUT/refresh.log" | tail -1 | cut -c1-200 || true)"
   finish failed "compose.sh refresh exited $RC${LAST:+: $LAST}"
 fi
-if ! jq empty .rokct/lock.json 2> /dev/null; then
+if ! jq empty .rokct/lock.json 2>/dev/null; then
   finish failed "compose.sh refresh left an invalid .rokct/lock.json"
 fi
 cp .rokct/lock.json "$OUT/lock.after.json"
@@ -79,16 +79,16 @@ cp .rokct/lock.json "$OUT/lock.after.json"
 # ones the shell already tracks: a refresh must not start committing new
 # top-level files.
 for f in package.json package-lock.json pnpm-lock.yaml .gitignore composer.json; do
-  if git ls-files --error-unmatch -- "$f" > /dev/null 2>&1; then
+  if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
     git add -- "$f"
   fi
 done
 # install_state.json is the installers' record of THIS working tree; it must
 # never be committed (older compose.sh copies force-added it), and neither
 # must bytecode.
-git rm -r -q --cached --ignore-unmatch -- "$STATE_REL" > /dev/null
-git ls-files -z --cached -- '.rokct/cache/' | grep -zE '(^|/)__pycache__/|\.pyc$' \
-  | xargs -0 -r git rm -q --cached -- > /dev/null || true
+git rm -r -q --cached --ignore-unmatch -- "$STATE_REL" >/dev/null
+git ls-files -z --cached -- '.rokct/cache/' | grep -zE '(^|/)__pycache__/|\.pyc$' |
+  xargs -0 -r git rm -q --cached -- >/dev/null || true
 NOTE=""
 if [ -e "$STATE_REL" ] && ! git check-ignore -q -- "$STATE_REL"; then
   NOTE=" (warning: $STATE_REL is not gitignored in this shell)"
@@ -107,7 +107,7 @@ jq -r -n --slurpfile b "$OUT/lock.before.json" --slurpfile a "$OUT/lock.after.js
   ( if ($b[0].protocol.files // {}) != ($a[0].protocol.files // {})
     then "| composer (The-Rokct-Protocol) | \(($b[0].protocol.ref // "?")[0:7]) | \(($a[0].protocol.ref // "?")[0:7]) |"
     else empty end )
-' > "$OUT/versions.md"
+' >"$OUT/versions.md"
 
 if git diff --cached --quiet; then
   finish up-to-date "already on the latest building blocks$NOTE"
@@ -135,29 +135,91 @@ CANDIDATE="$(git commit-tree "$TREE" -p "$BASE_SHA" \
 
 # Pre-gate: compose the candidate offline, in a fresh worktree, exactly like
 # the deploy does, and require zero drift.
+#
+# One kind of drift is repaired instead of failed: a tracked file that an
+# installer writes (listed in that compose's install_state.json). When an SDK
+# changes such a destination, the host's committed copy goes stale and every
+# offline compose rewrites it. The accepted fix (hosting 8759bf2, hosting
+# #36) is to commit the composed file byte-identical, so the refresh does
+# exactly that and proves zero drift again. Anything else (an untracked or
+# deleted path, a tracked file no installer wrote, or drift still there
+# after the repair) fails, and nothing is pushed.
 VERIFY="$(mktemp -d)"
-git worktree add -q --detach "$VERIFY/tree" "$CANDIDATE"
-set +e
-(
-  cd "$VERIFY/tree"
-  env -u POSTGRES_URL -u POSTGRES_URL_NON_POOLING -u AUTH_SECRET \
-    -u ROKCT_BASE_URL -u NEXT_PUBLIC_ROKCT_BASE_URL \
-    -u MONOREPO_PAT -u GH_TOKEN -u GITHUB_TOKEN \
-    bash scripts/compose.sh
-) > "$OUT/verify.log" 2>&1
-VRC=$?
-set -e
-DRIFT="$(git -C "$VERIFY/tree" status --porcelain)"
-git worktree remove --force "$VERIFY/tree"
-rm -rf "$VERIFY"
+cleanup_verify() {
+  git worktree remove --force "$VERIFY/tree" 2>/dev/null || true
+  rm -rf "$VERIFY"
+}
+
+# verify_offline <commit>: sets VRC (compose exit) and DRIFT (porcelain);
+# leaves the composed worktree at $VERIFY/tree.
+verify_offline() {
+  git worktree remove --force "$VERIFY/tree" 2>/dev/null || true
+  git worktree add -q --detach "$VERIFY/tree" "$1"
+  set +e
+  (
+    cd "$VERIFY/tree" || exit 1
+    env -u POSTGRES_URL -u POSTGRES_URL_NON_POOLING -u AUTH_SECRET \
+      -u ROKCT_BASE_URL -u NEXT_PUBLIC_ROKCT_BASE_URL \
+      -u MONOREPO_PAT -u GH_TOKEN -u GITHUB_TOKEN \
+      bash scripts/compose.sh
+  ) >>"$OUT/verify.log" 2>&1
+  VRC=$?
+  set -e
+  DRIFT="$(git -C "$VERIFY/tree" status --porcelain)"
+}
+
+fail_verify() {
+  cleanup_verify
+  if [ "$VRC" -ne 0 ]; then
+    LAST="$(grep -E '^\[!\]' "$OUT/verify.log" | tail -1 | cut -c1-200 || true)"
+    finish failed "the refreshed pins do not compose offline (exit $VRC)${LAST:+: $LAST}"
+  fi
+  printf '%s\n' "$DRIFT" >>"$OUT/verify.log"
+  finish failed "$1: $(head -3 <<<"$DRIFT" | tr '\n' ' ')"
+}
+
+: >"$OUT/verify.log"
+verify_offline "$CANDIDATE"
 if [ "$VRC" -ne 0 ]; then
-  LAST="$(grep -E '^\[!\]' "$OUT/verify.log" | tail -1 | cut -c1-200 || true)"
-  finish failed "the refreshed pins do not compose offline (exit $VRC)${LAST:+: $LAST}"
-fi
-if [ -n "$DRIFT" ]; then
-  printf '%s\n' "$DRIFT" >> "$OUT/verify.log"
-  finish failed "an offline compose of the refreshed pins changed tracked files (zero-drift check): $(head -3 <<< "$DRIFT" | tr '\n' ' ')"
+  fail_verify "offline compose failed"
 fi
 
-printf '%s\n' "$CANDIDATE" > "$OUT/candidate"
-finish changed "${CHANGES:-building blocks changed}$NOTE"
+REPAIRED=""
+if [ -n "$DRIFT" ]; then
+  DESTS="$(jq -r '(.packages // {}) | to_entries[] | (.value.files // {}) | keys[]' \
+    "$VERIFY/tree/$STATE_REL" 2>/dev/null | sort -u || true)"
+  PATHS=""
+  while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+    REL="${LINE:3}"
+    if [ "${LINE:0:2}" != " M" ] || ! grep -qxF -- "$REL" <<<"$DESTS"; then
+      fail_verify "an offline compose of the refreshed pins changed files that are not installer destinations (zero-drift check)"
+    fi
+    PATHS+="$REL"$'\n'
+  done <<<"$DRIFT"
+
+  # Commit the composed copies byte-identical, then prove zero drift again.
+  while IFS= read -r REL; do
+    [ -n "$REL" ] || continue
+    cp -p -- "$VERIFY/tree/$REL" "$SITE/$REL"
+    git add -- "$REL"
+    echo "[*] $REL: committing the composed copy (its installer destination changed upstream)."
+  done <<<"$PATHS"
+  REPAIRED="$(sed '/^$/d' <<<"$PATHS" | paste -sd ',' - | sed 's/,/, /g')"
+  printf '%s\n' "$REPAIRED" >"$OUT/repaired"
+  TREE="$(git write-tree)"
+  CANDIDATE="$(git commit-tree "$TREE" -p "$BASE_SHA" \
+    -m "chore: refresh site building blocks${CHANGES:+ ($CHANGES)}" \
+    -m "Generated by scripts/compose.sh refresh (site-refresh.yml in RokctAI/shared-workflows). Composed copies committed for changed installer destinations: $REPAIRED.")"
+  verify_offline "$CANDIDATE"
+  if [ "$VRC" -ne 0 ]; then
+    fail_verify "offline compose failed after committing the composed installer destinations"
+  fi
+  if [ -n "$DRIFT" ]; then
+    fail_verify "drift remained after committing the composed installer destinations (zero-drift check)"
+  fi
+fi
+cleanup_verify
+
+printf '%s\n' "$CANDIDATE" >"$OUT/candidate"
+finish changed "${CHANGES:-building blocks changed}${REPAIRED:+; committed the composed $REPAIRED}$NOTE"
