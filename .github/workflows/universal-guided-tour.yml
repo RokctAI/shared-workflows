@@ -519,7 +519,7 @@ jobs:
           rm -rf build/tour-download
           mkdir -p build/tour-download build/app/outputs/flutter-apk
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'app-debug-*.apk' --dir build/tour-download --clobber
-          COUNT=$(ls build/tour-download/app-debug-*.apk 2>/dev/null | wc -l)
+          COUNT=$(find build/tour-download -maxdepth 1 -type f -name 'app-debug-*.apk' | wc -l)
           if [ "$COUNT" -ne 1 ]; then
             echo "::error::Release $TAG has $COUNT app-debug-*.apk assets; expected exactly one."
             exit 1

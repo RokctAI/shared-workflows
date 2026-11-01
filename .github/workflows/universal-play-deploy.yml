@@ -712,7 +712,7 @@ jobs:
           fi
           mkdir -p build/deploy
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.aab' --dir build/deploy --clobber
-          COUNT=$(ls build/deploy/*.aab 2>/dev/null | wc -l)
+          COUNT=$(find build/deploy -maxdepth 1 -type f -name '*.aab' | wc -l)
           if [ "$COUNT" -ne 1 ]; then
             echo "::error::Release $TAG has $COUNT .aab assets; expected exactly one."
             exit 1
