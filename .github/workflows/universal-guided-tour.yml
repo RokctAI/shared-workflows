@@ -107,6 +107,15 @@ on:
         type: string
         default: 'out'
         description: "Directory the render test writes its PNG + rect JSON into."
+      render-vector:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          Also write a true vector SVG of each rendered frame (real shapes and
+          text, fonts subset to the characters used) as <slug>.vector.svg next
+          to the per-frame SVGs. Needs the harness's vector_svg.dart
+          (templates/render-harness). Experimental; off by default.
       render-dart-defines:
         required: false
         type: string
@@ -425,6 +434,7 @@ jobs:
           RENDER_OUTPUT_FILE: ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
           RENDER_SVG_DIR: ${{ inputs.render-svg-dir && format('{0}/{1}', inputs.output-dir, inputs.render-svg-dir) || '' }}
           DART_DEFINES: ${{ inputs.render-dart-defines }}
+          RENDER_VECTOR: ${{ inputs.render-vector && '1' || '0' }}
         run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
 
       # Reachable from the run summary the same way the standalone lane

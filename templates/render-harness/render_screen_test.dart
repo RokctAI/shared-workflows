@@ -58,6 +58,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// Copy vector_svg.dart next to this file (same template folder).
+import 'vector_svg.dart';
+
 // TODO(harness) 1/8 - imports of the code under test.
 // Import the REAL screen, its section/route registry and whatever the screen
 // reads (notifiers, stores, theme seam). Importing `src/...` paths directly is
@@ -94,6 +97,15 @@ const double kProbeHeight = 2600;
 
 /// Slack below the last element in the final frame, in logical pixels.
 const double kBottomPadding = 20;
+
+/// Phone height used when the content is taller than [kProbeHeight] and
+/// cannot be fitted (iPhone 12-15 class, 390 x 844). A warning is logged.
+const double kDeviceHeight = 844;
+
+/// How long (real time) the harness waits for the screen to be READY (see
+/// [readyFinders]) before it fails instead of capturing a blank or loading
+/// frame.
+const Duration kReadyTimeout = Duration(seconds: 30);
 
 /// TODO(harness) 2/8 - the SDK's own demo data. THIS IS THE MAIN PATH.
 ///
@@ -271,9 +283,9 @@ Widget buildScreen({required bool dark}) {
 // WHEN THE SCREEN UNDER TEST IS A MODAL, a bottom sheet or a dialog.
 //
 // PREFERRED - drive the app's own trigger. Call this from the render body
-// immediately after the first `_drain`, before pass 1 measures:
+// immediately after the first `_pumpUntilReady`, before the frame is fitted:
 //
-//     await _drain(tester);
+//     await _pumpUntilReady(tester, phase: ' ($name)');
 //     await openSheet(tester);   // the modal is now over its host
 //
 // Both `expect`s are load-bearing: they turn a silent wrapper fault into a
@@ -368,6 +380,17 @@ List<ElementSpec> elementSpecs() {
   ];
 }
 
+/// TODO(harness) 7/8 (cont.) - what must be on screen before the capture.
+///
+/// The frame is captured only once EVERY finder here matches and no
+/// CircularProgressIndicator is showing; otherwise the test FAILS after
+/// [kReadyTimeout]. Name the widgets the demo data produces (a list row, a
+/// card), not the page scaffold, which exists while the data is still
+/// loading. A fixed sleep here is what shipped blank light frames.
+List<Finder> readyFinders() => <Finder>[
+  // find.byType(LmsSettingCard),
+];
+
 /// TODO(harness) 8/8 - real fonts.
 ///
 /// Without this every glyph renders as the Ahem/FlutterTest block font and the
@@ -384,6 +407,8 @@ Future<void> loadRealFonts() async {
       loader.addFont(Future.value(ByteData.view(bytes.buffer)));
     }
     await loader.load();
+    // The vector SVG export embeds the same files.
+    VectorSvgFonts.register(family, [for (final p in files) File(p)]);
   }
 
   // google_fonts resolves a family PLUS its variant name (e.g. `Inter_600`),
@@ -399,8 +424,10 @@ Future<void> loadRealFonts() async {
   for (final entry in weights.entries) {
     await load('Inter_${entry.key}', ['$root/fonts/${entry.value}']);
   }
-  await load('Inter',
-      weights.values.map((file) => '$root/fonts/$file').toList());
+  await load(
+    'Inter',
+    weights.values.map((file) => '$root/fonts/$file').toList(),
+  );
 
   // Bare TextStyles with no family fall back to the platform default. The
   // same three weights also ship inside the Flutter SDK cache as
@@ -446,7 +473,7 @@ Future<void> loadRealFonts() async {
   final flutterRoot = Platform.environment['FLUTTER_ROOT'];
   if (flutterRoot != null) {
     await load('MaterialIcons', [
-      '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf'
+      '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
     ]);
   }
   // final pubCache = Platform.environment['PUB_CACHE'] ??
@@ -455,17 +482,17 @@ Future<void> loadRealFonts() async {
 }
 
 // ===========================================================================
-// Below here is the proven mechanism. Leave it alone.
+// Below here is the mechanism. Leave it alone. It waits for the screen to be
+// ready (no fixed sleep), fits the frame to the real content, and FAILS rather
+// than capture a blank, loading or block-glyph frame. The composer's quality
+// gate (scripts/render/frame_quality.py) checks the result again.
 // ===========================================================================
 
 /// One numbered point: a finder, a stable key, and a human label.
 class ElementSpec {
-  ElementSpec({
-    required this.key,
-    required this.label,
-    required this.finder,
-  })  : keyOf = null,
-        labelOf = null;
+  ElementSpec({required this.key, required this.label, required this.finder})
+    : keyOf = null,
+      labelOf = null;
 
   /// A finder that matches SEVERAL widgets (e.g. every settings row); key and
   /// label are derived per match, so the numbering stays per-row.
@@ -473,8 +500,8 @@ class ElementSpec {
     required this.keyOf,
     required this.labelOf,
     required this.finder,
-  })  : key = '',
-        label = '';
+  }) : key = '',
+       label = '';
 
   final String key;
   final String label;
@@ -501,16 +528,198 @@ void _mockPathProvider(String dir) {
 }
 
 /// Lets REAL async work (drift isolate, futures, file IO) complete, then pumps
-/// frames so the resulting setStates land.
+/// frames so the resulting setStates land. Only for helpers such as
+/// `openSheet` that need a fixed settle after a tap; the capture itself
+/// waits with [_pumpUntilReady].
 ///
 /// `pumpAndSettle` cannot do this: widget-test fake-async never runs the real
 /// event loop, so a screen that waits on a real Future settles as empty.
+// Kept for the commented openSheet helper above; unused until it is enabled.
+// ignore: unused_element
 Future<void> _drain(WidgetTester tester, {int rounds = 8}) async {
   for (var i = 0; i < rounds; i++) {
     await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 120)));
+      () => Future<void>.delayed(const Duration(milliseconds: 120)),
+    );
     await tester.pump(const Duration(milliseconds: 250));
   }
+}
+
+/// Pumps until the screen is READY - every [readyFinders] matches and no
+/// CircularProgressIndicator is showing - letting real async work run between
+/// frames. Fails the test on [kReadyTimeout] instead of capturing.
+Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
+  final finders = readyFinders();
+  if (finders.isEmpty) {
+    fail(
+      'readyFinders() is empty - name the widgets the demo data produces '
+      '(TODO(harness) 7/8), or the frame may be captured while loading',
+    );
+  }
+  final deadline = DateTime.now().add(kReadyTimeout);
+  final spinner = find.byType(CircularProgressIndicator);
+  var stableFrames = 0;
+  while (true) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    final ready =
+        finders.every((f) => f.evaluate().isNotEmpty) &&
+        spinner.evaluate().isEmpty;
+    stableFrames = ready ? stableFrames + 1 : 0;
+    if (stableFrames >= 2) break;
+    if (DateTime.now().isAfter(deadline)) {
+      final missing = finders
+          .where((f) => f.evaluate().isEmpty)
+          .map((f) => f.describeMatch(Plurality.zero))
+          .toList();
+      fail(
+        'screen not ready after ${kReadyTimeout.inSeconds}s$phase: '
+        '${missing.isEmpty ? '' : 'missing ${missing.join(', ')}; '}'
+        '${spinner.evaluate().length} spinner(s) still showing. '
+        'Refusing to capture a blank or loading frame.',
+      );
+    }
+  }
+  // Let entrance animations finish so nothing is captured half-faded.
+  for (var i = 0; i < 10; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
+/// Rect, in logical px, of every painted leaf under [root]: text, images,
+/// custom paint, decorated and physical boxes. Offstage subtrees and the
+/// unselected children of an IndexedStack (laid out, never painted) are
+/// skipped.
+Map<RenderBox, Rect> _paintedLeaves(RenderObject root) {
+  final out = <RenderBox, Rect>{};
+  void visit(RenderObject o) {
+    if (o is RenderOffstage && o.offstage) return;
+    if (o is RenderIndexedStack) {
+      var child = o.firstChild;
+      for (var i = 0; child != null; i++) {
+        if (i == o.index) visit(child);
+        child = o.childAfter(child);
+      }
+      return;
+    }
+    if (o is RenderBox &&
+        o.attached &&
+        o.hasSize &&
+        (o is RenderParagraph ||
+            o is RenderImage ||
+            o is RenderCustomPaint ||
+            o is RenderDecoratedBox ||
+            o is RenderPhysicalModel ||
+            o is RenderPhysicalShape)) {
+      final rect = MatrixUtils.transformRect(
+        o.getTransformTo(root),
+        Offset.zero & o.size,
+      );
+      if (rect.width > 0 && rect.height > 0) out[o] = rect;
+    }
+    o.visitChildren(visit);
+  }
+
+  root.visitChildren(visit);
+  return out;
+}
+
+/// How tall the frame must be to show all of the content and nothing else.
+///
+/// The screen root (and any background) fills the probe viewport, so its rect
+/// says nothing about the content. The screen is laid out at two probe
+/// heights and every painted leaf compared: a leaf that did not move is
+/// CONTENT; a leaf that moved with the viewport bottom and kept its size is
+/// PINNED chrome (tab bar, floating button), reserved below the content so it
+/// never covers it; anything else (stretched backgrounds) is ignored. Returns
+/// null when the content does not fit inside [kProbeHeight].
+Future<double?> _contentHeight(
+  WidgetTester tester,
+  RenderObject Function() root,
+) async {
+  const shrink = 400.0;
+  final tall = _paintedLeaves(root());
+  _setViewHeight(tester, kProbeHeight - shrink);
+  await _pumpUntilReady(tester, phase: ' (second probe)');
+  final short = _paintedLeaves(root());
+  _setViewHeight(tester, kProbeHeight);
+  await _pumpUntilReady(tester, phase: ' (back to probe height)');
+
+  var contentBottom = 0.0;
+  var pinnedReserve = 0.0;
+  var matched = 0;
+  for (final entry in tall.entries) {
+    final a = entry.value;
+    final b = short[entry.key];
+    if (b != null) matched++;
+    if (b == null || (a.bottom - b.bottom).abs() < 0.5) {
+      if (a.bottom > contentBottom) contentBottom = a.bottom;
+    } else if ((a.bottom - b.bottom - shrink).abs() < 0.5 &&
+        (a.height - b.height).abs() < 0.5) {
+      final reserve = kProbeHeight - a.top;
+      if (reserve > pinnedReserve) pinnedReserve = reserve;
+    }
+  }
+  if (matched == 0) {
+    throw StateError(
+      'the screen rebuilt every render object between the two '
+      'probes, so content and viewport-pinned chrome cannot be told apart',
+    );
+  }
+  if (contentBottom <= 0) {
+    throw StateError('no painted content found under the screen');
+  }
+  final height = contentBottom + pinnedReserve + kBottomPadding;
+  // ignore: avoid_print
+  print(
+    'render: content ends at ${contentBottom.toStringAsFixed(1)}, '
+    'pinned chrome needs ${pinnedReserve.toStringAsFixed(1)} -> '
+    'frame height ${height.toStringAsFixed(1)}',
+  );
+  if (contentBottom + pinnedReserve >= kProbeHeight - 1) return null;
+  return height;
+}
+
+void _setViewHeight(WidgetTester tester, double height) {
+  tester.view.physicalSize = Size(
+    kLogicalWidth * kDevicePixelRatio,
+    height * kDevicePixelRatio,
+  );
+}
+
+/// Texts on screen drawn in the FlutterTest/Ahem block font. A block glyph
+/// advances exactly one em, so a single-line text whose width is
+/// (characters x font size) is in the block font: its family was never
+/// registered in [loadRealFonts].
+List<String> _blockGlyphTexts(RenderObject root) {
+  final hits = <String>[];
+  void visit(RenderObject o) {
+    if (o is RenderOffstage && o.offstage) return;
+    if (o is RenderParagraph && o.attached && o.hasSize) {
+      final text = o.text.toPlainText(includePlaceholders: false);
+      final style = o.text.style;
+      final size = style?.fontSize;
+      final chars = text.runes.length;
+      if (size != null &&
+          chars >= 3 &&
+          !text.contains('\n') &&
+          o.text is TextSpan &&
+          ((o.text as TextSpan).children?.isEmpty ?? true)) {
+        final width = o.getMaxIntrinsicWidth(double.infinity);
+        final em = o.textScaler.scale(size);
+        final spacing = (style?.letterSpacing ?? 0) * chars;
+        if ((width - spacing - chars * em).abs() < 0.5) {
+          hits.add('${style?.fontFamily ?? '(default)'}: "$text"');
+        }
+      }
+    }
+    o.visitChildren(visit);
+  }
+
+  root.visitChildren(visit);
+  return hits;
 }
 
 List<_Measured> _measure(WidgetTester tester, List<ElementSpec> specs) {
@@ -520,11 +729,13 @@ List<_Measured> _measure(WidgetTester tester, List<ElementSpec> specs) {
     for (var i = 0; i < elements.length; i++) {
       try {
         final widget = elements[i].widget;
-        measured.add(_Measured(
-          spec.keyOf?.call(i, widget) ?? spec.key,
-          spec.labelOf?.call(i, widget) ?? spec.label,
-          tester.getRect(spec.finder.at(i)),
-        ));
+        measured.add(
+          _Measured(
+            spec.keyOf?.call(i, widget) ?? spec.key,
+            spec.labelOf?.call(i, widget) ?? spec.label,
+            tester.getRect(spec.finder.at(i)),
+          ),
+        );
       } catch (_) {
         // Off-stage or unlaid-out matches are skipped rather than failing the
         // render: a section hidden by a gate is a legitimate outcome.
@@ -537,15 +748,17 @@ List<_Measured> _measure(WidgetTester tester, List<ElementSpec> specs) {
   measured.sort((a, b) => a.rect.top.compareTo(b.rect.top));
   final deduped = <_Measured>[];
   for (final item in measured) {
-    final clash = deduped.any((kept) =>
-        (kept.rect.top - item.rect.top).abs() < 2 &&
-        (kept.rect.height - item.rect.height).abs() < 4);
+    final clash = deduped.any(
+      (kept) =>
+          (kept.rect.top - item.rect.top).abs() < 2 &&
+          (kept.rect.height - item.rect.height).abs() < 4,
+    );
     if (!clash) deduped.add(item);
   }
   return deduped;
 }
 
-/// Renders one variant end to end and writes out/<name>.png + out/<name>.json.
+/// Renders one variant end to end and writes `out/<name>.png` + `out/<name>.json`.
 Future<void> renderVariant(
   WidgetTester tester, {
   required bool dark,
@@ -556,6 +769,14 @@ Future<void> renderVariant(
     ..createSync(recursive: true);
 
   _mockPathProvider(dbDir);
+
+  // Each variant starts from nothing. rootBundle caches every loadString
+  // FUTURE, and DemoGatewayInterceptor reads each fixture through it: a load
+  // the previous variant started in its fake-async zone and never finished
+  // is awaited forever by the next one (sticks' light frame stayed on its
+  // spinner). Also reset GetIt (`await GetIt.I.reset();`) before the SDK
+  // registrations below when the harness registers through GetIt.
+  rootBundle.clear();
 
   // TODO(harness) - app-wide state the screen reads before it builds
   // (persisted user, settings, theme mode, brightness seam).
@@ -579,46 +800,72 @@ Future<void> renderVariant(
   await seedDeviceHistory(tester);
   registerScreen();
 
-  tester.view.physicalSize =
-      Size(kLogicalWidth * kDevicePixelRatio, kProbeHeight * kDevicePixelRatio);
+  tester.view.physicalSize = Size(
+    kLogicalWidth * kDevicePixelRatio,
+    kProbeHeight * kDevicePixelRatio,
+  );
   tester.view.devicePixelRatio = kDevicePixelRatio;
   addTearDown(tester.view.reset);
 
   final boundaryKey = GlobalKey();
-  await tester.pumpWidget(RepaintBoundary(
-    key: boundaryKey,
-    child: buildScreen(dark: dark),
-  ));
-  await _drain(tester);
+  await tester.pumpWidget(
+    RepaintBoundary(
+      key: boundaryKey,
+      child: buildScreen(dark: dark),
+    ),
+  );
+  await _pumpUntilReady(tester, phase: ' ($name)');
 
-  // Pass 1 measures the real content height in the tall probe viewport; pass 2
-  // re-renders at exactly that height so the PNG is a full-length strip with
-  // no dead space. Two passes are REQUIRED, not an optimisation: screenutil
-  // `.h` sizes scale with the viewport, so the height converges to a fixed
-  // point rather than being known up front.
   var measured = _measure(tester, elementSpecs());
-  expect(measured, isNotEmpty,
-      reason: 'no elements matched - check elementSpecs() and the gates in '
-          'registerScreen()');
+  expect(
+    measured,
+    isNotEmpty,
+    reason:
+        'no elements matched - check elementSpecs() and the gates in '
+        'registerScreen()',
+  );
 
-  final contentBottom =
-      measured.map((m) => m.rect.bottom).reduce((a, b) => a > b ? a : b);
-  final targetHeight =
-      (contentBottom + kBottomPadding).clamp(400.0, kProbeHeight);
+  // Fit the frame to the real content (see _contentHeight). When it does
+  // not fit the probe, capture one phone screen and say so.
+  final fitted = await _contentHeight(
+    tester,
+    () => boundaryKey.currentContext!.findRenderObject()!,
+  );
+  final double targetHeight;
+  if (fitted == null) {
+    targetHeight = kDeviceHeight;
+    // ignore: avoid_print
+    print(
+      'WARNING: $name is taller than the ${kProbeHeight.toInt()} px probe; '
+      'capturing one ${kDeviceHeight.toInt()} px phone screen instead.',
+    );
+  } else {
+    targetHeight = fitted.clamp(400.0, kProbeHeight);
+  }
 
-  tester.view.physicalSize =
-      Size(kLogicalWidth * kDevicePixelRatio, targetHeight * kDevicePixelRatio);
-  await tester.pump(const Duration(milliseconds: 50));
-  await _drain(tester, rounds: 4);
+  _setViewHeight(tester, targetHeight);
+  await _pumpUntilReady(tester, phase: ' ($name, final height)');
   measured = _measure(tester, elementSpecs());
+
+  final blockGlyphs = _blockGlyphTexts(
+    boundaryKey.currentContext!.findRenderObject()!,
+  );
+  if (blockGlyphs.isNotEmpty) {
+    fail(
+      '${blockGlyphs.length} text(s) drawn in the FlutterTest block font - '
+      'register their family in loadRealFonts(): '
+      '${blockGlyphs.take(5).join(' | ')}',
+    );
+  }
 
   await tester.runAsync(() async {
     final boundary =
         boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
     final image = await boundary.toImage(pixelRatio: kDevicePixelRatio);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    File('${outDir.path}/$name.png')
-        .writeAsBytesSync(bytes!.buffer.asUint8List());
+    File(
+      '${outDir.path}/$name.png',
+    ).writeAsBytesSync(bytes!.buffer.asUint8List());
 
     // Sidecar consumed by scripts/render/compose_strip.py. `number` is a
     // convenience only - the composer re-derives stable global numbers from
@@ -628,6 +875,12 @@ Future<void> renderVariant(
       'logicalWidth': kLogicalWidth,
       'logicalHeight': targetHeight,
       'devicePixelRatio': kDevicePixelRatio,
+      // Read by scripts/render/frame_quality.py, which refuses the frame if
+      // either count is non-zero.
+      'quality': <String, Object?>{
+        'spinners': find.byType(CircularProgressIndicator).evaluate().length,
+        'blockGlyphTexts': blockGlyphs.length,
+      },
       'elements': <Object>[
         for (var i = 0; i < measured.length; i++)
           <String, Object?>{
@@ -638,12 +891,32 @@ Future<void> renderVariant(
             'y': measured[i].rect.top,
             'w': measured[i].rect.width,
             'h': measured[i].rect.height,
-          }
+          },
       ],
     };
-    File('${outDir.path}/$name.json')
-        .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(sidecar));
+    File(
+      '${outDir.path}/$name.json',
+    ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(sidecar));
   });
+
+  // Opt-in: the same frame as a true vector SVG (real shapes and `<text>`),
+  // written next to the PNG as `out/<name>.vector.svg`. The composer picks it
+  // up and writes `<slug>.vector.svg` beside the per-frame SVGs, with the
+  // embedded fonts cut down to the characters used (scripts/render/
+  // svg_fonts.py). Turned on with RENDER_VECTOR=1 (the workflows'
+  // `render-vector` input).
+  if (Platform.environment['RENDER_VECTOR'] == '1') {
+    final recorder = VectorSvgRecorder(devicePixelRatio: kDevicePixelRatio)
+      ..paint(boundaryKey.currentContext!.findRenderObject()!);
+    final svg = await tester.runAsync(recorder.finish);
+    File('${outDir.path}/$name.vector.svg').writeAsStringSync(svg!);
+    // ignore: avoid_print
+    print(
+      'vector: $name.vector.svg - ${recorder.vectorTexts} text runs, '
+      '${recorder.rasterFallbacks} bitmap fallback(s)'
+      '${recorder.warnings.isEmpty ? '' : '; ${recorder.warnings.toSet().join('; ')}'}',
+    );
+  }
 }
 
 bool _fontsLoaded = false;
@@ -671,12 +944,20 @@ void main() {
   // variants: dark and light are reviewed together, and theme bugs only ever
   // show up in the one nobody rendered.
   testWidgets('render <screen> - dark (app default)', (tester) async {
-    await renderVariant(tester,
-        dark: true, name: 'screen_dark$suffix', dbDir: dbDir);
+    await renderVariant(
+      tester,
+      dark: true,
+      name: 'screen_dark$suffix',
+      dbDir: dbDir,
+    );
   });
 
   testWidgets('render <screen> - light', (tester) async {
-    await renderVariant(tester,
-        dark: false, name: 'screen_light$suffix', dbDir: dbDir);
+    await renderVariant(
+      tester,
+      dark: false,
+      name: 'screen_light$suffix',
+      dbDir: dbDir,
+    );
   });
 }

@@ -74,6 +74,11 @@ import re
 import sys
 import textwrap
 
+# frame_quality sits next to this file; put its directory on the path even
+# under `python -I`, which does not add the script's own directory.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import frame_quality  # noqa: E402
+
 # The four review states a frame may be in. Kept deliberately small: a
 # reviewer should be able to hold the whole vocabulary in their head.
 #   SHIPPED  - this is what main renders today
@@ -696,11 +701,17 @@ def frame_svg(frame, rects, png_bytes, config, mapping, present=False,
         + '\n'.join(parts) + '\n</svg>\n')
 
 
-def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None):
+def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None,
+                     base_dir=None):
     """Write <slug>.annotated.svg + <slug>.clean.svg per frame.
 
     One file per frame, not one combined file: these are placed individually
     into a document. Returns the list of paths written, in frame order.
+
+    When the harness also wrote a true vector render next to the PNG
+    (`<png stem>.vector.svg`, RENDER_VECTOR=1), it is written as
+    `<slug>.vector.svg` with its embedded fonts subset to the characters
+    used (svg_fonts.py; left whole when fontTools is not installed).
     """
     os.makedirs(out_dir, exist_ok=True)
     written = []
@@ -720,6 +731,17 @@ def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None):
                                        mapping, present=present,
                                        roles=roles))
             written.append(path)
+        if base_dir is not None:
+            vector = _resolve(base_dir,
+                              os.path.splitext(frame['png'])[0] + '.vector.svg')
+            if os.path.isfile(vector):
+                import svg_fonts
+                with open(vector, encoding='utf-8') as handle:
+                    svg = svg_fonts.process(handle.read())
+                path = os.path.join(out_dir, f'{slug}.vector.svg')
+                with open(path, 'w', encoding='utf-8', newline='\n') as handle:
+                    handle.write(svg)
+                written.append(path)
     return written
 
 
@@ -921,9 +943,40 @@ def build_page(config, frames, mapping, roles_by_frame=None):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def gate_frames(loaded):
+    """Refuse every frame that looks blank, loading or block-glyphed.
+
+    Runs BEFORE anything is written, so a refused render leaves no page and
+    no SVG behind for the tour bot to commit. A frame can opt out with
+    `"quality_gate": false` in the config - only for a deliberately broken
+    BEFORE frame shown for contrast.
+    """
+    refused = []
+    for (frame, rects), png_bytes in loaded:
+        if frame.get('quality_gate', True) is False:
+            continue
+        name = frame.get('png', frame.get('caption', '?'))
+        try:
+            stats = frame_quality.check_frame(png_bytes, rects, name)
+        except frame_quality.FrameRefused as err:
+            refused.append(str(err))
+            continue
+        print(f'[INFO] quality ok: {name} ({stats["colours"]} colours, '
+              f'{stats["coverage"]:.0%} coverage, '
+              f'{stats["blockGlyphs"]} block glyph bar(s))')
+    if refused:
+        raise ConfigError('quality gate refused {} frame(s); nothing was '
+                          'written:\n  - {}'.format(len(refused),
+                                                    '\n  - '.join(refused)))
+
+
 def compose(config_path, out_path, emit_numbering=None, base_dir=None,
-            emit_svg=None):
-    """Compose the strip; returns (html, numbering map, new keys, svg paths)."""
+            emit_svg=None, quality_gate=False):
+    """Compose the strip; returns (html, numbering map, new keys, svg paths).
+
+    `quality_gate=True` (the CLI default) refuses blank, loading and
+    block-glyph frames before anything is written - see frame_quality.py.
+    """
     config, resolved_base = load_config(config_path)
     if base_dir:
         resolved_base = base_dir
@@ -932,6 +985,9 @@ def compose(config_path, out_path, emit_numbering=None, base_dir=None,
     for frame in config['frames']:
         png_bytes, rects = load_frame(frame, resolved_base)
         loaded.append(((frame, rects), png_bytes))
+
+    if quality_gate:
+        gate_frames(loaded)
 
     mapping, assigned = resolve_numbering([pair for pair, _ in loaded], config)
     # Numbering first, always: roles decide what is DRAWN, never what a
@@ -947,7 +1003,8 @@ def compose(config_path, out_path, emit_numbering=None, base_dir=None,
             json.dump(merged_numbering(config, mapping), handle, indent=2)
             handle.write('\n')
 
-    svgs = (write_frame_svgs(loaded, config, mapping, emit_svg, roles_by_frame)
+    svgs = (write_frame_svgs(loaded, config, mapping, emit_svg, roles_by_frame,
+                             base_dir=resolved_base)
             if emit_svg else [])
     return page, mapping, assigned, svgs
 
@@ -971,12 +1028,17 @@ def main():
                              'directory, in an annotated and a clean '
                              'variant, for placing into a user guide or a '
                              'deck (the page itself stays the review format)')
+    parser.add_argument('--no-quality-gate', action='store_true',
+                        help='skip the frame quality gate (blank, loading '
+                             'and block-glyph frames are refused by default; '
+                             'see frame_quality.py)')
     args = parser.parse_args()
 
     try:
         page, mapping, assigned, svgs = compose(args.config, args.out,
                                                 args.emit_numbering,
-                                                args.base_dir, args.emit_svg)
+                                                args.base_dir, args.emit_svg,
+                                                not args.no_quality_gate)
     except (ConfigError, json.JSONDecodeError, OSError) as err:
         print(f'[ERROR] {err}', file=sys.stderr)
         return 1

@@ -36,12 +36,16 @@ Locally, the throwaway package with path deps is still the fastest loop.
 3. If a feature SDK does not compile standalone, run the host repo's
    `dart run tool/inject_tr_keys.dart` first, and `git checkout --` the clone
    afterwards - it writes into the base_sdk clone.
-4. Copy `render_screen_test.dart` to `test/` and work the eight
+4. Copy `render_screen_test.dart` AND `vector_svg.dart` (the opt-in vector
+   SVG export it imports, see `scripts/render/README.md` §10.1) to `test/` and work the eight
    `TODO(harness)` markers in order: imports, the SDK demo-mode DI, the two
    exception hooks, screen registration, the widget under test, the element
-   specs, the fonts. Nothing outside those markers should need changing - the
-   height fixed-point pass, the real-event-loop drain, the `RepaintBoundary`
-   capture and the rect sidecar are the proven mechanism.
+   specs and `readyFinders()` (the widgets the demo data produces - the
+   capture waits for them and fails after 30 s rather than shoot a loading
+   screen), the fonts. Nothing outside those markers should need changing -
+   the wait-until-ready loop, the content-fitted height, the block-glyph
+   check, the `RepaintBoundary` capture and the rect sidecar are the
+   mechanism.
 
    Markers 3 and 4 are EXCEPTIONS and are usually left empty: the SDKs supply
    their own demo data through marker 2. See §2.5 of
@@ -82,11 +86,16 @@ that fail SILENTLY - everything below them fails loudly enough to notice.
   single `theme:` switched on the `dark` flag renders both frames from one
   `ThemeData`, so the "dark" frame is not the app's dark theme at all.
 - **`pumpAndSettle` on real async.** Widget-test fake-async never runs the
-  real event loop, so a screen awaiting a real Future settles as empty. Use
-  the template's `_drain`, which alternates `runAsync` with `pump`.
-- **One-pass height.** The frame height must be measured and then re-rendered
-  at that height: screenutil's `.h` sizes scale with the viewport, so the
-  height converges rather than being knowable up front.
+  real event loop, so a screen awaiting a real Future settles as empty. Nor
+  is a fixed sleep enough (it shipped blank light frames): the template's
+  `_pumpUntilReady` alternates `runAsync` with `pump` until `readyFinders()`
+  match and no spinner is left, and fails the test on timeout.
+- **Measuring the screen root for height.** The root fills the probe
+  viewport, so its rect is the probe, not the content. The template lays the
+  screen out at two probe heights: leaves that stay put are content, leaves
+  that move with the bottom edge (tab bar, floating button) are chrome kept
+  below the content. Content taller than the probe falls back to one 844 px
+  phone screen with a warning.
 - **Forgetting to activate the demo session.** Without
   `DemoSession.instance.activate()` (or re-activating it after resetting
   SharedPreferences) `DemoGatewayInterceptor` stands aside, every fetch goes

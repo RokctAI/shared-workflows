@@ -39,6 +39,11 @@
 #                       the demo session itself and the SDKs' fixtures answer
 #                       through DemoGatewayInterceptor.
 #   RENDER_LOG          where to tee the `flutter test` output.
+#   RENDER_VECTOR       `1` asks the harness for a true vector SVG of each
+#                       frame too (out/<name>.vector.svg); the composer
+#                       writes it as <slug>.vector.svg in RENDER_SVG_DIR with
+#                       its fonts subset (needs fontTools, installed here
+#                       best-effort). Default off.
 #
 # Callers decide whether a repo HAS a harness; this script fails loudly when
 # asked to render one that is not there, because by then the caller has
@@ -66,6 +71,7 @@ RENDER_LOG="${RENDER_LOG:-render_log.txt}"
 # The test reads this itself; export it even when empty so a stale value from
 # the runner environment cannot leak into the filenames.
 export RENDER_SUFFIX="${RENDER_SUFFIX:-}"
+export RENDER_VECTOR="${RENDER_VECTOR:-0}"
 
 [ -n "$RENDER_TOOLS_DIR" ] || fail "RENDER_TOOLS_DIR is not set - point it at a shared-workflows checkout."
 
@@ -102,6 +108,18 @@ COUNT=$(find "$RENDER_OUT_DIR" -name '*.png' 2>/dev/null | wc -l)
 [ "$COUNT" -gt 0 ] || fail "The render test produced no PNGs in $RENDER_OUT_DIR."
 echo "✅ Rendered $COUNT frame(s)."
 
+if [ "$RENDER_VECTOR" = "1" ]; then
+  VECTOR_COUNT=$(find "$RENDER_OUT_DIR" -name '*.vector.svg' 2>/dev/null | wc -l)
+  echo "🧭 $VECTOR_COUNT vector SVG(s) rendered."
+  # Font subsetting shrinks each vector SVG ~15x. Best-effort: without
+  # fontTools the SVGs keep their whole fonts and still render.
+  if ! python3 -c 'import fontTools' 2>/dev/null; then
+    python3 -m pip install --quiet --user fonttools 2>/dev/null ||
+      python3 -m pip install --quiet --user --break-system-packages fonttools 2>/dev/null ||
+      echo "::warning::fontTools unavailable; vector SVGs keep their full embedded fonts."
+  fi
+fi
+
 OUT_PARENT=$(dirname "$RENDER_OUTPUT_FILE")
 [ "$OUT_PARENT" = "." ] || mkdir -p "$OUT_PARENT"
 
@@ -114,7 +132,11 @@ if [ -n "$RENDER_SVG_DIR" ]; then
   COMPOSE_ARGS+=(--emit-svg "$RENDER_SVG_DIR")
 fi
 
-python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip failed."
+# The composer runs the frame quality gate (frame_quality.py) before it
+# writes anything: a frame that looks blank, still shows a loading spinner,
+# or draws its text as block glyphs fails this step, so no page and no SVG
+# is written and the tour bot has nothing broken to commit.
+python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip failed (a refused frame is listed above: blank, loading or block-glyph renders are never written)."
 
 [ -s "$RENDER_OUTPUT_FILE" ] || fail "The composer wrote no page at $RENDER_OUTPUT_FILE."
 echo "✅ Review strip composed at $RENDER_OUTPUT_FILE ($(wc -c <"$RENDER_OUTPUT_FILE") bytes)."
@@ -122,5 +144,5 @@ echo "✅ Review strip composed at $RENDER_OUTPUT_FILE ($(wc -c <"$RENDER_OUTPUT
 if [ -n "$RENDER_SVG_DIR" ]; then
   SVG_COUNT=$(find "$RENDER_SVG_DIR" -name '*.svg' 2>/dev/null | wc -l)
   [ "$SVG_COUNT" -gt 0 ] || fail "No SVGs were written to $RENDER_SVG_DIR."
-  echo "✅ $SVG_COUNT SVG(s) exported to $RENDER_SVG_DIR (annotated + clean per frame)."
+  echo "✅ $SVG_COUNT SVG(s) exported to $RENDER_SVG_DIR (annotated + clean per frame, plus <slug>.vector.svg when RENDER_VECTOR=1)."
 fi

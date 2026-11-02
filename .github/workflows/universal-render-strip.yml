@@ -63,6 +63,15 @@ on:
         description: >-
           Value of RENDER_SUFFIX for this run, so outputs from two checkouts
           (e.g. '' for main and '_draft' for a PR head) can be told apart.
+      render-vector:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          Also write a true vector SVG of each rendered frame (real shapes and
+          text, fonts subset to the characters used) as <slug>.vector.svg next
+          to the per-frame SVGs. Needs the harness's vector_svg.dart
+          (templates/render-harness). Experimental; off by default.
       dart-defines:
         required: false
         type: string
@@ -354,6 +363,7 @@ jobs:
           RENDER_SVG_DIR: ${{ inputs.svg-dir }}
           RENDER_SUFFIX: ${{ inputs.render-suffix }}
           DART_DEFINES: ${{ inputs.dart-defines }}
+          RENDER_VECTOR: ${{ inputs.render-vector && '1' || '0' }}
         run: bash "$RENDER_TOOLS_DIR/scripts/render/run_strip.sh"
 
       - name: Upload Review Strip
