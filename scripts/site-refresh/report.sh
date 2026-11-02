@@ -51,14 +51,14 @@ REPOS="$(find "$RESULTS" -mindepth 1 -maxdepth 1 -type d \( -name 'refresh-*' -o
 
 refresh_label() {
   case "$1" in
-    up-to-date) echo "Up to date" ;;
-    merged) echo "Refreshed and merged (build green)" ;;
-    auto-merge-armed) echo "PR opened, auto-merge armed" ;;
-    pr-open) echo "PR opened, not merged yet" ;;
-    dry-run) echo "Dry run" ;;
-    skipped) echo "Skipped" ;;
-    failed) echo "FAILED" ;;
-    *) echo "$1" ;;
+  up-to-date) echo "Up to date" ;;
+  merged) echo "Refreshed and merged (build green)" ;;
+  auto-merge-armed) echo "PR opened, auto-merge armed" ;;
+  pr-open) echo "PR opened, not merged yet" ;;
+  dry-run) echo "Dry run" ;;
+  skipped) echo "Skipped" ;;
+  failed) echo "FAILED" ;;
+  *) echo "$1" ;;
   esac
 }
 
@@ -88,10 +88,10 @@ refresh_label() {
         HS="$(field "$HD/status" error)"
         URL="$(field "$HD/url")"
         case "$HS" in
-          healthy) LIVE="healthy ($URL)" ;;
-          unhealthy) LIVE="UNHEALTHY ($URL): $(cell "$(jq -r '.problems[0] // ""' "$HD/health.json" 2>/dev/null || true)")" ;;
-          no-url) LIVE="no live URL known (.rokct/showcase.json url or repo homepage)" ;;
-          *) LIVE="check did not run: $(cell "$(field "$HD/detail" "$HS")")" ;;
+        healthy) LIVE="healthy ($URL)" ;;
+        unhealthy) LIVE="UNHEALTHY ($URL): $(cell "$(jq -r '.problems[0] // ""' "$HD/health.json" 2>/dev/null || true)")" ;;
+        no-url) LIVE="no live URL known (.rokct/showcase.json url or repo homepage)" ;;
+        *) LIVE="check did not run: $(cell "$(field "$HD/detail" "$HS")")" ;;
         esac
       else
         LIVE="-"

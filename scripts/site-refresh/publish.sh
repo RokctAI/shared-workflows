@@ -138,8 +138,8 @@ if [ -n "$BRANCH_SHA" ]; then
     say "$BRANCH already carries this refresh on top of $BASE; nothing to push"
   else
     case "$(jq -r .status <<<"$COMPARE")" in
-      behind | identical) PARENTS=(-p "$BASE_SHA") ;;
-      *) PARENTS=(-p "$BRANCH_SHA" -p "$BASE_SHA") ;;
+    behind | identical) PARENTS=(-p "$BASE_SHA") ;;
+    *) PARENTS=(-p "$BRANCH_SHA" -p "$BASE_SHA") ;;
     esac
     NEW_SHA="$(git commit-tree "$TREE" "${PARENTS[@]}" -m "$MESSAGE")"
   fi
