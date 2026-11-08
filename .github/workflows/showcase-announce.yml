@@ -55,6 +55,17 @@
 #       The card is copied byte for byte, so the field reaches the registry
 #       unchanged.
 #
+#   Optional since hosting_sdk 1.20.5 (apps inside the card):
+#     "apps": [{"name":"Polaris","repo":"RokctAI/polaris","branch":"main",
+#               "phone":"marketing/tour/store/05-polaris_home.png",
+#               "store":"https://..."}]
+#       up to 4. name: up to 40 characters. repo: the app's own repo
+#       (defaults to the card's repo), branch defaults to main, phone is a
+#       plain relative picture path on that repo and branch, store is an
+#       optional https link. Because each app names its own repo, the
+#       picture resolves the same from the site's card and from the
+#       registry copy.
+#
 # Callable from any site repo:
 #   on:
 #     push:
@@ -123,7 +134,7 @@ jobs:
             exit 1
           fi
           python3 - "$CARD_PATH" "$GITHUB_REPOSITORY" <<'PY'
-          import json, os, sys
+          import json, os, re, sys
 
           path, calling_repo = sys.argv[1], sys.argv[2]
           errors = []
@@ -145,7 +156,7 @@ jobs:
               sys.exit(1)
 
           required = ["name", "kind", "tagline", "repo", "rank"]
-          optional = ["url", "shots", "logo_back", "services", "logo", "award"]
+          optional = ["url", "shots", "logo_back", "services", "logo", "award", "apps"]
           SERVICES = ("website", "logo", "social-posts", "business-plan", "pitch-deck", "print")
           PICTURE_EXT = (".webp", ".png", ".jpg", ".jpeg", ".avif")
           for key in required:
@@ -266,6 +277,36 @@ jobs:
                       award_part("award.detail", award["detail"], 90)
               else:
                   fail("'award' must be a string or an object with label (and optionally detail)")
+
+          # apps: optional (hosting_sdk 1.20.5), up to 4 {name, repo?, branch?, phone, store?}.
+          if "apps" in card:
+              apps = card["apps"]
+              if not isinstance(apps, list) or len(apps) > 4:
+                  fail("'apps' must be a list of at most 4 apps")
+              else:
+                  for i, app in enumerate(apps):
+                      where = f"apps[{i}]"
+                      if not isinstance(app, dict):
+                          fail(f"'{where}' must be an object with name and phone")
+                          continue
+                      for key in sorted(set(app) - {"name", "repo", "branch", "phone", "store"}):
+                          fail(f"unknown field '{where}.{key}' (the schema is fixed)")
+                      award_part(f"{where}.name", app.get("name"), 40)
+                      if "repo" in app and not (isinstance(app["repo"], str) and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", app["repo"])):
+                          fail(f"'{where}.repo' must be <owner>/<repo>")
+                      for key in ("branch", "phone"):
+                          if key == "branch" and key not in app:
+                              continue
+                          value = app.get(key)
+                          if not isinstance(value, str) or not value.strip():
+                              fail(f"'{where}.{key}' must be a non-empty string")
+                          elif value.startswith("/") or ".." in value.split("/") or any(c.isspace() for c in value):
+                              fail(f"'{where}.{key}' must be a plain relative path (no leading /, no .., no spaces)")
+                          elif key == "phone" and not value.lower().endswith(PICTURE_EXT):
+                              fail(f"'{where}.phone' must be a picture ({', '.join(PICTURE_EXT)})")
+                      store = app.get("store")
+                      if store is not None and (not isinstance(store, str) or not store.startswith("https://") or len(store) <= 8):
+                          fail(f"'{where}.store' must start with https://")
 
           art = logo_back == "rokct" or isinstance(logo, dict)
           if "logo" in services and not art:
