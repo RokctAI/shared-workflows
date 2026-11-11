@@ -1574,7 +1574,7 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
             # A wide wordmark (e.g. Supacharge's typography logo) is not an
             # app icon: it keeps its own line above the name, as before.
             wide = logo.width >= 2.2 * logo.height
-            logo.thumbnail((text_max, 150) if wide else (180, 180), Image.LANCZOS)
+            logo.thumbnail((280, 280) if wide else (180, 180), Image.LANCZOS)
         except OSError as e:
             warn(f"feature graphic: could not read logo {logo_path!r} ({e}) — omitting it")
             logo = None
