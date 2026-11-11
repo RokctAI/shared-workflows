@@ -1486,9 +1486,16 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
     # "one row app icon then name everywhere"): the small label when there
     # is a headline, otherwise the big name line itself.
     row = logo is not None and not wordmark
-    if row and not small:
-        row_text, row_font, row_fill = lines[0], font, ink
-        lines = lines[1:]
+    if row:
+        # Ray, 2026-11-11: "Logo plus name same size" - the name is set in
+        # the big font and the icon is scaled to that line's height.
+        if small:
+            row_text = small
+        else:
+            row_text, lines = lines[0], lines[1:]
+        row_font, row_fill = font, ink
+        logo = logo.copy()
+        logo.thumbnail((fa + fd, fa + fd), Image.LANCZOS)
     else:
         row_text, row_font, row_fill = (small.upper(), small_font, label_fill) if small else ("", None, None)
     block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
@@ -1589,6 +1596,8 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
             name_size -= 10
             name_font = load_font(name_size, font_path)
         name_a, name_d = name_font.getmetrics()
+        # Icon the same size as the name (Ray, 2026-11-11).
+        logo.thumbnail((name_a + name_d, name_a + name_d), Image.LANCZOS)
     if wide:
         canvas.alpha_composite(logo, (margin, (h - logo.height - 60 - name_a - name_d - (28 + tag_line_h * len(tag_lines) if tag_lines else 0)) // 2))
     row_h = max(logo.height if logo and not wide else 0, name_a + name_d)
