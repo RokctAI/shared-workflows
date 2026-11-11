@@ -1493,9 +1493,17 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
             row_text = small
         else:
             row_text, lines = lines[0], lines[1:]
+        # Shrink the row's font until icon + gap + name fit the text column
+        # (the icon is the line height, so it shrinks with the name).
         row_font, row_fill = font, ink
+        while row_font.size > 36:
+            ra, rd = row_font.getmetrics()
+            if (ra + rd) + 30 + draw.textlength(row_text, font=row_font) <= text_max:
+                break
+            row_font = load_font(row_font.size - 4, font_path)
+        ra, rd = row_font.getmetrics()
         logo = logo.copy()
-        logo.thumbnail((fa + fd, fa + fd), Image.LANCZOS)
+        logo.thumbnail((ra + rd, ra + rd), Image.LANCZOS)
     else:
         row_text, row_font, row_fill = (small.upper(), small_font, label_fill) if small else ("", None, None)
     block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
@@ -1591,9 +1599,12 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
     wide = bool(logo) and logo.width >= 2.2 * logo.height
     if logo and not wide:
         # Icon then name in one row; the name shrinks to the space beside it.
-        room = text_max - logo.width - 40
-        while name_size > 60 and draw.textlength(name, font=name_font) > room:
-            name_size -= 10
+        # The icon is the name's line height, so it shrinks with the name.
+        while name_size > 36:
+            name_a, name_d = name_font.getmetrics()
+            if (name_a + name_d) + 40 + draw.textlength(name, font=name_font) <= text_max:
+                break
+            name_size -= 4
             name_font = load_font(name_size, font_path)
         name_a, name_d = name_font.getmetrics()
         # Icon the same size as the name (Ray, 2026-11-11).
