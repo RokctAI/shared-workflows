@@ -1471,27 +1471,48 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
             # A wide wordmark (the app's full logo) gets the width of the text
             # column and stands in for the name label; a square icon stays small.
             wordmark = logo.width >= 2.2 * logo.height
-            logo.thumbnail((text_max, 150) if wordmark else (200, 200), Image.LANCZOS)
+            logo.thumbnail((text_max, 150) if wordmark else (150, 150), Image.LANCZOS)
             if wordmark:
                 small = ""
         except OSError:
             logo = None
+            wordmark = False
     fa, fd = font.getmetrics()
     ta, td = tag_font.getmetrics()
     sa, sd = small_font.getmetrics()
     line_h, tag_h = fa + fd + 4, ta + td + 8
+    label_fill = accent if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else muted
+    # A square app icon sits in ONE ROW with the app name (Ray, 2026-11-11:
+    # "one row app icon then name everywhere"): the small label when there
+    # is a headline, otherwise the big name line itself.
+    row = logo is not None and not wordmark
+    if row and not small:
+        row_text, row_font, row_fill = lines[0], font, ink
+        lines = lines[1:]
+    else:
+        row_text, row_font, row_fill = (small.upper(), small_font, label_fill) if small else ("", None, None)
     block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
-    if logo:
+    if row:
         block += logo.height + 40
-    if small:
-        block += sa + sd + 24
+    else:
+        if logo:
+            block += logo.height + 40
+        if small:
+            block += sa + sd + 24
     y = (h - block) // 2
-    if logo:
+    if row:
         canvas.alpha_composite(logo, (margin, y))
+        if row_text:
+            ra, rd = row_font.getmetrics()
+            draw.text((margin + logo.width + 36, y + (logo.height - ra - rd) // 2), row_text, font=row_font, fill=row_fill)
         y += logo.height + 40
-    if small:
-        draw.text((margin, y), small.upper(), font=small_font, fill=accent if contrast_ratio(accent, bg) >= MIN_ACCENT_CONTRAST else muted)
-        y += sa + sd + 24
+    else:
+        if logo:
+            canvas.alpha_composite(logo, (margin, y))
+            y += logo.height + 40
+        if small:
+            draw.text((margin, y), small.upper(), font=small_font, fill=label_fill)
+            y += sa + sd + 24
     for line in lines:
         draw.text((margin, y), line, font=font, fill=ink)
         y += line_h
@@ -1550,22 +1571,39 @@ def write_feature_graphic(out_dir, app, hero_shot_path, logo_path, brand_bg, fon
         try:
             with Image.open(logo_path) as raw:
                 logo = raw.convert("RGBA")
-            logo.thumbnail((280, 280), Image.LANCZOS)
+            # A wide wordmark (e.g. Supacharge's typography logo) is not an
+            # app icon: it keeps its own line above the name, as before.
+            wide = logo.width >= 2.2 * logo.height
+            logo.thumbnail((text_max, 150) if wide else (180, 180), Image.LANCZOS)
         except OSError as e:
             warn(f"feature graphic: could not read logo {logo_path!r} ({e}) — omitting it")
             logo = None
     name_a, name_d = name_font.getmetrics()
     tag_a, tag_d = tag_font.getmetrics()
     tag_line_h = tag_a + tag_d + 10
-    block = (logo.height + 60 if logo else 0) + name_a + name_d
+    wide = bool(logo) and logo.width >= 2.2 * logo.height
+    if logo and not wide:
+        # Icon then name in one row; the name shrinks to the space beside it.
+        room = text_max - logo.width - 40
+        while name_size > 60 and draw.textlength(name, font=name_font) > room:
+            name_size -= 10
+            name_font = load_font(name_size, font_path)
+        name_a, name_d = name_font.getmetrics()
+    if wide:
+        canvas.alpha_composite(logo, (margin, (h - logo.height - 60 - name_a - name_d - (28 + tag_line_h * len(tag_lines) if tag_lines else 0)) // 2))
+    row_h = max(logo.height if logo and not wide else 0, name_a + name_d)
+    block = row_h + (logo.height + 60 if wide else 0)
     if tag_lines:
         block += 28 + tag_line_h * len(tag_lines)
     y = (h - block) // 2
-    if logo:
-        canvas.alpha_composite(logo, (margin, y))
+    if wide:
         y += logo.height + 60
-    draw.text((margin, y), name, font=name_font, fill=ink)
-    y += name_a + name_d + 28
+    x = margin
+    if logo and not wide:
+        canvas.alpha_composite(logo, (x, y + (row_h - logo.height) // 2))
+        x += logo.width + 40
+    draw.text((x, y + (row_h - name_a - name_d) // 2), name, font=name_font, fill=ink)
+    y += row_h + 28
     for line in tag_lines:
         draw.text((margin, y), line, font=tag_font, fill=muted)
         y += tag_line_h
