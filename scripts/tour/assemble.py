@@ -1538,7 +1538,14 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
         ra, rd = row_font.getmetrics()
         logo = logo.copy()
         logo.thumbnail((ra + rd, ra + rd), Image.LANCZOS)
-        logo = _outline_if_low_contrast(logo, bg, ink, max(4, logo.width // 30))
+        ow = max(4, logo.width // 30)
+        outlined = _outline_if_low_contrast(logo, bg, ink, ow)
+        if outlined is not logo:
+            # Keep the outlined icon the same height as the name.
+            inner = logo.copy()
+            inner.thumbnail((ra + rd - 2 * (ow + 1), ra + rd - 2 * (ow + 1)), Image.LANCZOS)
+            outlined = _outline_if_low_contrast(inner, bg, ink, ow)
+        logo = outlined
     else:
         row_text, row_font, row_fill = (small.upper(), small_font, label_fill) if small else ("", None, None)
     block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
