@@ -1384,6 +1384,64 @@ def _hex_rgb(value, fallback):
     return tuple(fallback)
 
 
+def _outline_if_low_contrast(logo, bg, ink, width):
+    """Return ``logo`` with a dark outline when it would vanish on ``bg``.
+
+    A light icon (say a white tile) on a light canvas has no visible edge.
+    When the icon's opaque pixels are close to the canvas in brightness, a
+    ``width``-pixel outline in ``ink`` is drawn around its shape.
+    """
+    from PIL import Image, ImageFilter
+
+    def lum(c):
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+    # An icon exported on a square canvas (the shape on a flat backdrop)
+    # gets its backdrop cut away first, so the outline hugs the shape.
+    corners = [logo.getpixel(p) for p in ((0, 0), (logo.width - 1, 0), (0, logo.height - 1), (logo.width - 1, logo.height - 1))]
+    c0 = corners[0]
+    original = logo
+    # Only a backdrop that matches the canvas is cut; a full-bleed icon
+    # (its own coloured square) keeps its body.
+    if lum(c0) - lum(bg) < 12 and lum(bg) - lum(c0) < 12 and c0[3] > 200 and all(max(abs(c[i] - c0[i]) for i in range(4)) <= 6 for c in corners):
+        keep = Image.new("L", logo.size, 0)
+        kp = keep.load()
+        lp = logo.load()
+        for yy in range(logo.height):
+            for xx in range(logo.width):
+                q = lp[xx, yy]
+                if max(abs(q[i] - c0[i]) for i in range(3)) > 6:
+                    kp[xx, yy] = 255
+        box = keep.getbbox()
+        if box:
+            logo = logo.copy()
+            logo.putalpha(keep)
+            side = max(logo.width, logo.height)
+            logo = logo.crop(box)
+            scale = side / max(logo.width, logo.height)
+            logo = logo.resize((max(1, round(logo.width * scale)), max(1, round(logo.height * scale))), Image.LANCZOS)
+    alpha = logo.getchannel("A")
+    ring = alpha.point(lambda a: 255 if a > 128 else 0)
+    edge = Image.composite(ring, Image.new("L", ring.size, 0), ring.filter(ImageFilter.FIND_EDGES))
+    px = [logo.getpixel((x, y)) for y in range(0, logo.height, 2) for x in range(0, logo.width, 2) if edge.getpixel((x, y))]
+    if not px:
+        px = [p for p in logo.getdata() if p[3] > 128]
+    if not px:
+        return logo
+    avg = tuple(sum(p[i] for p in px) / len(px) for i in range(3))
+    if abs(lum(avg) - lum(bg)) >= 60:
+        return original
+    pad = width + 1
+    out = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
+    mask = Image.new("L", out.size, 0)
+    mask.paste(alpha, (pad, pad))
+    size = 2 * width + 1
+    grown = mask.filter(ImageFilter.MaxFilter(size if size % 2 else size + 1))
+    out.paste(Image.new("RGBA", out.size, tuple(ink[:3]) + (255,)), (0, 0), grown)
+    out.alpha_composite(logo, (pad, pad))
+    return out
+
+
 def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, logo_path, brand_bg, font_path, style):
     """store.feature_style variant of the feature graphic (opt-in per app).
 
@@ -1504,6 +1562,14 @@ def write_feature_graphic_styled(out_dir, app, hero_shot_path, hero2_shot_path, 
         ra, rd = row_font.getmetrics()
         logo = logo.copy()
         logo.thumbnail((ra + rd, ra + rd), Image.LANCZOS)
+        ow = max(4, logo.width // 30)
+        outlined = _outline_if_low_contrast(logo, bg, ink, ow)
+        if outlined is not logo:
+            # Keep the outlined icon the same height as the name.
+            inner = logo.copy()
+            inner.thumbnail((ra + rd - 2 * (ow + 1), ra + rd - 2 * (ow + 1)), Image.LANCZOS)
+            outlined = _outline_if_low_contrast(inner, bg, ink, ow)
+        logo = outlined
     else:
         row_text, row_font, row_fill = (small.upper(), small_font, label_fill) if small else ("", None, None)
     block = len(lines) * line_h + 28 + tag_h * len(tag_lines)
