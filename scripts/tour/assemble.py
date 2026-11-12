@@ -1400,7 +1400,10 @@ def _outline_if_low_contrast(logo, bg, ink, width):
     # gets its backdrop cut away first, so the outline hugs the shape.
     corners = [logo.getpixel(p) for p in ((0, 0), (logo.width - 1, 0), (0, logo.height - 1), (logo.width - 1, logo.height - 1))]
     c0 = corners[0]
-    if c0[3] > 200 and all(max(abs(c[i] - c0[i]) for i in range(4)) <= 6 for c in corners):
+    original = logo
+    # Only a backdrop that matches the canvas is cut; a full-bleed icon
+    # (its own coloured square) keeps its body.
+    if lum(c0) - lum(bg) < 12 and lum(bg) - lum(c0) < 12 and c0[3] > 200 and all(max(abs(c[i] - c0[i]) for i in range(4)) <= 6 for c in corners):
         keep = Image.new("L", logo.size, 0)
         kp = keep.load()
         lp = logo.load()
@@ -1427,7 +1430,7 @@ def _outline_if_low_contrast(logo, bg, ink, width):
         return logo
     avg = tuple(sum(p[i] for p in px) / len(px) for i in range(3))
     if abs(lum(avg) - lum(bg)) >= 60:
-        return logo
+        return original
     pad = width + 1
     out = Image.new("RGBA", (logo.width + 2 * pad, logo.height + 2 * pad), (0, 0, 0, 0))
     mask = Image.new("L", out.size, 0)
