@@ -1396,6 +1396,27 @@ def _outline_if_low_contrast(logo, bg, ink, width):
     def lum(c):
         return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
 
+    # An icon exported on a square canvas (the shape on a flat backdrop)
+    # gets its backdrop cut away first, so the outline hugs the shape.
+    corners = [logo.getpixel(p) for p in ((0, 0), (logo.width - 1, 0), (0, logo.height - 1), (logo.width - 1, logo.height - 1))]
+    c0 = corners[0]
+    if c0[3] > 200 and all(max(abs(c[i] - c0[i]) for i in range(4)) <= 6 for c in corners):
+        keep = Image.new("L", logo.size, 0)
+        kp = keep.load()
+        lp = logo.load()
+        for yy in range(logo.height):
+            for xx in range(logo.width):
+                q = lp[xx, yy]
+                if max(abs(q[i] - c0[i]) for i in range(3)) > 6:
+                    kp[xx, yy] = 255
+        box = keep.getbbox()
+        if box:
+            logo = logo.copy()
+            logo.putalpha(keep)
+            side = max(logo.width, logo.height)
+            logo = logo.crop(box)
+            scale = side / max(logo.width, logo.height)
+            logo = logo.resize((max(1, round(logo.width * scale)), max(1, round(logo.height * scale))), Image.LANCZOS)
     alpha = logo.getchannel("A")
     ring = alpha.point(lambda a: 255 if a > 128 else 0)
     edge = Image.composite(ring, Image.new("L", ring.size, 0), ring.filter(ImageFilter.FIND_EDGES))
