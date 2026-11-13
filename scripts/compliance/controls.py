@@ -133,6 +133,8 @@ CONTROLS = {
 
     # ── Layer 19 — Event-driven architecture ────────────────────────────────
     "event-driven":          {"title": "Event module without publisher/consumer/broker", "layer": "19", "soc2": "CC8.1", "iso27001": "A.8.27", "severity": "error"},
+    # ── Layer 21 — UI loading states (Ray, 2026-11-13: no spinners) ─────────
+    "no-spinner":            {"title": "Spinner used as a loading state (use a shimmer)", "layer": "21", "soc2": "CC8.1", "iso27001": "A.8.27", "severity": "warning"},
 
     # ── Scanner-internal / meta ─────────────────────────────────────────────
     "syntax-error":          {"title": "Source file fails to parse",              "layer": "meta", "soc2": "CC7.1", "iso27001": "A.8.28", "severity": "error"},
@@ -204,6 +206,7 @@ TYPE_TO_CHECK = {
     "Layer 18 (Thread Concurrency Safety)":             "thread-safety",
     "Layer 18 (Background Thread Exception Safety)":    "thread-exception-logging",
     "Layer 19 (Event-Driven Architecture)":             "event-driven",
+    "Layer 21 (UI Loading States)":                     "no-spinner",
     "Syntax Error":                                     "syntax-error",
     "Parse Error":                                      "syntax-error",
     "Project Type Detection":                           "project-type",

@@ -41,6 +41,7 @@ import compliance.layer_16
 import compliance.layer_17
 import compliance.layer_18
 import compliance.layer_19
+import compliance.layer_21
 
 # Expose key functions
 from compliance.layer_3 import check_database_migrations
