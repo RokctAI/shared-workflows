@@ -128,6 +128,7 @@ field here, not touching any layer.
 | `thread-safety` | 18 | error | CC7.1 | A.8.28 | Global mutable state mutated without a lock |
 | `thread-exception-logging` | 18 | error | CC7.2 | A.8.15 | Background threads without exception logging |
 | `event-driven` | 19 | error | CC8.1 | A.8.27 | Event module without publisher/consumer/broker |
+| `no-spinner` | 21 | warning | CC8.1 | A.8.27 | Spinner used as a loading state (use a shimmer) |
 | `syntax-error` | meta | error | CC7.1 | A.8.28 | Source file fails to parse |
 | `project-type` | meta | error | CC7.1 | A.8.9 | Unrecognized project type |
 | `unmapped` | meta | error | CC7.1 | A.8.16 | Check with no registered control mapping |
@@ -285,6 +286,7 @@ gate without editing scanner source.
 | 18 | Zero trust & hardening | Authorization checks; path containment; no `shell=True`; lock-guarded global state; background-thread exception logging |
 | 19 | Event-driven | Event modules need a publisher/consumer/broker |
 | 20 | Documentation sync | Runs on a clean pass (`update_docs.py`), not a gate |
+| 21 | UI loading states | No spinners (`CircularProgressIndicator`, `CupertinoActivityIndicator`, `animate-spin`): use a shimmer. Warning for now, so existing button spinners are listed, not blocking |
 
 > **Note on layers 11/12 tracing:** the queued tightening is now **in effect**
 > — the telemetry SDK's Dart client exists (`base_sdk`'s
