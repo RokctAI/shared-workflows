@@ -744,9 +744,9 @@ jobs:
 
               # --- TIER 2: GROQ AI FALLBACK ---
               if [ "$AI_SUCCESS" = false ] && [ -n "$GROQ_API" ]; then
-                 echo "    ☁️ Calling Groq AI Fallback (Llama 3.3 70B)..."
+                 echo "    ☁️ Calling Groq AI Fallback (openai/gpt-oss-120b)..."
                  SYSTEM_PROMPT="You are a professional release manager. Generate a high-quality, professional markdown release note for version $TAG based on the provided commit log. Use headers: ### Breaking Changes, ### Features, ### Bug Fixes, ### Performance Improvements. Focus on LOGICAL changes, NO file paths. ALWAYS preserve the commit links in the log (format: [hash](link))."
-                 GROQ_PAYLOAD=$(jq -n --arg model "llama-3.3-70b-versatile" --arg system "$SYSTEM_PROMPT" --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG_INPUT" '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
+                 GROQ_PAYLOAD=$(jq -n --arg model "openai/gpt-oss-120b" --arg system "$SYSTEM_PROMPT" --arg user "Repository: ${{ github.repository }}\nVersion: $TAG\n\nCommit Log:\n$LOG_INPUT" '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}')
                  GROQ_RESPONSE=$(curl -s -m 30 "https://api.groq.com/openai/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $GROQ_API" -d "$GROQ_PAYLOAD" || echo "Groq Failed")
                  if [[ "$GROQ_RESPONSE" != "Groq Failed" ]] && echo "$GROQ_RESPONSE" | jq . >/dev/null 2>&1; then
                     MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content' || echo "Groq Error")
@@ -2505,7 +2505,8 @@ jobs:
 
                echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
 
-               # groq/compound is ~70K TPM; keep the diff well under that (~4 bytes/token)
+               # Tier 2A model (openai/gpt-oss-120b) has a 131K-token context; the caps keep each request well
+               # under the key's per-minute token limit (~4 bytes/token). Check the limit on the key, not here.
                cap_bytes /tmp/diff_full.txt 150000
 
                # Build user message via temp file to avoid shell argument limits
@@ -2523,10 +2524,10 @@ jobs:
                # Final guard: the commit log itself can be huge on big releases
                cap_bytes /tmp/groq_user.txt 180000
 
-               # --- TIER 2A: groq/compound (70K TPM) with full diff ---
-               echo "  🧪 Trying groq/compound (70K TPM)..."
+               # --- TIER 2A: openai/gpt-oss-120b (131K context) with full diff ---
+               echo "  🧪 Trying openai/gpt-oss-120b (131K context)..."
                jq -n \
-                 --arg model "groq/compound" \
+                 --arg model "openai/gpt-oss-120b" \
                  --arg system "$SYSTEM_PROMPT" \
                  --rawfile user /tmp/groq_user.txt \
                  '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
@@ -2543,7 +2544,7 @@ jobs:
                   MSG=$(echo "$GROQ_RESPONSE" | jq -r '.choices[0].message.content // empty')
 
                   if [[ -n "$MSG" ]] && [[ "$MSG" != "null" ]]; then
-                     echo "✅ groq/compound succeeded."
+                     echo "✅ openai/gpt-oss-120b succeeded."
                      echo "## 🚀 Release $TAG" > changelog.txt
                      echo "" >> changelog.txt
                      echo "$MSG" >> changelog.txt
@@ -2551,9 +2552,9 @@ jobs:
                   fi
                fi
 
-               # --- TIER 2B: 70B fallback with compact diff (12K TPM) ---
+               # --- TIER 2B: qwen/qwen3.8-27b (131K context) with compact diff ---
                if [ "$AI_SUCCESS" = false ]; then
-                  echo "  ⚠️ Compound failed. Escalating to 70B with compact diff..."
+                  echo "  ⚠️ Tier 2A failed. Escalating to qwen/qwen3.8-27b with compact diff..."
                   [[ -n "$GROQ_RESPONSE" ]] && echo "  Response: ${GROQ_RESPONSE:0:300}"
 
                   git diff "$PREV_TAG"..HEAD -U0 -- . ":!.rokct" \
@@ -2564,7 +2565,7 @@ jobs:
                     2>/dev/null | head -100 > /tmp/diff_compact.txt 2>/dev/null || echo "" > /tmp/diff_compact.txt
 
                   # head -100 caps lines, not bytes — minified files can be one huge line.
-                  # 70B tier is only 12K TPM, so cap hard.
+                  # Tier 2B runs on a smaller per-minute token budget than 2A, so cap hard.
                   cap_bytes /tmp/diff_compact.txt 20000
 
                   # Build compact user message (cap commit log for token budget)
@@ -2580,10 +2581,10 @@ jobs:
                   } > /tmp/groq_user_70b.txt
 
                   cap_bytes /tmp/groq_user_70b.txt 24000
-                  echo "  70B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
+                  echo "  Tier 2B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
 
                   jq -n \
-                    --arg model "llama-3.3-70b-versatile" \
+                    --arg model "qwen/qwen3.8-27b" \
                     --arg system "$SYSTEM_PROMPT" \
                     --rawfile user /tmp/groq_user_70b.txt \
                     '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
@@ -2597,16 +2598,16 @@ jobs:
                   if [[ "$GROQ_RESPONSE_70B" != "Groq Failed" ]] && echo "$GROQ_RESPONSE_70B" | jq . >/dev/null 2>&1; then
                      MSG_70B=$(echo "$GROQ_RESPONSE_70B" | jq -r '.choices[0].message.content // empty')
                      if [[ -n "$MSG_70B" ]] && [[ "$MSG_70B" != "null" ]]; then
-                        echo "✅ 70B model succeeded."
+                        echo "✅ qwen/qwen3.8-27b succeeded."
                         echo "## 🚀 Release $TAG" > changelog.txt
                         echo "" >> changelog.txt
                         echo "$MSG_70B" >> changelog.txt
                         AI_SUCCESS=true
                      else
-                        echo "⚠️ 70B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
+                        echo "⚠️ Tier 2B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                      fi
                   else
-                     echo "⚠️ 70B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
+                     echo "⚠️ Tier 2B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                   fi
                fi
 
