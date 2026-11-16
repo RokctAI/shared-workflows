@@ -2505,9 +2505,11 @@ jobs:
 
                echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
 
-               # Request size is the limit, not context: on the org key, gpt-oss allows 8000 tokens per minute and qwen 7000 input tokens per minute (~4.5 bytes/token). These caps keep each request under 7000 tokens.
-               # Tier 2A caps (diff 20 KB, message 24 KB) sit under the qwen limit so the request is accepted.
-               cap_bytes /tmp/diff_full.txt 20000
+                # A tier is used only when its request fits that model's per-minute token limit on the org key
+                # (measured: openai/gpt-oss-120b 8000 TPM, qwen/qwen3.8-27b 7000 input TPM). About 4 bytes per token,
+                # with a 10% margin. A bigger payload moves to the next tier.
+                fits_tier() { [ $(( $(wc -c < "$1") / 4 )) -le $(( $2 * 9 / 10 )) ]; }
+                cap_bytes /tmp/diff_full.txt 150000
 
                # Build user message via temp file to avoid shell argument limits
                {
@@ -2522,9 +2524,10 @@ jobs:
                } > /tmp/groq_user.txt
 
                # Final guard: the commit log itself can be huge on big releases
-               cap_bytes /tmp/groq_user.txt 24000
+                cap_bytes /tmp/groq_user.txt 180000
 
-               # --- TIER 2A: openai/gpt-oss-120b (131K context) with full diff ---
+                # --- TIER 2A: openai/gpt-oss-120b (131K context) with full diff ---
+                if fits_tier /tmp/groq_user.txt 8000; then
                echo "  🧪 Trying openai/gpt-oss-120b (131K context)..."
                jq -n \
                  --arg model "openai/gpt-oss-120b" \
@@ -2548,11 +2551,14 @@ jobs:
                      echo "## 🚀 Release $TAG" > changelog.txt
                      echo "" >> changelog.txt
                      echo "$MSG" >> changelog.txt
-                     AI_SUCCESS=true
-                  fi
-               fi
+                      AI_SUCCESS=true
+                   fi
+                fi
+                else
+                   echo "  Tier 2A payload exceeds openai/gpt-oss-120b's 8000 TPM; moving to the next tier."
+                fi
 
-               # --- TIER 2B: qwen/qwen3.8-27b (131K context) with compact diff ---
+                # --- TIER 2B: qwen/qwen3.8-27b (131K context) with compact diff ---
                if [ "$AI_SUCCESS" = false ]; then
                   echo "  ⚠️ Tier 2A failed. Escalating to qwen/qwen3.8-27b with compact diff..."
                   [[ -n "$GROQ_RESPONSE" ]] && echo "  Response: ${GROQ_RESPONSE:0:300}"
@@ -2583,8 +2589,9 @@ jobs:
                   cap_bytes /tmp/groq_user_70b.txt 24000
                   echo "  Tier 2B payload input: $(wc -c < /tmp/groq_user_70b.txt) bytes"
 
-                  jq -n \
-                    --arg model "qwen/qwen3.8-27b" \
+                   if fits_tier /tmp/groq_user_70b.txt 7000; then
+                   jq -n \
+                     --arg model "qwen/qwen3.8-27b" \
                     --arg system "$SYSTEM_PROMPT" \
                     --rawfile user /tmp/groq_user_70b.txt \
                     '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $user}], temperature: 0.2}' \
@@ -2607,8 +2614,11 @@ jobs:
                         echo "⚠️ Tier 2B also failed. Response: ${GROQ_RESPONSE_70B:0:500}"
                      fi
                   else
-                     echo "⚠️ Tier 2B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
-                  fi
+                      echo "⚠️ Tier 2B request failed. Response: ${GROQ_RESPONSE_70B:0:500}"
+                   fi
+                   else
+                      echo "  Tier 2B payload exceeds qwen/qwen3.8-27b's 7000 TPM; no AI tier left, using the git log."
+                   fi
                fi
 
                if [ "$AI_SUCCESS" = false ]; then
