@@ -115,8 +115,13 @@ def subset(svg):
     return FACE.sub(replace, svg)
 
 
-def outline(svg):
-    """Every <text> as <path> glyph outlines; the fonts are dropped."""
+def outline(svg, only=None):
+    """<text> as <path> glyph outlines.
+
+    With `only` (a set of font families) just those runs are outlined and the
+    rest stays selectable <text>, its fonts untouched. Without it every <text>
+    is outlined and the fonts are dropped.
+    """
     from fontTools.pens.svgPathPen import SVGPathPen
     from fontTools.pens.transformPen import TransformPen
     from fontTools.ttLib import TTFont
@@ -130,6 +135,8 @@ def outline(svg):
     def replace(m):
         attrs = dict(ATTR.findall(m['attrs']))
         key = _text_key(attrs)
+        if only is not None and key[0] not in only:
+            return m.group(0)
         font = fonts.get(key)
         if font is None:
             missing.add(key)
@@ -162,19 +169,31 @@ def outline(svg):
         print('[WARNING] no embedded face for '
               + ', '.join(f'{f} {w} {s}' for f, w, s in sorted(missing))
               + ' - that text stays as <text>', file=sys.stderr)
-    else:
+    elif only is None:
         out = re.sub(r'<style>.*?</style>\n?', '', out, flags=re.S)
     return out
 
 
+# Icon fonts: their glyphs are symbols, and embedded icon fonts do not render
+# in design tools (Figma, Illustrator), so their text becomes outlines.
+ICON_FAMILIES = frozenset({'Remix', 'MaterialIcons'})
+
+
 def process(svg, mode='subset'):
+    """mode: 'subset' (default), 'icons' (icon-font text as paths, other text
+    and fonts kept, the rest subset), or 'outline' (all text as paths)."""
     try:
         import fontTools  # noqa: F401
     except ImportError:
         print('[WARNING] fontTools is not installed (pip install fonttools); '
               'the SVG keeps its full embedded fonts.', file=sys.stderr)
         return svg
-    return outline(svg) if mode == 'outline' else subset(svg)
+    if mode == 'outline':
+        return outline(svg)
+    if mode == 'icons':
+        # subset last: it drops every face no remaining <text> uses.
+        return subset(outline(svg, only=ICON_FAMILIES))
+    return subset(svg)
 
 
 def main():
@@ -182,11 +201,15 @@ def main():
     parser.add_argument('src')
     parser.add_argument('dst')
     parser.add_argument('--outline', action='store_true',
-                        help='turn text into glyph outlines and drop the fonts')
+                        help='turn all text into glyph outlines and drop the fonts')
+    parser.add_argument('--icons', action='store_true',
+                        help='turn only icon-font text (Remix, MaterialIcons) '
+                             'into outlines; other text stays text')
     args = parser.parse_args()
     with open(args.src, encoding='utf-8') as handle:
         svg = handle.read()
-    out = process(svg, 'outline' if args.outline else 'subset')
+    mode = 'outline' if args.outline else 'icons' if args.icons else 'subset'
+    out = process(svg, mode)
     with open(args.dst, 'w', encoding='utf-8', newline='\n') as handle:
         handle.write(out)
     print(f'[INFO] {args.src} ({len(svg) // 1024} KB) -> {args.dst} '

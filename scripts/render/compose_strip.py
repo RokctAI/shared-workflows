@@ -710,8 +710,10 @@ def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None,
 
     When the harness also wrote a true vector render next to the PNG
     (`<png stem>.vector.svg`, RENDER_VECTOR=1), it is written as
-    `<slug>.vector.svg` with its embedded fonts subset to the characters
-    used (svg_fonts.py; left whole when fontTools is not installed).
+    `<slug>.vector.svg`. Icon-font text (Remix, MaterialIcons) becomes glyph
+    outlines, so icons draw in any importer; other text stays text with its
+    fonts subset to the characters used (svg_fonts.py, mode 'icons'; left
+    whole when fontTools is not installed).
     """
     os.makedirs(out_dir, exist_ok=True)
     written = []
@@ -737,7 +739,7 @@ def write_frame_svgs(loaded, config, mapping, out_dir, roles_by_frame=None,
             if os.path.isfile(vector):
                 import svg_fonts
                 with open(vector, encoding='utf-8') as handle:
-                    svg = svg_fonts.process(handle.read())
+                    svg = svg_fonts.process(handle.read(), 'icons')
                 path = os.path.join(out_dir, f'{slug}.vector.svg')
                 with open(path, 'w', encoding='utf-8', newline='\n') as handle:
                     handle.write(svg)
