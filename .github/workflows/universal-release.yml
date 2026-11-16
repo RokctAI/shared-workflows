@@ -2505,9 +2505,9 @@ jobs:
 
                echo "  Full diff size: $(wc -c < /tmp/diff_full.txt) bytes"
 
-               # Tier 2A model (openai/gpt-oss-120b) has a 131K-token context; the caps keep each request well
-               # under the key's per-minute token limit (~4 bytes/token). Check the limit on the key, not here.
-               cap_bytes /tmp/diff_full.txt 150000
+               # Request size is the limit, not context: on the org key, gpt-oss allows 8000 tokens per minute and qwen 7000 input tokens per minute (~4.5 bytes/token). These caps keep each request under 7000 tokens.
+               # Tier 2A caps (diff 20 KB, message 24 KB) sit under the qwen limit so the request is accepted.
+               cap_bytes /tmp/diff_full.txt 20000
 
                # Build user message via temp file to avoid shell argument limits
                {
@@ -2522,7 +2522,7 @@ jobs:
                } > /tmp/groq_user.txt
 
                # Final guard: the commit log itself can be huge on big releases
-               cap_bytes /tmp/groq_user.txt 180000
+               cap_bytes /tmp/groq_user.txt 24000
 
                # --- TIER 2A: openai/gpt-oss-120b (131K context) with full diff ---
                echo "  🧪 Trying openai/gpt-oss-120b (131K context)..."
