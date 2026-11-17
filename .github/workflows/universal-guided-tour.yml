@@ -142,6 +142,17 @@ on:
           One annotated and one clean file per frame, for dropping a screen
           into a user guide or a deck; committed by the same pathspec as the
           page. Empty turns the export off.
+      tour-strip:
+        required: false
+        type: boolean
+        default: true
+        description: >-
+          Build the review page from the tour's own stills after the
+          emulator legs: one frame per tour step that was captured, in tour
+          order, so a step removed from the tour leaves the page on the next
+          run. Chips come only from the optional tour/chips.json overlay.
+          Written to <output-dir>/tour-strip.html and committed by the
+          tour's commit-back. Best-effort: a failure never fails the tour.
     secrets:
       MONOREPO_PAT:
         required: false
@@ -1818,6 +1829,24 @@ jobs:
             --out "${{ inputs.output-dir }}/tablet" \
             --device tablet \
             --video --codec libx264 --container mp4
+
+      # Review page built from the tour's own stills (see tour_strip.py): the
+      # screen list is the tour's, so removing a step from the tour removes
+      # its frame here. Best-effort and after every capture, so it can never
+      # cost the stills or the guide.
+      - name: Tour Strip (review page from the tour stills)
+        if: inputs.tour-strip == true && hashFiles('tour_screenshots/*.png') != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 .tour-tools/scripts/render/tour_strip.py \
+            --resolved tour.resolved.json \
+            --shots tour_screenshots \
+            --chips tour/chips.json \
+            --work-dir tour_strip_work
+          python3 .tour-tools/scripts/render/compose_strip.py \
+            --config tour_strip_work/strip.json \
+            --out "${{ inputs.output-dir }}/tour-strip.html"
 
       # Refresh the README's generated marker sections (store-description
       # + tour-gallery blocks, see scripts/tour/readme_sections.py) so the
