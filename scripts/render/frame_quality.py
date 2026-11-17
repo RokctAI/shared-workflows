@@ -31,6 +31,9 @@ useless on a marketing site. Three shapes have actually shipped:
   * LOADING - a CircularProgressIndicator is still on screen. The harness
     reports this itself in the sidecar (`quality.spinners`); a spinner on an
     otherwise empty page is also caught as BLANK.
+  * SHIMMER - a shimmer placeholder (skeleton rows, image placeholders) is
+    still on screen. It animates, so it is never a settled frame. The harness
+    reports it in the sidecar (`quality.shimmers`).
   * BLOCK GLYPHS - text drawn in the FlutterTest/Ahem font because its
     family was never registered. Every glyph is a solid one-em box, so words
     become solid bars sitting on a flat background. The harness can report
@@ -246,6 +249,7 @@ def check_frame(png_bytes, rects=None, name='frame'):
     blocks = block_glyphs(width, rows, dpr)
     reported = rects.get('quality') or {}
     spinners = int(reported.get('spinners') or 0)
+    shimmers = int(reported.get('shimmers') or 0)
     reported_blocks = int(reported.get('blockGlyphTexts') or 0)
 
     reasons = []
@@ -257,6 +261,9 @@ def check_frame(png_bytes, rects=None, name='frame'):
             'captured before its demo data arrived')
     if spinners:
         reasons.append(f'{spinners} loading spinner(s) still on screen')
+    if shimmers:
+        reasons.append(f'{shimmers} shimmer placeholder(s) still on screen - '
+                       'the screen was captured while loading')
     if blocks > MAX_BLOCK_GLYPHS or reported_blocks:
         reasons.append(
             f'text drawn as block glyphs ({blocks} solid word bars found'
@@ -265,8 +272,9 @@ def check_frame(png_bytes, rects=None, name='frame'):
             + ') - a font family the screen uses is not registered in '
             'loadRealFonts()')
     stats = {'width': width, 'height': height, 'colours': colours,
-             'coverage': round(coverage, 4), 'blockGlyphs': blocks,
-             'spinners': spinners}
+             'coverage': round(coverage, 4),              'blockGlyphs': blocks,
+             'spinners': spinners,
+             'shimmers': shimmers}
     if reasons:
         raise FrameRefused(f'{name}: ' + '; '.join(reasons))
     return stats

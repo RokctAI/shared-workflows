@@ -545,9 +545,21 @@ Future<void> _drain(WidgetTester tester, {int rounds = 8}) async {
   }
 }
 
-/// Pumps until the screen is READY - every [readyFinders] matches and no
-/// CircularProgressIndicator is showing - letting real async work run between
-/// frames. Fails the test on [kReadyTimeout] instead of capturing.
+/// Shimmer placeholders (base_sdk's AppShimmer / ImageShimmer, and any
+/// skeleton built on them such as LauncherHomeSkeleton). They animate for as
+/// long as they are mounted, so a frame holding one is a loading frame no
+/// matter what else is on screen. Matched by type name: a harness that
+/// imports the shimmer package directly would have to list it in its own
+/// pubspec, and the name is stable across shimmer 2.x.
+Finder shimmerPlaceholders() => find.byWidgetPredicate(
+  (Widget w) => w.runtimeType.toString() == 'Shimmer',
+  description: 'shimmer placeholder',
+);
+
+/// Pumps until the screen is READY - every [readyFinders] matches, and no
+/// CircularProgressIndicator or shimmer placeholder is showing - letting real
+/// async work run between frames. Fails the test on [kReadyTimeout] instead of
+/// capturing.
 Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
   final finders = readyFinders();
   if (finders.isEmpty) {
@@ -558,6 +570,7 @@ Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
   }
   final deadline = DateTime.now().add(kReadyTimeout);
   final spinner = find.byType(CircularProgressIndicator);
+  final shimmer = shimmerPlaceholders();
   var stableFrames = 0;
   while (true) {
     await tester.runAsync(
@@ -566,7 +579,8 @@ Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
     await tester.pump(const Duration(milliseconds: 100));
     final ready =
         finders.every((f) => f.evaluate().isNotEmpty) &&
-        spinner.evaluate().isEmpty;
+        spinner.evaluate().isEmpty &&
+        shimmer.evaluate().isEmpty;
     stableFrames = ready ? stableFrames + 1 : 0;
     if (stableFrames >= 2) break;
     if (DateTime.now().isAfter(deadline)) {
@@ -577,7 +591,8 @@ Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
       fail(
         'screen not ready after ${kReadyTimeout.inSeconds}s$phase: '
         '${missing.isEmpty ? '' : 'missing ${missing.join(', ')}; '}'
-        '${spinner.evaluate().length} spinner(s) still showing. '
+        '${spinner.evaluate().length} spinner(s) and '
+        '${shimmer.evaluate().length} shimmer placeholder(s) still showing. '
         'Refusing to capture a blank or loading frame.',
       );
     }
@@ -876,9 +891,10 @@ Future<void> renderVariant(
       'logicalHeight': targetHeight,
       'devicePixelRatio': kDevicePixelRatio,
       // Read by scripts/render/frame_quality.py, which refuses the frame if
-      // either count is non-zero.
+      // any count is non-zero.
       'quality': <String, Object?>{
         'spinners': find.byType(CircularProgressIndicator).evaluate().length,
+        'shimmers': shimmerPlaceholders().evaluate().length,
         'blockGlyphTexts': blockGlyphs.length,
       },
       'elements': <Object>[

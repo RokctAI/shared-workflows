@@ -89,7 +89,9 @@ that fail SILENTLY - everything below them fails loudly enough to notice.
   real event loop, so a screen awaiting a real Future settles as empty. Nor
   is a fixed sleep enough (it shipped blank light frames): the template's
   `_pumpUntilReady` alternates `runAsync` with `pump` until `readyFinders()`
-  match and no spinner is left, and fails the test on timeout.
+  match and no spinner or shimmer placeholder is left, and fails the test on
+  timeout. Shimmers animate forever, so they are counted as loading, the same
+  as a spinner; `quality.shimmers` in the sidecar lets the gate refuse them.
 - **Measuring the screen root for height.** The root fills the probe
   viewport, so its rect is the probe, not the content. The template lays the
   screen out at two probe heights: leaves that stay put are content, leaves
