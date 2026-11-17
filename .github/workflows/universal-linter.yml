@@ -512,8 +512,19 @@ jobs:
       - name: Check Python License Compatibility
         if: steps.check_python.outputs.exists == 'true'
         run: |
-          pip install pip-licenses
-          pip-licenses --from=mixed --format=csv --output-file=licenses.csv
+          # Scan only this repo's own Python dependencies, in a clean venv. Scanning
+          # the runner's interpreter also lists OS packages the repo does not use
+          # (e.g. crit, GPLv2, from the image's system Python) and fails on them.
+          LIC_VENV="$RUNNER_TEMP/license-venv"
+          python3 -m venv "$LIC_VENV"
+          "$LIC_VENV/bin/pip" install --quiet --upgrade pip
+          if [ -f requirements.txt ]; then
+            "$LIC_VENV/bin/pip" install --quiet -r requirements.txt
+          elif [ -f pyproject.toml ] || [ -f setup.py ]; then
+            "$LIC_VENV/bin/pip" install --quiet .
+          fi
+          "$LIC_VENV/bin/pip" install --quiet pip-licenses
+          "$LIC_VENV/bin/pip-licenses" --from=mixed --format=csv --output-file=licenses.csv
           if grep -qiE "GPL|AGPL" licenses.csv; then
              FINDINGS=$(grep -iE "GPL|AGPL" licenses.csv | grep -vi "LGPL" | grep -viE "cloud-init|ufw|python-apt|python-debian|pyparted|mercurial|sos|systemd-python|ubuntu-pro-client|ssh-import-id|launchpadlib|lazr.restfulclient|lazr.uri|wadllib|PyGObject|chardet|dbus-python" || true)
              if [ -n "$FINDINGS" ]; then
