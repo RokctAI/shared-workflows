@@ -138,6 +138,11 @@ class FrameQualityTest(unittest.TestCase):
             self.check(good_screen, {'devicePixelRatio': 3.0,
                                      'quality': {'spinners': 1}})
 
+    def test_reported_shimmer_is_refused(self):
+        with self.assertRaisesRegex(frame_quality.FrameRefused, 'shimmer'):
+            self.check(good_screen, {'devicePixelRatio': 3.0,
+                                     'quality': {'shimmers': 2}})
+
     def test_rgba_and_pure_zlib_decoder_agree_with_rgb(self):
         saved = sys.modules.get('PIL', 'absent')
         sys.modules['PIL'] = None  # force the zlib decoder
