@@ -1844,9 +1844,15 @@ jobs:
             --shots tour_screenshots \
             --chips tour/chips.json \
             --work-dir tour_strip_work
+          # --no-quality-gate: the gate's block-glyph and blank heuristics are
+          # calibrated on widget-test renders. On device stills they refuse
+          # real, correct screens (paas_driver run 44092120451: 6 of 21 refused,
+          # so no page was written). Device stills are judged by the tour's
+          # own capture gates (ANR, foreground, completeness) instead.
           python3 .tour-tools/scripts/render/compose_strip.py \
             --config tour_strip_work/strip.json \
-            --out "${{ inputs.output-dir }}/tour-strip.html"
+            --out "${{ inputs.output-dir }}/tour-strip.html" \
+            --no-quality-gate
 
       # Refresh the README's generated marker sections (store-description
       # + tour-gallery blocks, see scripts/tour/readme_sections.py) so the
