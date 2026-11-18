@@ -462,12 +462,18 @@ def app_title_prefix(app_dir):
 
 
 def compose_title(prefix, base, suffix):
-    """prefix, base and suffix joined with single spaces; empty parts are dropped.
+    """prefix, base and suffix joined with spaces; empty parts are dropped.
 
+    A suffix that starts with a colon is a subtitle: it attaches to the name with
+    no space before the colon, as the store writes it ("Polaris: loans made easy").
     No base means no title at all: a prefix or suffix alone is not a store name.
     """
     if not base:
         return ""
+    if suffix.startswith(":"):
+        rest = suffix[1:].strip()
+        head = " ".join(part for part in (prefix, base) if part)
+        return f"{head}:" + (f" {rest}" if rest else "")
     return " ".join(part for part in (prefix, base, suffix) if part)
 
 
