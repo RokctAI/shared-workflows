@@ -447,9 +447,34 @@ def app_base_name(app_dir):
     return " ".join(match.group(1).split()) if match else ""
 
 
-def compose_title(base, suffix):
-    """base plus the suffix joined with a space; the base alone when there is no suffix."""
-    return f"{base} {suffix}".strip() if base else ""
+def app_title_prefix(app_dir):
+    """Optional store-title prefix from .rokct/config/store_title_prefix (e.g. "JUVO:").
+
+    Empty or absent means no prefix. The prefix sits before the app name, so the
+    store can read "JUVO: Manager" while the app shows "Manager".
+    """
+    path = os.path.join(app_dir, ".rokct", "config", "store_title_prefix")
+    if not os.path.isfile(path):
+        return ""
+    with open(path, encoding="utf-8-sig") as handle:
+        lines = [" ".join(line.split()) for line in handle if line.strip()]
+    return lines[0] if lines else ""
+
+
+def compose_title(prefix, base, suffix):
+    """prefix, base and suffix joined with spaces; empty parts are dropped.
+
+    A suffix that starts with a colon is a subtitle: it attaches to the name with
+    no space before the colon, as the store writes it ("Polaris: loans made easy").
+    No base means no title at all: a prefix or suffix alone is not a store name.
+    """
+    if not base:
+        return ""
+    if suffix.startswith(":"):
+        rest = suffix[1:].strip()
+        head = " ".join(part for part in (prefix, base) if part)
+        return f"{head}:" + (f" {rest}" if rest else "")
+    return " ".join(part for part in (prefix, base, suffix) if part)
 
 
 def discover_listing_texts(app_dir):
@@ -472,12 +497,14 @@ def discover_listing_texts(app_dir):
         for api_field, filename, limit, single_line in LISTING_TEXT_FIELDS:
             path = os.path.join(locale_dir, filename)
             if api_field == "title" and locale == "en-US":
-                # title.txt holds the SUFFIX only (empty means no suffix). The store
-                # title is the app name plus that suffix, joined with a space, so the
-                # store can say "Juvo Food" while the app shows "Juvo".
+                # Store title = [prefix] app name [suffix], joined with spaces.
+                # The prefix comes from .rokct/config/store_title_prefix ("JUVO:");
+                # title.txt holds the SUFFIX only (empty means no suffix). So the
+                # store can say "JUVO: Manager" or "Juvo Food" while the app shows
+                # "Manager" or "Juvo".
                 suffix_lines = effective_lines(path) if os.path.isfile(path) else []
                 suffix = suffix_lines[0] if suffix_lines else ""
-                value = compose_title(app_base_name(app_dir), suffix)
+                value = compose_title(app_title_prefix(app_dir), app_base_name(app_dir), suffix)
                 if not value:
                     warn("no store title: the app name could not be read from strings.xml")
                 elif len(value) > limit:
