@@ -677,25 +677,6 @@ jobs:
         with:
           file_path: ${{ inputs.version_file }}
 
-      - name: Resolve Build Name And Number
-        env:
-          RESOLVED_VERSION: ${{ steps.version_local.outputs.version }}${{ steps.version_shared.outputs.version }}
-        run: |
-          # Strip any Flutter "+build" suffix and any leading "v":
-          # --build-name takes the bare semantic version.
-          BUILD_NAME=$(printf '%s' "${RESOLVED_VERSION%%+*}" | tr -d '[:space:]')
-          BUILD_NAME="${BUILD_NAME#v}"
-          if [ -z "$BUILD_NAME" ]; then
-            echo "::error::No version resolved from ${{ inputs.version_file }}; refusing to build an AAB with an unknown version. The gate resolved one, so this means the file changed or is unreadable in this job's checkout."
-            exit 1
-          fi
-          BUILD_NUMBER=$(( $(date -u +%s) / 60 ))
-          echo "Stamping AAB as $BUILD_NAME (versionCode $BUILD_NUMBER)"
-          {
-            echo "BUILD_NAME=$BUILD_NAME"
-            echo "BUILD_NUMBER=$BUILD_NUMBER"
-          } >> "$GITHUB_ENV"
-
       # Deploy the AAB that universal-release.yml already built and attached to
       # the latest published release, instead of building it again. A release is
       # the build that was tested and shipped, so the store receives those same
