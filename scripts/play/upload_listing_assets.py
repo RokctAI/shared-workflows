@@ -124,6 +124,8 @@ needs neither credentials nor the Google API packages installed.
 """
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 
@@ -536,6 +538,52 @@ def discover_video(app_dir):
     return url
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def hash_assets(assets):
+    """image type -> ordered list of sha256 digests of the files it would push."""
+    return {image_type: [file_sha256(path) for path in paths]
+            for image_type, paths in assets.items()}
+
+
+def load_listing_state(path):
+    """The digests of what the last successful push left live, per image type.
+
+    Missing or unreadable state means "unknown": every image type is pushed,
+    which is the behaviour before change detection existed.
+    """
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as e:
+        warn(f"listing state {path} is unreadable ({e}); pushing every image type")
+        return {}
+    images = data.get("images") if isinstance(data, dict) else None
+    return images if isinstance(images, dict) else {}
+
+
+def save_listing_state(path, images):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump({"images": images}, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def write_github_output(name, value):
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}={value}\n")
+
+
 def describe(path):
     dimensions = image_size(path)
     width, height = dimensions if dimensions else ("?", "?")
@@ -758,6 +806,13 @@ def main():
         "marketing/store/listing/<locale>/ regardless",
     )
     parser.add_argument(
+        "--state-file",
+        default=os.path.join(".github", ".play-store-listing-state.json"),
+        help="Where the digests of the last successful push are kept, relative "
+        "to --app-dir. An image type whose files hash the same is not cleared "
+        "or re-uploaded. Missing means push everything.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Discover, validate and print what would be uploaded, then exit "
@@ -788,8 +843,32 @@ def main():
     video_url = discover_video(args.app_dir)
     listing_texts = discover_listing_texts(args.app_dir)
 
+    # Change detection. Play has no "replace": pushing an image type clears it
+    # and re-adds it, so an unchanged type is only a churn of the store listing.
+    # Hash every file that would be pushed, and push only the types whose
+    # digests differ from what the last successful push left live.
+    state_path = os.path.join(args.app_dir, args.state_file)
+    current_digests = hash_assets(assets)
+    previous_digests = load_listing_state(state_path)
+    unchanged_types = sorted(
+        image_type
+        for image_type in current_digests
+        if previous_digests.get(image_type) == current_digests[image_type]
+    )
+    for image_type in unchanged_types:
+        log(f"{image_type} ({args.language}): unchanged since the last push; not re-uploaded")
+    assets = {
+        image_type: paths
+        for image_type, paths in assets.items()
+        if image_type not in unchanged_types
+    }
+
     if not assets and not video_url and not listing_texts:
-        log("no valid listing assets found — nothing to upload; deploy continues")
+        if current_digests:
+            log("listing images unchanged since the last push; nothing to upload")
+        else:
+            log("no valid listing assets found — nothing to upload; deploy continues")
+        write_github_output("state_changed", "false")
         return
 
     for locale, fields in listing_texts.items():
@@ -830,6 +909,14 @@ def main():
         )
     except Exception as e:  # loud, non-zero: auth failures, HttpError, IO
         fail(f"Play Edits API upload failed: {e}")
+
+    # Only a committed edit changes what is live, so only then do the digests
+    # of this run become the record of the listing.
+    state_changed = current_digests != previous_digests
+    if state_changed:
+        save_listing_state(state_path, current_digests)
+        log(f"listing state written to {args.state_file} ({len(current_digests)} image type(s))")
+    write_github_output("state_changed", "true" if state_changed else "false")
 
 
 if __name__ == "__main__":

@@ -400,6 +400,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      listing_state_changed: ${{ steps.listing.outputs.state_changed }}
     env:
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
     steps:
@@ -796,6 +798,7 @@ jobs:
           sparse-checkout: scripts/play
 
       - name: Push Store Listing Assets
+        id: listing
         if: hashFiles('marketing/tour/store/**', 'marketing/store/video.txt', 'marketing/store/listing/**') != ''
         env:
           PACKAGE_NAME: ${{ needs.gate.outputs.package_name }}
@@ -806,6 +809,16 @@ jobs:
             --app-dir . --language en-US
           rm -rf .github/shared-workflows
 
+      # The new digests travel to record-listing-state as an artifact: that job
+      # runs on another runner and must write exactly what this push left live.
+      - name: Upload Listing State
+        if: steps.listing.outputs.state_changed == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: play-listing-state
+          path: .github/.play-store-listing-state.json
+          if-no-files-found: error
+
       - name: Cleanup Resolved Credential Files
         if: always()
         # Remove every credential file the resolve step may have written
@@ -813,6 +826,97 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/play-store-service-account.json" \
                 "$RUNNER_TEMP/google-services.json"
+
+  # --- 4. RECORD LISTING STATE (only when this push changed a listing image) ---
+  # The digests of what the listing push left live. Without them the next run
+  # cannot tell an unchanged graphic from a changed one, so they are committed
+  # PR-first like the release marker, with [skip ci] so the commit does not start CI.
+  record-listing-state:
+    name: 🧾 Record Listing State
+    needs: [gate, deploy]
+    if: needs.deploy.result == 'success' && needs.deploy.outputs.listing_state_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Determine Context
+        run: |
+          if [ "${{ github.repository }}" = "RokctAI/shared-workflows" ]; then
+            echo "IS_SELF=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_SELF=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout Shared Workflows Actions
+        if: env.IS_SELF == 'false'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/shared-workflows
+          token: ${{ github.token }}
+          path: .github/shared-workflows
+
+      - name: Setup Identity (Local)
+        if: env.IS_SELF == 'true'
+        uses: ./.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Identity (Shared)
+        if: env.IS_SELF == 'false'
+        uses: ./.github/shared-workflows/.github/actions/setup-identity
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup Shared Workflows Checkout
+        if: always() && env.IS_SELF == 'false'
+        run: rm -rf .github/shared-workflows
+
+      - name: Download Listing State
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: play-listing-state
+          path: .github
+
+      - name: Commit Listing State (PR-First)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          STATE_FILE=".github/.play-store-listing-state.json"
+          if [[ ! -f "$STATE_FILE" ]]; then
+            echo "::error::listing state artifact did not arrive"
+            exit 1
+          fi
+
+          if [[ -z "$(git status -s "$STATE_FILE")" ]]; then
+            echo "No change to commit."
+            exit 0
+          fi
+
+          BRANCH_NAME="play-store-listing-state-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
+          git add "$STATE_FILE"
+          git commit -m "chore(play-store): record listing state [skip ci]"
+
+          # [skip ci] is in the title as well: the squash merge uses it as the
+          # commit message on main.
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "Play Store: recorded listing state [skip ci]" \
+              --body "Automated listing-state update after pushing store images and text to Play. Merge so the next run skips images that did not change. Until it merges, the next run pushes them all again." \
+              --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          else
+            echo "::warning::Could not push the listing state branch."
+          fi
 
   # --- 3. RECORD STATE (only after a successful publish) ---
   record-state:
