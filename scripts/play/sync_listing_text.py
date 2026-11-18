@@ -10,8 +10,9 @@ feeds everything:
   * full_description.txt: the block as-is, plain text (no AI).
   * short_description.txt: written by the brain endpoint (AI), with a sentence cut
     as the fallback.
-  * title.txt: the Android app_name in strings.xml, the store name. The repo name
-    is never used.
+  * title.txt is not written here. It holds the store-title suffix, edited by hand
+    (empty means no suffix). The upload composes the title from the Android app_name
+    plus that suffix (scripts/play/upload_listing_assets.py).
 
 A listing file is written only when it already exists and is still a template
 (empty or comment-only) or still carries this script's marker. A hand edit removes
@@ -37,7 +38,6 @@ README = "README.md"
 README_START = "<!-- @generated-store-description-start -->"
 README_END = "<!-- @generated-store-description-end -->"
 STRINGS = os.path.join("android", "app", "src", "main", "res", "values", "strings.xml")
-STORE_TITLE_SUFFIX_FILE = os.path.join(".rokct", "config", "store_title_suffix")
 LISTING = os.path.join("marketing", "store", "listing", "en-US")
 LIMITS = {"title": 30, "short": 80, "full": 4000, "about": 350}
 
@@ -142,29 +142,6 @@ def brain_short(endpoint, token, version, text, limit):
     return message if 0 < len(message) <= limit else None
 
 
-def store_title(app_dir):
-    """The store title: the app name, plus an optional suffix joined with a space.
-
-    The device shows "Juvo"; the store can list "Juvo Food". The base is the
-    Android app_name. The suffix is .rokct/config/store_title_suffix, when present.
-    """
-    base = app_name(app_dir)
-    suffix_path = os.path.join(app_dir, STORE_TITLE_SUFFIX_FILE)
-    if not base or not os.path.isfile(suffix_path):
-        return base
-    with open(suffix_path, encoding="utf-8-sig") as handle:  # tolerate a BOM
-        suffix = " ".join(handle.read().split())
-    return f"{base} {suffix}".strip()
-
-
-def app_name(app_dir):
-    path = os.path.join(app_dir, STRINGS)
-    if not os.path.isfile(path):
-        return ""
-    match = re.search(r'<string name="app_name">([^<]+)</string>', read(path))
-    return match.group(1).strip() if match else ""
-
-
 def set_repo_about(description):
     """Set the GitHub repo description. Returns True when it changed."""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
@@ -236,14 +213,6 @@ def main():
         else:
             log("short_description.txt is absent or edited by hand; left as it is")
 
-    name = store_title(args.app_dir)
-    title_path = os.path.join(args.app_dir, LISTING, "title.txt")
-    if not name:
-        log("no app_name in strings.xml; title left as it is")
-    elif writable(title_path):
-        changed |= write_listing(args.app_dir, "title.txt", fit(name, LIMITS["title"]))
-    else:
-        log("title.txt is absent or edited by hand; left as it is")
 
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
