@@ -48,11 +48,22 @@ runs:
            exit 0
         fi
 
-        # Priority 1: versions.json OR version.json (Recursive search fallback)
-        # Exclude standard ignored dirs to speed up and avoid false positives
-        # MOVED UP: Must check this BEFORE everything else because JSON is the source of truth if present.
-        FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
-        
+        # Priority 1: versions.json OR version.json at the repo root.
+        # The root file is the app's own. A recursive search is only a fallback
+        # for repos without one, and it never descends into .github (where the
+        # callers check out shared-workflows, whose version.json is not the app's)
+        # or .rokct (composed SDK cache).
+        FOUND_JSON=""
+        for ROOT_FILE in version.json versions.json; do
+          if [ -f "$ROOT_FILE" ]; then
+            FOUND_JSON="$ROOT_FILE"
+            break
+          fi
+        done
+        if [ -z "$FOUND_JSON" ]; then
+          FOUND_JSON=$(find . -type f \( -name "versions.json" -o -name "version.json" \) -not -path "./.github/*" -not -path "./.rokct/*" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/build/*" -not -path "*/dist/*" | head -n 1)
+        fi
+
         if [ -n "$FOUND_JSON" ]; then
           echo "Found versions.json at $FOUND_JSON"
           # strip leading ./ for clean path
