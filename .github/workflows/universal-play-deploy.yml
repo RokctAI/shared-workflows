@@ -130,6 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       proceed: ${{ steps.decide.outputs.proceed }}
+      upload_aab: ${{ steps.decide.outputs.upload_aab }}
       reason: ${{ steps.decide.outputs.reason }}
       version: ${{ steps.decide.outputs.version }}
       package_name: ${{ steps.decide.outputs.package_name }}
@@ -289,7 +290,13 @@ jobs:
           echo "🔍 Current version: $VERSION (last released version: ${LAST_VERSION:-none})"
           echo "🔍 Current SHA: $CURRENT_SHA (last released SHA: ${LAST_SHA:-none})"
 
+          # PROCEED gates the whole deploy job (listing assets included).
+          # UPLOAD_AAB gates only the binary: the upload, the release-state marker.
+          # The listing (graphics, text, screenshots) still goes out when only
+          # the binary is held back, so graphics-only changes ship without a
+          # new version.
           PROCEED=true
+          UPLOAD_AAB=true
           REASON=""
 
           # --- Rule: hard branch gate ---
@@ -328,15 +335,16 @@ jobs:
           # --- Rule: at most one release per ISO week, no matter how many
           # times this is triggered (manual dispatch cannot bypass it) ---
           if [ "$PROCEED" = "true" ] && [ -n "$LAST_WEEK" ] && [ "$LAST_WEEK" = "$CURRENT_WEEK" ]; then
-            PROCEED=false
+            UPLOAD_AAB=false
             REASON="already-released-this-week"
           fi
 
           # --- Rule: nothing new to ship — same version already released,
           # or HEAD hasn't moved since the last release ---
           if [ "$PROCEED" = "true" ] && [ -n "$LAST_VERSION" ] && [ "$LAST_VERSION" = "$VERSION" ]; then
-            PROCEED=false
+            UPLOAD_AAB=false
             REASON="version-unchanged-since-last-release"
+            echo "::notice::version.json is still $VERSION, the version already released. The AAB is not uploaded; listing assets still are."
           fi
 
           if [ "$PROCEED" = "true" ] && [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
@@ -349,24 +357,25 @@ jobs:
           # and it must not be the release already sent to Play. Otherwise a
           # run would re-send an old build or ship a build that does not match
           # version.json. Both refuse as no-ops, with a warning, not a deploy.
-          if [ "$PROCEED" = "true" ]; then
+          if [ "$PROCEED" = "true" ] && [ "$UPLOAD_AAB" = "true" ]; then
             LATEST_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
             LATEST_VERSION="${LATEST_TAG#v}"
             if [ -z "$LATEST_TAG" ]; then
-              PROCEED=false
+              UPLOAD_AAB=false
               REASON="no-published-release"
             elif [ "$LATEST_VERSION" != "$VERSION" ]; then
-              PROCEED=false
+              UPLOAD_AAB=false
               REASON="release-version-mismatch"
-              echo "::warning::Latest published release is $LATEST_TAG but version.json says $VERSION. Not deploying: the upload would carry $LATEST_TAG's build. Publish a v$VERSION release first."
+              echo "::warning::Latest published release is $LATEST_TAG but version.json says $VERSION. Not uploading the AAB: it would carry $LATEST_TAG's build. Publish a v$VERSION release first. Listing assets still go out."
             elif [ -n "$LAST_VERSION" ] && [ "$LAST_VERSION" = "$LATEST_VERSION" ]; then
-              PROCEED=false
+              UPLOAD_AAB=false
               REASON="release-already-deployed"
             fi
           fi
 
           {
             echo "proceed=$PROCEED"
+            echo "upload_aab=$UPLOAD_AAB"
             echo "reason=$REASON"
             echo "version=$VERSION"
             echo "package_name=$PACKAGE"
@@ -706,6 +715,7 @@ jobs:
       # bytes. Drafts and pre-releases are skipped.
       - name: Download Latest Release AAB
         id: build_aab
+        if: needs.gate.outputs.upload_aab == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -745,6 +755,7 @@ jobs:
       # actions/create-github-app-token) rather than shelling out to a
       # Ruby/fastlane toolchain that nothing else in this repo uses.
       - name: Upload to Play Store
+        if: needs.gate.outputs.upload_aab == 'true'
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
         with:
           serviceAccountJson: ${{ steps.play_key.outputs.key_path }}
@@ -807,7 +818,9 @@ jobs:
   record-state:
     name: 📝 Record Release State
     needs: [gate, deploy]
-    if: needs.deploy.result == 'success'
+    # Only a run that uploaded the AAB records a release. A listing-only run
+    # (same version) must not move the marker.
+    if: needs.deploy.result == 'success' && needs.gate.outputs.upload_aab == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
