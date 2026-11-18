@@ -737,6 +737,58 @@ jobs:
           echo "Deploying $AAB_PATH from release $TAG"
           echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
 
+          # The release may carry a What's New written from its release notes
+          # (universal-release). Best-effort: no asset means no What's New here.
+          mkdir -p build/whatsnew
+          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'whatsnew-en-US.txt' --dir build/whatsnew --clobber 2>/dev/null; then
+            mv build/whatsnew/whatsnew-en-US.txt build/whatsnew/whatsnew-en-US
+            echo "Release $TAG carries a What's New asset."
+          else
+            echo "Release $TAG has no What's New asset."
+          fi
+
+      # Which What's New the upload sends. The repo file wins only when it is a
+      # real note: marketing/store/whatsnew/whatsnew-en-US often starts as a
+      # template, and a template must not reach users as release notes. The
+      # template is identified by digest of its normalized text (CRLF to LF,
+      # trailing whitespace and blank lines removed), so editing it to a real
+      # note switches it on without any other change.
+      - name: Resolve What's New Source
+        id: whatsnew
+        if: needs.gate.outputs.upload_aab == 'true'
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+
+          # Digest of the template text marketing/store/whatsnew/whatsnew-en-US
+          # ships with: "Latest lessons, performance improvements and fixes."
+          TEMPLATE_SHA256 = "449461baf4099a6dc56c760dfc861d7355823a57792e54563c648b7e8c5da43b"
+          REPO_FILE = "marketing/store/whatsnew/whatsnew-en-US"
+          RELEASE_DIR = "build/whatsnew"
+
+          def normalized_digest(path):
+              with open(path, "rb") as handle:
+                  text = handle.read().decode("utf-8").replace("\r\n", "\n")
+              lines = [line.rstrip() for line in text.split("\n")]
+              while lines and lines[-1] == "":
+                  lines.pop()
+              return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+          source = ""
+          if os.path.isfile(REPO_FILE) and normalized_digest(REPO_FILE) != TEMPLATE_SHA256:
+              source = "marketing/store/whatsnew"
+              print("What's New: using the repo file (it is a real note, not the template).")
+          elif os.path.isfile(os.path.join(RELEASE_DIR, "whatsnew-en-US")):
+              source = RELEASE_DIR
+              print("What's New: using the release asset.")
+          else:
+              print("What's New: none. The repo file is the template or missing, and the release has no asset.")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"dir={source}\n")
+          PY
+
       - name: Locate Play Store Service Account Key
         id: play_key
         run: |
@@ -765,12 +817,10 @@ jobs:
           releaseFiles: ${{ steps.build_aab.outputs.aab_path }}
           tracks: ${{ inputs.track }}
           status: ${{ inputs.release_status }}
-          # Release notes from the repo: marketing/store/whatsnew/ holds one
-          # whatsnew-<BCP-47 locale> file per language (e.g. whatsnew-en-US,
-          # no extension — the action's required naming). The empty string
-          # when the directory is absent is fine: the action skips release
-          # notes when the input has no value.
-          whatsNewDirectory: ${{ hashFiles('marketing/store/whatsnew/*') != '' && 'marketing/store/whatsnew' || '' }}
+          # What's New from the resolve step above: the repo's whatsnew folder
+          # when it holds a real note, else the release's generated one, else
+          # empty (the action then skips release notes).
+          whatsNewDirectory: ${{ steps.whatsnew.outputs.dir }}
 
       # The action above only ships the AAB. Store LISTING assets rendered
       # by the tour pipeline into the caller's checkout (this job's Checkout
