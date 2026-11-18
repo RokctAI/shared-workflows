@@ -269,6 +269,8 @@ jobs:
 
       - name: Decide
         id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.current_version.outputs.version }}"
           PACKAGE="${{ steps.pkg.outputs.package_name }}"
@@ -340,6 +342,27 @@ jobs:
           if [ "$PROCEED" = "true" ] && [ -n "$LAST_SHA" ] && [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
             PROCEED=false
             REASON="no-new-commits-since-last-release"
+          fi
+
+          # --- Rule: the upload is the latest published release's AAB (see the
+          # deploy job), so that release must be the version being decided on,
+          # and it must not be the release already sent to Play. Otherwise a
+          # run would re-send an old build or ship a build that does not match
+          # version.json. Both refuse as no-ops, with a warning, not a deploy.
+          if [ "$PROCEED" = "true" ]; then
+            LATEST_TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+            LATEST_VERSION="${LATEST_TAG#v}"
+            if [ -z "$LATEST_TAG" ]; then
+              PROCEED=false
+              REASON="no-published-release"
+            elif [ "$LATEST_VERSION" != "$VERSION" ]; then
+              PROCEED=false
+              REASON="release-version-mismatch"
+              echo "::warning::Latest published release is $LATEST_TAG but version.json says $VERSION. Not deploying: the upload would carry $LATEST_TAG's build. Publish a v$VERSION release first."
+            elif [ -n "$LAST_VERSION" ] && [ "$LAST_VERSION" = "$LATEST_VERSION" ]; then
+              PROCEED=false
+              REASON="release-already-deployed"
+            fi
           fi
 
           {
