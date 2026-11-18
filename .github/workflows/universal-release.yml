@@ -2660,6 +2660,66 @@ jobs:
 
             echo "changelog_path=changelog.txt" >> "$GITHUB_OUTPUT"
 
+      # What's New for Play users, written from the release notes just generated
+      # (not from the code diff). It is attached to the release as
+      # whatsnew-en-US.txt; play-deploy reads that asset when the repo has no real
+      # note. Best-effort: when this writes nothing, the deploy keeps the repo's
+      # note or sends none, and the release still publishes.
+      - name: Generate What's New (Play)
+        if: env.TAG_NAME != ''
+        id: whatsnew
+        shell: bash
+        env:
+          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+          BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+        run: |
+          TAG="${{ env.TAG_NAME }}"
+          rm -f whatsnew-en-US.txt
+          if [ ! -s changelog.txt ]; then
+            echo "No release notes, so no What's New."
+            exit 0
+          fi
+
+          WHATSNEW=""
+          if [ -n "$BRAIN_ENDPOINT" ] && [ -n "$BRAIN_TOKEN" ]; then
+            PAYLOAD=$(jq -n \
+              --arg repo "${{ github.server_url }}/${{ github.repository }}" \
+              --arg ver "$TAG" \
+              --rawfile notes changelog.txt \
+              '{repo_url: $repo, version_name: $ver, commit_log: $notes, diff_summary: "Write the What is New for Play users from these release notes: plain text, at most 500 characters, no markdown, no version numbers."}')
+            if [[ "$BRAIN_ENDPOINT" == *"rokct.platform.api" ]]; then
+              PAYLOAD=$(echo "$PAYLOAD" | jq '{cmd: "api.brain.generate_release_notes", payload: {repo_url, version_name, commit_log, diff_summary}}')
+            fi
+            RESPONSE=$(curl -s -m 60 "$BRAIN_ENDPOINT" -H "Content-Type: application/json" -H "Authorization: $BRAIN_TOKEN" -d "$PAYLOAD" || echo "Curl Failed")
+            if echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+              WHATSNEW=$(echo "$RESPONSE" | jq -r '.message // empty')
+            fi
+          fi
+
+          # Plain text: strip markdown, links and heading marks.
+          WHATSNEW=$(printf '%s' "$WHATSNEW" | sed -E 's/\*\*//g; s/`//g; s/^#+ *//; s/\[([^]]*)\]\([^)]*\)/\1/g; s/^[[:space:]]*[-*] +/- /')
+
+          # Fallback when the AI wrote nothing: the commit subjects in the notes.
+          if [ -z "$(printf '%s' "$WHATSNEW" | tr -d '[:space:]')" ]; then
+            WHATSNEW=$(grep -E '^\* ' changelog.txt | sed -E 's/^\* //; s/ \(\[[^]]*\]\([^)]*\)\)$//' | sed -E 's/^/- /' | head -n 8)
+          fi
+
+          # Play allows 500 characters of What's New. Cut at a word boundary.
+          WHATSNEW=$(printf '%s' "$WHATSNEW" | python3 -c '
+          import sys
+          text = sys.stdin.read().strip()
+          if len(text) > 500:
+              text = text[:500].rsplit(" ", 1)[0].rstrip()
+          print(text)
+          ')
+
+          if [ -n "$(printf '%s' "$WHATSNEW" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$WHATSNEW" > whatsnew-en-US.txt
+            echo "What's New written for $TAG (${#WHATSNEW} characters)."
+          else
+            echo "No What's New produced for $TAG."
+          fi
+
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         shell: bash
@@ -2688,7 +2748,10 @@ jobs:
               FILES+=("$windows_installer_path")
            fi
 
-           echo "Files to upload: ${FILES[*]}"
+            # What's New asset for play-deploy (named exactly whatsnew-en-US.txt).
+            if [ -s whatsnew-en-US.txt ]; then FILES+=("whatsnew-en-US.txt"); fi
+
+            echo "Files to upload: ${FILES[*]}"
 
            # Check if release already exists (handles protected tags / static RCs)
            if gh release view "$TAG" >/dev/null 2>&1; then
