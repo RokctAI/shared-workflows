@@ -408,7 +408,11 @@ def main(argv=None):
     original = readme.read_text(encoding="utf-8")
     lines = original.splitlines()
 
-    description = build_description_block(repo_root)
+    # The store-description block is the README's own text now: the release reads
+    # it (scripts/play/sync_listing_text.py) to set the repo About and the listing.
+    # The tour no longer rewrites it from the listing, so the two cannot overwrite
+    # each other. None leaves the block as it is.
+    description = None
     gallery = build_gallery_block(repo_root)
     render_strip = build_render_strip_block(repo_root)
 

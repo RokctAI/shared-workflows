@@ -2720,6 +2720,43 @@ jobs:
             echo "No What's New produced for $TAG."
           fi
 
+      # The README's store-description block is the source: it sets the repo About
+      # and the listing's full/short description and title. Runs only when the repo
+      # has listing files to update. Deploy reads those files from main later.
+      - name: Sync README To About And Listing Text
+        id: listing_text
+        if: env.TAG_NAME != '' && hashFiles('marketing/store/listing/en-US/*.txt') != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          BRAIN_ENDPOINT: ${{ inputs.brain_endpoint }}
+          BRAIN_TOKEN: ${{ secrets.BRAIN_TOKEN }}
+        run: |
+          python3 .github/shared-workflows/scripts/play/sync_listing_text.py \
+            --app-dir . --version "${{ env.TAG_NAME }}"
+
+      # The listing text changes through a PR, like the version bump: main is
+      # protected, and the PR carries [skip ci] so merging it does not start CI.
+      - name: Open Listing Text PR
+        if: steps.listing_text.outputs.listing_changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          BRANCH_NAME="listing-text-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+          git add marketing/store/listing/en-US/
+          git commit -m "chore(play-store): sync listing text from the README [skip ci]"
+          if git push -u origin "$BRANCH_NAME"; then
+            gh pr create --title "Play Store: listing text from the README [skip ci]" \
+              --body "Automated listing text update from the README store-description block, from release ${{ env.TAG_NAME }}. Merge it so the next Play deploy uploads the new text." \
+              --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
+          else
+            echo "::warning::Could not push the listing text branch."
+          fi
+
       - name: Publish GitHub Release (Native CLI)
         if: env.TAG_NAME != ''
         shell: bash

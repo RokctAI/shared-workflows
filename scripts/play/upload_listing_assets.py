@@ -127,6 +127,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 
 STORE_DIR = os.path.join("marketing", "tour", "store")
@@ -436,6 +437,21 @@ def discover_tablet_screenshots(tablet_store_dir, curated_keys=None):
     return capped
 
 
+def app_base_name(app_dir):
+    """The Android app_name, the base of the store title (empty if unreadable)."""
+    path = os.path.join(app_dir, "android", "app", "src", "main", "res", "values", "strings.xml")
+    if not os.path.isfile(path):
+        return ""
+    with open(path, encoding="utf-8-sig") as handle:
+        match = re.search(r'<string name="app_name">([^<]+)</string>', handle.read())
+    return " ".join(match.group(1).split()) if match else ""
+
+
+def compose_title(base, suffix):
+    """base plus the suffix joined with a space; the base alone when there is no suffix."""
+    return f"{base} {suffix}".strip() if base else ""
+
+
 def discover_listing_texts(app_dir):
     """The repo's listing text: {locale: {API field: text}}.
 
@@ -455,6 +471,23 @@ def discover_listing_texts(app_dir):
         fields = {}
         for api_field, filename, limit, single_line in LISTING_TEXT_FIELDS:
             path = os.path.join(locale_dir, filename)
+            if api_field == "title" and locale == "en-US":
+                # title.txt holds the SUFFIX only (empty means no suffix). The store
+                # title is the app name plus that suffix, joined with a space, so the
+                # store can say "Juvo Food" while the app shows "Juvo".
+                suffix_lines = effective_lines(path) if os.path.isfile(path) else []
+                suffix = suffix_lines[0] if suffix_lines else ""
+                value = compose_title(app_base_name(app_dir), suffix)
+                if not value:
+                    warn("no store title: the app name could not be read from strings.xml")
+                elif len(value) > limit:
+                    warn(
+                        f"SKIPPING title (en-US): '{value}' is {len(value)} characters, over "
+                        f"Play's {limit}. Shorten the suffix in {path}; nothing was pushed."
+                    )
+                else:
+                    fields[api_field] = value
+                continue
             if not os.path.isfile(path):
                 continue
             if single_line:
