@@ -863,7 +863,10 @@ jobs:
           git commit -m "chore(play-store): record release ${{ needs.gate.outputs.version }} [skip ci]"
 
           if git push -u origin "$BRANCH_NAME"; then
-            gh pr create --title "🚀 Play Store: recorded release ${{ needs.gate.outputs.version }}" \
+            # [skip ci] in the title matters: a squash merge uses the PR title as
+            # the commit message on main, and without the marker that push would
+            # start CI (and whatever reacts to it) for a state-only change.
+            gh pr create --title "🚀 Play Store: recorded release ${{ needs.gate.outputs.version }} [skip ci]" \
               --body "Automated marker update after publishing ${{ needs.gate.outputs.version }} to the '${{ inputs.track }}' track. Merge to keep the weekly-limit and no-op checks accurate." \
               --head "$BRANCH_NAME" --base "${{ github.ref_name }}" || echo "PR already exists."
           else
