@@ -746,7 +746,7 @@ jobs:
           serviceAccountJson: ${{ steps.play_key.outputs.key_path }}
           packageName: ${{ needs.gate.outputs.package_name }}
           releaseFiles: ${{ steps.build_aab.outputs.aab_path }}
-          track: ${{ inputs.track }}
+          tracks: ${{ inputs.track }}
           status: ${{ inputs.release_status }}
           # Release notes from the repo: marketing/store/whatsnew/ holds one
           # whatsnew-<BCP-47 locale> file per language (e.g. whatsnew-en-US,
