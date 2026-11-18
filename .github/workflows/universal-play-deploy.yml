@@ -775,10 +775,23 @@ jobs:
                   lines.pop()
               return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
+          def real_text(path):
+              # Lines that are not blank and not "#" comments. A template that is
+              # only comments (the app template's placeholder) has none, so it is unset.
+              with open(path, "rb") as handle:
+                  text = handle.read().decode("utf-8").replace("\r\n", "\n")
+              return [line.strip() for line in text.split("\n")
+                      if line.strip() and not line.lstrip().startswith("#")]
+
           source = ""
-          if os.path.isfile(REPO_FILE) and normalized_digest(REPO_FILE) != TEMPLATE_SHA256:
-              source = "marketing/store/whatsnew"
-              print("What's New: using the repo file (it is a real note, not the template).")
+          if os.path.isfile(REPO_FILE) and real_text(REPO_FILE) and normalized_digest(REPO_FILE) != TEMPLATE_SHA256:
+              # Upload only the note: strip the "#" comment lines (they are the
+              # file's instructions, not store text) into the release folder.
+              os.makedirs(RELEASE_DIR, exist_ok=True)
+              with open(os.path.join(RELEASE_DIR, "whatsnew-en-US"), "w", encoding="utf-8", newline="\n") as out_file:
+                  out_file.write("\n".join(real_text(REPO_FILE)) + "\n")
+              source = RELEASE_DIR
+              print("What's New: using the repo file (a real note, not the template or the comment-only placeholder).")
           elif os.path.isfile(os.path.join(RELEASE_DIR, "whatsnew-en-US")):
               source = RELEASE_DIR
               print("What's New: using the release asset.")
