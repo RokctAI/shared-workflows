@@ -429,12 +429,13 @@ jobs:
   # (supacharge-web run 34115620745 cut v1.2.9 with lint red). PR runs are
   # for the read-only gates above; releases stay push/dispatch/schedule-only.
   release:
-    needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter, observability-compliance]
+    needs: [detect-changes, ci-frappe, ci-node, ci-flutter, verify-flutter, observability-compliance, clean-head]
     if: |
       always() && 
       github.event_name != 'pull_request' &&
       needs.detect-changes.outputs.trivial != 'true' &&
       (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') &&
+      (needs.clean-head.result == 'success' || needs.clean-head.result == 'skipped') &&
       (github.ref_name == 'develop' || (
         (needs.ci-frappe.result == 'success' || needs.ci-frappe.result == 'skipped') &&
         (needs.ci-node.result == 'success' || needs.ci-node.result == 'skipped') &&
