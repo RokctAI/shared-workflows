@@ -880,6 +880,9 @@ jobs:
         with:
           name: play-listing-state
           path: .github/.play-store-listing-state.json
+          # The state file is a dotfile. upload-artifact skips hidden files unless told
+          # otherwise, which failed the upload with "No files were found".
+          include-hidden-files: true
           if-no-files-found: error
 
       - name: Cleanup Resolved Credential Files
