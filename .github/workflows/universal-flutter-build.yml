@@ -221,6 +221,12 @@ jobs:
             ; do
               if [ -e "$p" ]; then git add -- "$p" || true; fi
             done
+            # SDK API docs are composer output too: compose copies each SDK's
+            # dart/docs/api/*.md into the shell's docs/api/ and records them in the
+            # manifest under .rokct/cache. Staging them here keeps the committed docs in
+            # step with the SDK source, so clean-HEAD cannot drift on stale docs after an
+            # SDK moves a file. -A also stages the removal of docs the composer dropped.
+            git add -A -- docs/api 2>/dev/null || true
             if [ "$COMPOSE_EXIT" -ne 0 ]; then
               git commit -m "🤖 [CI] Compose Flutter SDK modules FAILED - persisting logs [skip ci]" || echo "No changes to commit"
             else
