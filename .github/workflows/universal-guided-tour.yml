@@ -488,6 +488,7 @@ jobs:
           # would pull the whole tour output into this artifact.
           path: |
             ${{ inputs.output-dir }}/${{ inputs.render-output-file }}
+            ${{ inputs.output-dir }}/render-skipped.md
             ${{ inputs.render-svg-dir && format('{0}/{1}', inputs.output-dir, inputs.render-svg-dir) || '' }}
           retention-days: 30
           if-no-files-found: error

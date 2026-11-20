@@ -154,6 +154,42 @@ class TourIsTheScreenList(RenderFragments):
         self.assertIn("0 renderable, 2 skipped", r.stdout)
         self.assertFalse(os.path.exists(out))
 
+    def test_skipped_steps_are_written_machine_readable(self):
+        self.frag(FRAG)
+        r, _ = self.run_tour(self.tour("courses", "welcome"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        data = json.load(open(os.path.join(self.root, "out", "tour_skipped.g.json")))
+        self.assertEqual([e["key"] for e in data], ["welcome"])
+        self.assertIn("no render fragment", data[0]["reason"])
+
+    def test_skipped_list_groups_no_page_and_failed_screens(self):
+        tour_skipped = os.path.join(self.root, "tour_skipped.g.json")
+        json.dump([{"key": "welcome", "reason": "x"}], open(tour_skipped, "w"))
+        harness = os.path.join(self.root, "skipped.jsonl")
+        with open(harness, "w") as f:
+            for mode in ("dark", "light"):
+                f.write(json.dumps({"key": "search", "mode": mode,
+                                    "reason": "Bad state: not registered\nsecond line"}) + "\n")
+        md = os.path.join(self.root, "sub", "render-skipped.md")
+        r = subprocess.run([sys.executable, SCRIPT, "--write-skipped-md", md,
+                            "--tour-skipped", tour_skipped, "--harness-skipped", harness],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        text = open(md).read()
+        self.assertIn("- welcome - no standalone page (opens from a tap)", text)
+        self.assertIn("- search (dark, light) - failed to draw: Bad state: not registered", text)
+        self.assertNotIn("second line", text)
+        self.assertNotIn("All tour screens drawn", text)
+
+    def test_skipped_list_says_all_drawn_when_nothing_skipped(self):
+        md = os.path.join(self.root, "render-skipped.md")
+        r = subprocess.run([sys.executable, SCRIPT, "--write-skipped-md", md,
+                            "--tour-skipped", os.path.join(self.root, "none.json"),
+                            "--harness-skipped", os.path.join(self.root, "none.jsonl")],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("All tour screens drawn.", open(md).read())
+
     def test_prune_drops_only_generated_frames_the_harness_did_not_render(self):
         self.frag(FRAG)
         r, out = self.run_tour(self.tour("tutors", "courses"))

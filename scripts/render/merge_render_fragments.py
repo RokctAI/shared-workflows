@@ -218,6 +218,62 @@ def prune_config(config_path, base_dir, out_path):
     return len(kept), len(dropped)
 
 
+TOUR_SKIPPED_FILE = "tour_skipped.g.json"
+
+
+def short_reason(text, limit=160):
+    """First line of an error, trimmed, for a one-line list entry."""
+    line = " ".join(str(text).strip().splitlines()[:1]).strip()
+    return line if len(line) <= limit else line[: limit - 3].rstrip() + "..."
+
+
+def write_skipped_list(out_path, tour_skipped_path, harness_skipped_path):
+    """Write the plain-language list of tour screens that were not drawn.
+
+    Two sources: the tour steps with no render fragment (tour_skipped_path, a
+    JSON list of {key, reason}) and the screens the harness failed to draw
+    (harness_skipped_path, JSON lines of {key, mode, reason}). Either may be
+    missing. Returns the number of screens listed.
+    """
+    no_page = []
+    if tour_skipped_path and os.path.isfile(tour_skipped_path):
+        with open(tour_skipped_path, encoding="utf-8") as f:
+            no_page = [e["key"] for e in json.load(f)]
+    failed = {}  # key -> {"modes": [...], "reason": str}, in first-seen order
+    if harness_skipped_path and os.path.isfile(harness_skipped_path):
+        with open(harness_skipped_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                entry = failed.setdefault(e.get("key", "?"), {"modes": [], "reason": e.get("reason", "")})
+                if e.get("mode") and e["mode"] not in entry["modes"]:
+                    entry["modes"].append(e["mode"])
+    lines = ["# Tour screens not drawn", ""]
+    if not no_page and not failed:
+        lines.append("All tour screens drawn.")
+    if no_page:
+        lines += ["## No standalone page (opens from a tap)", ""]
+        lines += [f"- {k} - no standalone page (opens from a tap)" for k in no_page]
+        lines.append("")
+    if failed:
+        lines += ["## Failed to draw", ""]
+        for k, e in failed.items():
+            modes = f" ({', '.join(e['modes'])})" if e["modes"] else ""
+            lines.append(f"- {k}{modes} - failed to draw: {short_reason(e['reason'])}")
+        lines.append("")
+    parent = os.path.dirname(out_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines).rstrip("\n") + "\n")
+    return len(no_page) + len(failed)
+
+
 def emit_frames(screens):
     frames = []
     for s in screens:
@@ -244,7 +300,15 @@ def main():
     p.add_argument("--out-strip-config", help="where to write the merged strip config")
     p.add_argument("--prune-config", help="merged config to prune after the render (own mode)")
     p.add_argument("--base-dir", default="out", help="--prune-config: where the harness wrote its PNGs")
+    p.add_argument("--write-skipped-md", help="write the not-drawn list to this path (own mode)")
+    p.add_argument("--tour-skipped", help="--write-skipped-md: the tour_skipped.g.json from the merge step")
+    p.add_argument("--harness-skipped", help="--write-skipped-md: the harness's skipped.jsonl")
     args = p.parse_args()
+
+    if args.write_skipped_md:
+        n = write_skipped_list(args.write_skipped_md, args.tour_skipped, args.harness_skipped)
+        print(f"ℹ️  {n} tour screen(s) not drawn; list written to {args.write_skipped_md}.")
+        return 0
 
     if args.prune_config:
         if not args.out_strip_config:
@@ -272,6 +336,10 @@ def main():
         for key, reason in skipped:
             print(f"[render-fragments] skipped tour step '{key}': {reason}", flush=True)
         print(f"ℹ️  Tour has {len(steps)} screen(s): {len(screens)} renderable, {len(skipped)} skipped.")
+        os.makedirs(args.out_dir, exist_ok=True)
+        with open(os.path.join(args.out_dir, TOUR_SKIPPED_FILE), "w", encoding="utf-8", newline="\n") as f:
+            json.dump([{"key": k, "reason": r} for k, r in skipped], f, indent=2)
+            f.write("\n")
 
     if not screens:
         print("ℹ️  No screens to render from fragments - nothing generated.")

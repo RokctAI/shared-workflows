@@ -46,6 +46,9 @@
 #                       explicit frames; a tour step with no such screen, or
 #                       one the harness wrote no frame for, is skipped with a
 #                       logged reason - never a failure. Unset = legacy.
+#                       In tour mode the screens NOT drawn are listed in
+#                       render-skipped.md next to RENDER_OUTPUT_FILE (also
+#                       printed and appended to $GITHUB_STEP_SUMMARY).
 #   RENDER_VECTOR       `1` asks the harness for a true vector SVG of each
 #                       frame too (out/<name>.vector.svg); the composer
 #                       writes it as <slug>.vector.svg in RENDER_SVG_DIR with
@@ -106,7 +109,9 @@ done
 # merge_render_fragments.py.
 MERGE_ARGS=()
 MERGED_CONFIG="$(dirname "$RENDER_TEST")/strip.merged.g.json"
-rm -f "$MERGED_CONFIG"
+TOUR_SKIPPED="$(dirname "$RENDER_TEST")/tour_skipped.g.json"
+HARNESS_SKIPPED="$RENDER_OUT_DIR/skipped.jsonl"
+rm -f "$MERGED_CONFIG" "$TOUR_SKIPPED" "$HARNESS_SKIPPED"
 if [ -n "${RENDER_TOUR_RESOLVED:-}" ] && [ -f "$RENDER_TOUR_RESOLVED" ]; then
   MERGE_ARGS=(--tour-resolved "$RENDER_TOUR_RESOLVED" --strip-config "$STRIP_CONFIG" --out-strip-config "$MERGED_CONFIG")
 fi
@@ -117,6 +122,9 @@ if [ -d "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" ] || [ ${#MERGE_ARGS[@]} -gt 0 
     ${MERGE_ARGS[@]+"${MERGE_ARGS[@]}"} || fail "Merging the SDK render fragments failed."
 fi
 
+# The harness appends one JSON line per tour screen it could not draw to
+# $RENDER_OUT_DIR/skipped.jsonl ({key, mode, reason}); cleared above so a
+# stale file from an earlier run cannot be reported.
 echo "🖼️  Rendering $RENDER_TEST (${#DEFINES[@]} dart-define(s), suffix '${RENDER_SUFFIX}')..."
 if ! flutter test ${DEFINES[@]+"${DEFINES[@]}"} "$RENDER_TEST" 2>&1 | tee "$RENDER_LOG"; then
   fail "The render test failed. This gates everything downstream: the screens do not compile or do not lay out."
@@ -168,6 +176,20 @@ python3 "$COMPOSER" "${COMPOSE_ARGS[@]}" || fail "Composing the review strip fai
 
 [ -s "$RENDER_OUTPUT_FILE" ] || fail "The composer wrote no page at $RENDER_OUTPUT_FILE."
 echo "✅ Review strip composed at $RENDER_OUTPUT_FILE ($(wc -c <"$RENDER_OUTPUT_FILE") bytes)."
+
+# Tour mode: say which tour screens were NOT drawn and why, next to the page
+# (render-skipped.md, committed with the rest of the output dir), in the log
+# and in the run summary.
+if [ -f "$MERGED_CONFIG" ] || [ -f "$TOUR_SKIPPED" ]; then
+  SKIPPED_MD="$OUT_PARENT/render-skipped.md"
+  python3 "$RENDER_TOOLS_DIR/scripts/render/merge_render_fragments.py" \
+    --write-skipped-md "$SKIPPED_MD" --tour-skipped "$TOUR_SKIPPED" \
+    --harness-skipped "$HARNESS_SKIPPED" || fail "Writing the not-drawn list failed."
+  cat "$SKIPPED_MD"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$SKIPPED_MD" >>"$GITHUB_STEP_SUMMARY"
+  fi
+fi
 
 if [ -n "$RENDER_SVG_DIR" ]; then
   SVG_COUNT=$(find "$RENDER_SVG_DIR" -name '*.svg' 2>/dev/null | wc -l)
