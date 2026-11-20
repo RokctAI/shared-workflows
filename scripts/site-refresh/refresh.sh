@@ -169,6 +169,22 @@ verify_offline() {
 }
 
 fail_verify() {
+  # Keep what drifted for whoever fixes the shell: each drifted file as the
+  # offline compose wrote it (drift/files/<path>) and a unified diff against
+  # the committed copy (drift/drift.diff). Uploaded with the result.
+  if [ -n "${DRIFT:-}" ] && [ -d "$VERIFY/tree" ]; then
+    mkdir -p "$OUT/drift/files"
+    : >"$OUT/drift/drift.diff"
+    while IFS= read -r LINE; do
+      [ -n "$LINE" ] || continue
+      REL="${LINE:3}"
+      if [ -f "$VERIFY/tree/$REL" ]; then
+        mkdir -p "$OUT/drift/files/$(dirname -- "$REL")"
+        cp -p -- "$VERIFY/tree/$REL" "$OUT/drift/files/$REL"
+      fi
+      git -C "$VERIFY/tree" diff -- "$REL" >>"$OUT/drift/drift.diff" 2>/dev/null || true
+    done <<<"$DRIFT"
+  fi
   cleanup_verify
   if [ "$VRC" -ne 0 ]; then
     LAST="$(grep -E '^\[!\]' "$OUT/verify.log" | tail -1 | cut -c1-200 || true)"
