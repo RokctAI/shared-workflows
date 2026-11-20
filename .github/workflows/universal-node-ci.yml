@@ -114,6 +114,15 @@ jobs:
           set -euo pipefail
           # Fleet-wide safety: every gate below exits 0 so repos without the
           # composer contract are byte-identical to before this step existed.
+          # Shells that carry scripts/compose.sh compose exactly as Vercel does
+          # (offline from the committed .rokct/cache), which also writes the
+          # gitignored app/lib/i18n/sdk-registry.ts and sdk/*.json copy files.
+          if [ -f "scripts/compose.sh" ] && [ -f ".rokct/lock.json" ]; then
+            echo "Composing with the shell's own scripts/compose.sh (as Vercel does)..."
+            bash scripts/compose.sh
+            echo "ROKCT_COMPOSED=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
           if [ ! -f ".rokct/config/app_type" ] || [ ! -f "package.json" ]; then
             echo "Not a composed Node shell. Skipping composition."
             exit 0
