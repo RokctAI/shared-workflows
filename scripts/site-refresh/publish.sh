@@ -54,10 +54,10 @@ NO_RUN_MINUTES="${NO_RUN_MINUTES:-20}"
 BUILD_WORKFLOW="${BUILD_WORKFLOW:-build.yml}"
 PARITY_JOB="${PARITY_JOB:-Vercel parity}"
 TITLE="chore: refresh site building blocks"
-# Direct mode (default, Ray: "no pr"): the refresh is already proven to compose
+# Direct mode (off by default; Ray wants the PR flow): the refresh is already proven to compose
 # offline with zero drift, so it goes straight onto $BASE; Vercel deploys it and
 # the live health job checks the site. DIRECT=false brings back the PR flow.
-DIRECT="${DIRECT:-true}"
+DIRECT="${DIRECT:-false}"
 OWNER="${REPO%%/*}"
 
 finish() {
