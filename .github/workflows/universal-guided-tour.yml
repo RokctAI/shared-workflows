@@ -1856,10 +1856,20 @@ jobs:
           # real, correct screens (paas_driver run 44092120451: 6 of 21 refused,
           # so no page was written). Device stills are judged by the tour's
           # own capture gates (ANR, foreground, completeness) instead.
+          # A repo with no render harness gets its SVGs from here: one
+          # annotated + one clean SVG per tour still, so every screen the tour
+          # draws lands in <output-dir>/svg (chips from tour/chips.json). A
+          # repo WITH a harness keeps its SVGs from the render strip only, so
+          # the two sets never collide.
+          SVG_ARGS=()
+          if [ ! -f "${{ inputs.render-test }}" ] && [ -n "${{ inputs.render-svg-dir }}" ]; then
+            SVG_ARGS=(--emit-svg "${{ inputs.output-dir }}/${{ inputs.render-svg-dir }}")
+          fi
           python3 .tour-tools/scripts/render/compose_strip.py \
             --config tour_strip_work/strip.json \
             --out "${{ inputs.output-dir }}/tour-strip.html" \
-            --no-quality-gate
+            --no-quality-gate \
+            "${SVG_ARGS[@]}"
 
       # Refresh the README's generated marker sections (store-description
       # + tour-gallery blocks, see scripts/tour/readme_sections.py) so the
