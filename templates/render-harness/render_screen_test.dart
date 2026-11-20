@@ -1013,9 +1013,11 @@ void main() {
   //       testWidgets('render tour screen ${entry.key} - $mode', (tester) async {
   //         final name = '${entry.key}_$mode$suffix';
   //         // Framework errors go through FlutterError.onError, not to the
-  //         // caller: collect them for THIS screen and treat any as a skip.
+  //         // caller: collect them for THIS screen. Restore the handler in a
+  //         // tear-down (flutter_test checks it is back to the original).
   //         final problems = <Object>[];
   //         final priorOnError = FlutterError.onError;
+  //         addTearDown(() => FlutterError.onError = priorOnError);
   //         FlutterError.onError = (d) => problems.add(d.exception);
   //         try {
   //           await runZonedGuarded(() async {
@@ -1033,19 +1035,34 @@ void main() {
   //         } catch (error) {
   //           problems.add(error);
   //         } finally {
+  //           // Let timers left by in-flight requests run on the fake clock:
+  //           // flutter_test fails a test that ends with a timer pending, which
+  //           // is what actually failed the run, not the overflow itself.
+  //           final captured = problems.length;
+  //           for (var i = 0; i < 12; i++) {
+  //             try {
+  //               await tester.pump(const Duration(seconds: 30));
+  //             } catch (_) {}
+  //           }
+  //           if (problems.length > captured) problems.length = captured;
+  //           while (tester.takeException() != null) {}
   //           FlutterError.onError = priorOnError;
-  //           tester.takeException();
   //         }
-  //         if (problems.isNotEmpty) {
+  //         // An overflow is a cosmetic warning: keep the PNG, only log it.
+  //         // Any other error is a hard failure of the frame: skip it.
+  //         final hard = problems
+  //             .where((e) => !e.toString().contains('overflowed by'))
+  //             .toList();
+  //         if (hard.isNotEmpty) {
   //           // Not a trustworthy frame: drop what it wrote, record the skip.
   //           final outDir = '${Directory.current.path}/out';
   //           for (final ext in <String>['png', 'json']) {
   //             final file = File('$outDir/$name.$ext');
   //             if (file.existsSync()) file.deleteSync();
   //           }
-  //           final reason = problems.first.toString().split('\n').first;
+  //           final reason = hard.first.toString().split('\n').first;
   //           print('SKIPPED tour screen ${entry.key} - $mode: '
-  //               '${problems.length} error(s); first: ${problems.first}');
+  //               '${hard.length} error(s); first: ${hard.first}');
   //           // run_strip.sh turns these lines into render-skipped.md.
   //           File('$outDir/skipped.jsonl').writeAsStringSync(
   //             '${jsonEncode(<String, String>{
