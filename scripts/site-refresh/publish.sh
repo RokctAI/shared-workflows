@@ -53,7 +53,11 @@ WAIT_MINUTES="${WAIT_MINUTES:-90}"
 NO_RUN_MINUTES="${NO_RUN_MINUTES:-20}"
 BUILD_WORKFLOW="${BUILD_WORKFLOW:-build.yml}"
 PARITY_JOB="${PARITY_JOB:-Vercel parity}"
-TITLE="Refresh site building blocks"
+TITLE="chore: refresh site building blocks"
+# Direct mode (default, Ray: "no pr"): the refresh is already proven to compose
+# offline with zero drift, so it goes straight onto $BASE; Vercel deploys it and
+# the live health job checks the site. DIRECT=false brings back the PR flow.
+DIRECT="${DIRECT:-true}"
 OWNER="${REPO%%/*}"
 
 finish() {
@@ -175,12 +179,27 @@ BODY="$OUT/pr-body.md"
 
 if [ "$DRY_RUN" = "true" ]; then
   WHAT="open a draft PR"
+  [ "$DIRECT" = "true" ] && WHAT="push straight to $BASE"
   if [ -n "$PR_NUM" ]; then
     WHAT="update PR #$PR_NUM"
   elif [ "$MODE" = armed ]; then
     WHAT="open a ready PR"
   fi
   finish dry-run "would push $BRANCH and $WHAT ($MODE); $(cat "$OUT/detail" 2>/dev/null || true)"
+fi
+
+# --- direct: commit the proven refresh straight onto the base branch -------
+if [ "$DIRECT" = "true" ]; then
+  if ! git push -q origin "$CANDIDATE:refs/heads/$BASE"; then
+    finish failed "could not push the refresh onto $BASE ($BASE moved during the run or is protected); the next run retries"
+  fi
+  say "pushed $CANDIDATE onto $BASE (no PR)"
+  if [ -n "$PR_NUM" ]; then
+    gh api -X PATCH "repos/$REPO/pulls/$PR_NUM" -f state=closed >/dev/null || true
+    say "closed the old robot PR #$PR_NUM (its refresh is now on $BASE)"
+  fi
+  git push -q origin --delete "$BRANCH" 2>/dev/null || true
+  finish merged "refresh committed straight to $BASE; Vercel deploys it"
 fi
 
 # --- make sure nothing merges early, then push ----------------------------
