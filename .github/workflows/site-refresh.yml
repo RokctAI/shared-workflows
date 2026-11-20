@@ -233,7 +233,7 @@ jobs:
     needs: [discover, refresh]
     # After the refresh, whether or not any refresh failed or was skipped.
     if: always() && needs.discover.outputs.run == 'true' && needs.discover.outputs.sites != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.56.1 has no Chromium for ubuntu 26.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
