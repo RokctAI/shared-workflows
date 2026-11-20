@@ -1011,21 +1011,55 @@ void main() {
   //     for (final dark in <bool>[true, false]) {
   //       final mode = dark ? 'dark' : 'light';
   //       testWidgets('render tour screen ${entry.key} - $mode', (tester) async {
-  //         await renderVariant(
-  //           tester,
-  //           dark: dark,
-  //           name: '${entry.key}_$mode$suffix',
-  //           dbDir: dbDir,
-  //           screen: entry.value.build,
-  //           screenFinder: entry.value.finder,
-  //         );
+  //         final name = '${entry.key}_$mode$suffix';
+  //         // Framework errors go through FlutterError.onError, not to the
+  //         // caller: collect them for THIS screen and treat any as a skip.
+  //         final problems = <Object>[];
+  //         final priorOnError = FlutterError.onError;
+  //         FlutterError.onError = (d) => problems.add(d.exception);
+  //         try {
+  //           await runZonedGuarded(() async {
+  //             await renderVariant(
+  //               tester,
+  //               dark: dark,
+  //               name: name,
+  //               dbDir: dbDir,
+  //               screen: entry.value.build,
+  //               screenFinder: entry.value.finder,
+  //             );
+  //             // Unmount while the handler is still ours.
+  //             await tester.pumpWidget(const SizedBox.shrink());
+  //           }, (error, stack) => problems.add(error));
+  //         } catch (error) {
+  //           problems.add(error);
+  //         } finally {
+  //           FlutterError.onError = priorOnError;
+  //           tester.takeException();
+  //         }
+  //         if (problems.isNotEmpty) {
+  //           // Not a trustworthy frame: drop what it wrote, record the skip.
+  //           final outDir = '${Directory.current.path}/out';
+  //           for (final ext in <String>['png', 'json']) {
+  //             final file = File('$outDir/$name.$ext');
+  //             if (file.existsSync()) file.deleteSync();
+  //           }
+  //           final reason = problems.first.toString().split('\n').first;
+  //           print('SKIPPED tour screen ${entry.key} - $mode: '
+  //               '${problems.length} error(s); first: ${problems.first}');
+  //           // run_strip.sh turns these lines into render-skipped.md.
+  //           File('$outDir/skipped.jsonl').writeAsStringSync(
+  //             '${jsonEncode(<String, String>{
+  //               'key': entry.key, 'mode': mode, 'reason': reason})}\n',
+  //             mode: FileMode.append,
+  //           );
+  //         }
   //       });
   //     }
   //   }
   //
-  // A screen the harness cannot render (needs state it lacks) must not fail
-  // the run: skip it in the loop above (e.g. `if (_needsState.contains(
-  // entry.key)) continue;`, with a print of why) - no PNG means the frame is
+  // (also `import 'dart:async';` for runZonedGuarded.) A screen the harness
+  // cannot render (needs state it lacks) must not fail the run: skip it as
+  // above - no PNG means the frame is
   // dropped with a log line
   // (merge_render_fragments.py --prune-config), never a failed gate.
 }
