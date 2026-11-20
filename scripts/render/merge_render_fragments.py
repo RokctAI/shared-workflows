@@ -38,6 +38,22 @@ app shell keeps its harness; this script writes the screen list it loops over:
   * ``<out-dir>/strip.frames.g.json`` - one light and one dark strip.json frame
     per screen, to append to the shell's ``frames``.
 
+With ``--tour-resolved`` (the guided tour's tour.resolved.json) the TOUR is the
+screen list. A fragment screen is bound to a tour step by name - ``name`` must
+equal the step key - so nothing is registered by hand a second time:
+
+  * a tour step with a same-named fragment screen is rendered (dark + light);
+  * a tour step with none is SKIPPED with a logged reason, never a failure;
+  * a fragment screen that is not a tour step is ignored (logged).
+
+``--strip-config`` + ``--out-strip-config`` also write the shell's strip config
+with the generated frames appended, tour order, after its explicit frames (a
+generated frame whose png the explicit config already names is not repeated).
+Generated frames carry ``"generated": true``; after the render,
+``--prune-config`` drops the ones whose PNG/sidecar the harness did not write
+(a screen it cannot render headlessly) with a logged reason, so the composer
+never sees a missing file. Explicit frames are never pruned.
+
 Fragments are read from the composed SDK cache (``.rokct/cache/*/templates/
 render/*.render.yaml``). A composed SDK with no fragment is skipped with a log
 line, never a failure - SDKs adopt gradually. The in-app tutorial layer is not
@@ -135,6 +151,67 @@ def emit_dart(screens):
     return "\n".join(lines) + "\n"
 
 
+def select_tour_screens(screens, steps):
+    """Bind fragment screens to tour steps by name, in tour order.
+
+    Returns (selected, skipped) where skipped is a list of (key, reason).
+    """
+    by_name = {s["name"]: s for s in screens}
+    selected, skipped, seen = [], [], set()
+    for step in steps:
+        key = step.get("key")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        screen = by_name.get(key)
+        if screen is not None:
+            selected.append(screen)
+            continue
+        kind = step.get("action") or "step"
+        skipped.append((key, (
+            f"tour step '{key}' ({kind}) has no render fragment screen named '{key}' "
+            "in the composed SDKs (<sdk>/templates/render/*.render.yaml); "
+            "its still is a device capture, not a widget the harness can build"
+        )))
+    for name in sorted(set(by_name) - seen):
+        print(f"[render-fragments] ignoring fragment screen '{name}': not a tour step", flush=True)
+    return selected, skipped
+
+
+def merge_strip_config(config_path, frames):
+    """The shell's strip config with the generated frames appended."""
+    with open(config_path, encoding="utf-8") as f:
+        config = json.load(f)
+    have = {fr.get("png") for fr in config.get("frames") or []}
+    added = [dict(fr, generated=True) for fr in frames if fr["png"] not in have]
+    config["frames"] = list(config.get("frames") or []) + added
+    return config, len(added)
+
+
+def prune_config(config_path, base_dir, out_path):
+    """Drop generated frames the harness did not render; return (kept, dropped)."""
+    with open(config_path, encoding="utf-8") as f:
+        config = json.load(f)
+    kept, dropped = [], []
+    for fr in config.get("frames") or []:
+        if fr.get("generated"):
+            missing = [k for k in ("png", "rects")
+                       if not os.path.isfile(os.path.join(base_dir, fr.get(k, "")))]
+            if missing:
+                dropped.append(fr)
+                print(
+                    f"[render-fragments] skipped '{fr.get('caption')}': the harness wrote no "
+                    f"{'/'.join(missing)} in {base_dir} (screen not wired into the shell's render "
+                    "test, or it needs state the harness cannot supply)", flush=True)
+                continue
+        kept.append(fr)
+    config["frames"] = kept
+    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    return len(kept), len(dropped)
+
+
 def emit_frames(screens):
     frames = []
     for s in screens:
@@ -155,20 +232,56 @@ def main():
     p.add_argument("--cache-dir", default=".rokct/cache")
     p.add_argument("--pubspec", default="pubspec.yaml")
     p.add_argument("--out-dir", default="test/render")
+    p.add_argument("--tour-resolved", help="tour.resolved.json: make the tour the screen list")
+    p.add_argument("--strip-config", help="the shell's strip.json to append generated frames to")
+    p.add_argument("--out-strip-config", help="where to write the merged strip config")
+    p.add_argument("--prune-config", help="merged config to prune after the render (own mode)")
+    p.add_argument("--base-dir", default="out", help="--prune-config: where the harness wrote its PNGs")
     args = p.parse_args()
 
-    paths = find_fragments(args.cache_dir)
-    if not paths:
-        print("ℹ️  No render fragments found in the composed SDKs - nothing generated.")
+    if args.prune_config:
+        if not args.out_strip_config:
+            p.error("--prune-config needs --out-strip-config")
+        kept, dropped = prune_config(args.prune_config, args.base_dir, args.out_strip_config)
+        print(f"✅ Strip config: {kept} frame(s) kept, {dropped} generated frame(s) skipped.")
         return 0
-    require_yaml()
-    screens = load_screens(paths, package_name(args.pubspec))
+
+    steps = None
+    if args.tour_resolved:
+        with open(args.tour_resolved, encoding="utf-8") as f:
+            steps = json.load(f).get("steps") or []
+
+    paths = find_fragments(args.cache_dir)
+    screens = []
+    if paths:
+        require_yaml()
+        screens = load_screens(paths, package_name(args.pubspec))
+    else:
+        print("ℹ️  No render fragments found in the composed SDKs.")
+
+    skipped = []
+    if steps is not None:
+        screens, skipped = select_tour_screens(screens, steps)
+        for key, reason in skipped:
+            print(f"[render-fragments] skipped tour step '{key}': {reason}", flush=True)
+        print(f"ℹ️  Tour has {len(steps)} screen(s): {len(screens)} renderable, {len(skipped)} skipped.")
+
+    if not screens:
+        print("ℹ️  No screens to render from fragments - nothing generated.")
+        return 0
+    frames = emit_frames(screens)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "render_screens.g.dart"), "w", encoding="utf-8", newline="\n") as f:
         f.write(emit_dart(screens))
     with open(os.path.join(args.out_dir, "strip.frames.g.json"), "w", encoding="utf-8", newline="\n") as f:
-        json.dump(emit_frames(screens), f, indent=2)
+        json.dump(frames, f, indent=2)
         f.write("\n")
+    if args.strip_config and args.out_strip_config:
+        config, added = merge_strip_config(args.strip_config, frames)
+        with open(args.out_strip_config, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(config, f, indent=2)
+            f.write("\n")
+        print(f"✅ Strip config: {added} generated frame(s) appended to {args.strip_config}.")
     print(f"✅ {len(screens)} screen(s) from {len(paths)} fragment(s).")
     return 0
 

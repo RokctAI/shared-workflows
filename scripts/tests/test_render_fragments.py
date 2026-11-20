@@ -98,5 +98,67 @@ class RenderFragments(unittest.TestCase):
         self.assertNotEqual(run(self.root).returncode, 0)
 
 
+class TourIsTheScreenList(RenderFragments):
+    """--tour-resolved: the tour picks the screens; nothing is listed twice."""
+
+    def tour(self, *keys):
+        path = os.path.join(self.root, "tour.resolved.json")
+        with open(path, "w") as f:
+            json.dump({"steps": [{"key": k, "action": "route"} for k in keys]}, f)
+        return path
+
+    def strip(self):
+        path = os.path.join(self.root, "strip.json")
+        with open(path, "w") as f:
+            json.dump({"frames": [{"caption": "own", "png": "own.png", "rects": "own.json"}]}, f)
+        return path
+
+    def run_tour(self, tour, extra=()):
+        out = os.path.join(self.root, "merged.json")
+        r = run(self.root, ["--tour-resolved", tour, "--strip-config", self.strip(),
+                            "--out-strip-config", out, *extra])
+        return r, out
+
+    def test_only_tour_steps_render_and_the_rest_are_skipped_with_a_reason(self):
+        self.frag(FRAG)
+        r, out = self.run_tour(self.tour("courses", "welcome"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        dart = open(os.path.join(self.root, "out", "render_screens.g.dart")).read()
+        self.assertIn("'courses'", dart)
+        self.assertNotIn("'tutors'", dart)  # a fragment screen that is not a tour step
+        self.assertIn("skipped tour step 'welcome'", r.stdout)
+        self.assertIn("ignoring fragment screen 'tutors'", r.stdout)
+        frames = json.load(open(out))["frames"]
+        self.assertEqual([f["png"] for f in frames],
+                         ["own.png", "courses_dark.png", "courses_light.png"])
+        self.assertTrue(frames[1]["generated"])
+        self.assertNotIn("generated", frames[0])
+
+    def test_tour_with_no_fragments_skips_everything_and_does_not_fail(self):
+        r, out = self.run_tour(self.tour("welcome", "home"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("0 renderable, 2 skipped", r.stdout)
+        self.assertFalse(os.path.exists(out))
+
+    def test_prune_drops_only_generated_frames_the_harness_did_not_render(self):
+        self.frag(FRAG)
+        r, out = self.run_tour(self.tour("tutors", "courses"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        render_out = os.path.join(self.root, "rendered")
+        os.makedirs(render_out)
+        for name in ("tutors_dark", "tutors_light"):
+            for ext in ("png", "json"):
+                open(os.path.join(render_out, f"{name}.{ext}"), "w").close()
+        pruned = os.path.join(self.root, "pruned.json")
+        r = subprocess.run(
+            [sys.executable, SCRIPT, "--prune-config", out, "--base-dir", render_out,
+             "--out-strip-config", pruned], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("skipped 'Course catalog - dark'", r.stdout)
+        pngs = [f["png"] for f in json.load(open(pruned))["frames"]]
+        # explicit frame kept even though its png is absent; courses dropped
+        self.assertEqual(pngs, ["own.png", "tutors_dark.png", "tutors_light.png"])
+
+
 if __name__ == "__main__":
     unittest.main()

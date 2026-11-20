@@ -827,3 +827,27 @@ exists) writes `test/render/render_screens.g.dart` (`kGeneratedScreens`) and
 test loops over `kGeneratedScreens`; the shell still owns its harness wrapper,
 demo seeding and fonts. A fragment names a real screen only - the in-app
 tutorial layer is never drawn. SDKs with no fragment are skipped.
+
+### The guided tour is the screen list
+
+In the guided tour lane (`universal-guided-tour.yml` with `render-strip: true`)
+the strip is not a list anyone maintains twice. The tour plan
+(`tour.resolved.json`) is resolved before the render gate and handed to
+`run_strip.sh` as `RENDER_TOUR_RESOLVED`; `merge_render_fragments.py
+--tour-resolved` then:
+
+- binds each tour step to the fragment screen **named like the step key**, and
+  writes `render_screens.g.dart` / the dark + light frames for those, in tour
+  order, appended to the shell's explicit `strip.json` frames (an explicit
+  frame is never repeated or pruned);
+- **skips** a tour step with no such screen (a sheet, a tap sequence, anything
+  that is a device capture rather than a widget) and logs why;
+- ignores a fragment screen that is not a tour step (logged);
+- after the render, drops a generated frame the harness wrote no PNG for, with
+  a logged reason (`--prune-config`), so a screen the harness cannot build
+  never fails the run.
+
+Every frame that survives is composed like any other, so each gets its
+annotated and clean SVG (plus `.vector.svg` with `render-vector`). The shell's
+render test must loop over `kGeneratedScreens` - `TODO(harness) 9/9` in
+[`templates/render-harness/render_screen_test.dart`](../../templates/render-harness/render_screen_test.dart).

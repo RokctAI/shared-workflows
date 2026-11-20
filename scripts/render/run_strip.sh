@@ -39,6 +39,13 @@
 #                       the demo session itself and the SDKs' fixtures answer
 #                       through DemoGatewayInterceptor.
 #   RENDER_LOG          where to tee the `flutter test` output.
+#   RENDER_TOUR_RESOLVED  optional. Path to the guided tour's tour.resolved.json.
+#                       When it exists the TOUR is the screen list: the SDK
+#                       render fragment screen named like each tour step is
+#                       rendered (dark + light), appended to STRIP_CONFIG's
+#                       explicit frames; a tour step with no such screen, or
+#                       one the harness wrote no frame for, is skipped with a
+#                       logged reason - never a failure. Unset = legacy.
 #   RENDER_VECTOR       `1` asks the harness for a true vector SVG of each
 #                       frame too (out/<name>.vector.svg); the composer
 #                       writes it as <slug>.vector.svg in RENDER_SVG_DIR with
@@ -93,10 +100,21 @@ done
 # Screens the composed SDKs declare themselves (<sdk>/templates/render/*.render.yaml)
 # become test/render/render_screens.g.dart for the shell's test to loop over.
 # Nothing is generated when no SDK ships a fragment.
-if [ -d "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" ]; then
+#
+# With RENDER_TOUR_RESOLVED the tour decides which of them are rendered and
+# the generated frames are appended to the strip config (MERGED_CONFIG); see
+# merge_render_fragments.py.
+MERGE_ARGS=()
+MERGED_CONFIG="$(dirname "$RENDER_TEST")/strip.merged.g.json"
+rm -f "$MERGED_CONFIG"
+if [ -n "${RENDER_TOUR_RESOLVED:-}" ] && [ -f "$RENDER_TOUR_RESOLVED" ]; then
+  MERGE_ARGS=(--tour-resolved "$RENDER_TOUR_RESOLVED" --strip-config "$STRIP_CONFIG" --out-strip-config "$MERGED_CONFIG")
+fi
+if [ -d "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" ] || [ ${#MERGE_ARGS[@]} -gt 0 ]; then
   python3 "$RENDER_TOOLS_DIR/scripts/render/merge_render_fragments.py" \
     --cache-dir "${RENDER_FRAGMENT_CACHE:-.rokct/cache}" \
-    --out-dir "$(dirname "$RENDER_TEST")" || fail "Merging the SDK render fragments failed."
+    --out-dir "$(dirname "$RENDER_TEST")" \
+    ${MERGE_ARGS[@]+"${MERGE_ARGS[@]}"} || fail "Merging the SDK render fragments failed."
 fi
 
 echo "🖼️  Rendering $RENDER_TEST (${#DEFINES[@]} dart-define(s), suffix '${RENDER_SUFFIX}')..."
@@ -123,8 +141,18 @@ fi
 OUT_PARENT=$(dirname "$RENDER_OUTPUT_FILE")
 [ "$OUT_PARENT" = "." ] || mkdir -p "$OUT_PARENT"
 
+# Tour mode: drop the generated frames the harness did not render (logged),
+# so the composer is only ever handed files that exist.
+COMPOSE_CONFIG="$STRIP_CONFIG"
+if [ -f "$MERGED_CONFIG" ]; then
+  python3 "$RENDER_TOOLS_DIR/scripts/render/merge_render_fragments.py" \
+    --prune-config "$MERGED_CONFIG" --base-dir "$RENDER_OUT_DIR" \
+    --out-strip-config "$MERGED_CONFIG.pruned" || fail "Pruning the strip config failed."
+  COMPOSE_CONFIG="$MERGED_CONFIG.pruned"
+fi
+
 COMPOSE_ARGS=(
-  --config "$STRIP_CONFIG"
+  --config "$COMPOSE_CONFIG"
   --base-dir "$RENDER_OUT_DIR"
   --out "$RENDER_OUTPUT_FILE"
 )
