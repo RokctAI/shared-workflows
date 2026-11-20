@@ -169,21 +169,24 @@ verify_offline() {
 }
 
 fail_verify() {
-  # Keep what drifted for whoever fixes the shell: each drifted file as the
-  # offline compose wrote it (drift/files/<path>) and a unified diff against
-  # the committed copy (drift/drift.diff). Uploaded with the result.
-  if [ -n "${DRIFT:-}" ] && [ -d "$VERIFY/tree" ]; then
-    mkdir -p "$OUT/drift/files"
-    : >"$OUT/drift/drift.diff"
-    while IFS= read -r LINE; do
-      [ -n "$LINE" ] || continue
-      REL="${LINE:3}"
-      if [ -f "$VERIFY/tree/$REL" ]; then
-        mkdir -p "$OUT/drift/files/$(dirname -- "$REL")"
-        cp -p -- "$VERIFY/tree/$REL" "$OUT/drift/files/$REL"
-      fi
-      git -C "$VERIFY/tree" diff -- "$REL" >>"$OUT/drift/drift.diff" 2>/dev/null || true
-    done <<<"$DRIFT"
+  # Keep what drifted for whoever fixes the shell, WITHOUT putting file
+  # contents in the uploaded result (this repo is public, its artifacts are
+  # downloadable, and the shell and its SDKs may be private): the composed
+  # copies are committed on top of the verified candidate and pushed to a
+  # branch IN THE SHELL'S OWN REPO, rokct/site-refresh-drift-<run id>. Only
+  # the branch name goes in the result. Skipped in a dry run; best effort, so
+  # a failure here never hides the real failure below.
+  if [ -n "${DRIFT:-}" ] && [ -d "$VERIFY/tree" ] && [ "${DRY_RUN:-false}" != "true" ]; then
+    DRIFT_BRANCH="rokct/site-refresh-drift-${GITHUB_RUN_ID:-$(date +%s)}"
+    if git -C "$VERIFY/tree" add -A >/dev/null 2>&1 \
+      && git -C "$VERIFY/tree" -c user.name="rokct-site-refresh" -c user.email="site-refresh@users.noreply.github.com" \
+           commit -q -m "site-refresh: composed copies of the drifted files (zero-drift check failed)" >/dev/null 2>&1 \
+      && git -C "$VERIFY/tree" push -q origin "HEAD:refs/heads/$DRIFT_BRANCH" >/dev/null 2>&1; then
+      printf '%s\n' "$DRIFT_BRANCH" >"$OUT/drift-branch" || true
+      echo "[*] drifted files pushed to $DRIFT_BRANCH in the shell's repo (compare it with main)."
+    else
+      echo "[!] could not push the drifted files to a branch; see the drifted paths above."
+    fi
   fi
   cleanup_verify
   if [ "$VRC" -ne 0 ]; then
