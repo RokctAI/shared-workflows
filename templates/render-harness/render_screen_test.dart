@@ -246,7 +246,12 @@ void registerScreen() {
 /// The tour lane learned this first and wrote it down: `auth.tour.yaml`
 /// warns that routing straight to `/register` renders the sheet "as bare
 /// pages - not the UX a user ever sees". Same trap, same answer.
-Widget buildScreen({required bool dark}) {
+///
+/// [screen] is set when the render loops over the tour's screens (TODO(harness)
+/// 9/9 in `main`, `kGeneratedScreens` from `render_screens.g.dart`): use it as
+/// `home:` instead of the shell's own screen (`home: screen ?? const
+/// YourRealScreen()`); the wrapper around it stays the same.
+Widget buildScreen({required bool dark, Widget? screen}) {
   // return ProviderScope(
   //   overrides: [profileProvider.overrideWith((ref) => _DemoNotifier())],
   //   child: ScreenUtilInit(
@@ -560,8 +565,12 @@ Finder shimmerPlaceholders() => find.byWidgetPredicate(
 /// CircularProgressIndicator or shimmer placeholder is showing - letting real
 /// async work run between frames. Fails the test on [kReadyTimeout] instead of
 /// capturing.
-Future<void> _pumpUntilReady(WidgetTester tester, {String phase = ''}) async {
-  final finders = readyFinders();
+Future<void> _pumpUntilReady(
+  WidgetTester tester, {
+  String phase = '',
+  List<Finder>? ready,
+}) async {
+  final finders = ready ?? readyFinders();
   if (finders.isEmpty) {
     fail(
       'readyFinders() is empty - name the widgets the demo data produces '
@@ -779,6 +788,12 @@ Future<void> renderVariant(
   required bool dark,
   required String name,
   required String dbDir,
+  // A tour screen from kGeneratedScreens (TODO(harness) 9/9): its widget and
+  // the finder that proves it is on screen. When set, the shell's own
+  // elementSpecs()/readyFinders() do not apply - the frame is the whole
+  // screen, with no numbered chips.
+  Widget Function()? screen,
+  Finder Function()? screenFinder,
 }) async {
   final outDir = Directory('${Directory.current.path}/out')
     ..createSync(recursive: true);
@@ -826,19 +841,25 @@ Future<void> renderVariant(
   await tester.pumpWidget(
     RepaintBoundary(
       key: boundaryKey,
-      child: buildScreen(dark: dark),
+      child: buildScreen(dark: dark, screen: screen?.call()),
     ),
   );
-  await _pumpUntilReady(tester, phase: ' ($name)');
+  final generated = screen != null;
+  final ready = screenFinder == null ? null : <Finder>[screenFinder()];
+  await _pumpUntilReady(tester, phase: ' ($name)', ready: ready);
 
-  var measured = _measure(tester, elementSpecs());
-  expect(
-    measured,
-    isNotEmpty,
-    reason:
-        'no elements matched - check elementSpecs() and the gates in '
-        'registerScreen()',
-  );
+  // A whole-screen finder is viewport-anchored (see elementSpecs()), so a
+  // generated screen is captured with no chips rather than measured.
+  var measured = generated ? <_Measured>[] : _measure(tester, elementSpecs());
+  if (!generated) {
+    expect(
+      measured,
+      isNotEmpty,
+      reason:
+          'no elements matched - check elementSpecs() and the gates in '
+          'registerScreen()',
+    );
+  }
 
   // Fit the frame to the real content (see _contentHeight). When it does
   // not fit the probe, capture one phone screen and say so.
@@ -859,8 +880,8 @@ Future<void> renderVariant(
   }
 
   _setViewHeight(tester, targetHeight);
-  await _pumpUntilReady(tester, phase: ' ($name, final height)');
-  measured = _measure(tester, elementSpecs());
+  await _pumpUntilReady(tester, phase: ' ($name, final height)', ready: ready);
+  measured = generated ? <_Measured>[] : _measure(tester, elementSpecs());
 
   final blockGlyphs = _blockGlyphTexts(
     boundaryKey.currentContext!.findRenderObject()!,
@@ -976,4 +997,35 @@ void main() {
       dbDir: dbDir,
     );
   });
+
+  // TODO(harness) 9/9 - the tour's screens (optional, adopt when the SDKs ship
+  // `templates/render/*.render.yaml` fragments).
+  //
+  // The guided tour decides which screens are rendered: run_strip.sh passes the
+  // tour plan to merge_render_fragments.py, which writes
+  // `render_screens.g.dart` with ONE entry per tour step that has a same-named
+  // fragment screen (steps without one are skipped and logged). Import it
+  // (`import 'render_screens.g.dart';`) and loop - no screen is named here:
+  //
+  //   for (final entry in kGeneratedScreens.entries) {
+  //     for (final dark in <bool>[true, false]) {
+  //       final mode = dark ? 'dark' : 'light';
+  //       testWidgets('render tour screen ${entry.key} - $mode', (tester) async {
+  //         await renderVariant(
+  //           tester,
+  //           dark: dark,
+  //           name: '${entry.key}_$mode$suffix',
+  //           dbDir: dbDir,
+  //           screen: entry.value.build,
+  //           screenFinder: entry.value.finder,
+  //         );
+  //       });
+  //     }
+  //   }
+  //
+  // A screen the harness cannot render (needs state it lacks) must not fail
+  // the run: skip it in the loop above (e.g. `if (_needsState.contains(
+  // entry.key)) continue;`, with a print of why) - no PNG means the frame is
+  // dropped with a log line
+  // (merge_render_fragments.py --prune-config), never a failed gate.
 }
