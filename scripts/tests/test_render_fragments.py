@@ -134,6 +134,20 @@ class TourIsTheScreenList(RenderFragments):
         self.assertTrue(frames[1]["generated"])
         self.assertNotIn("generated", frames[0])
 
+    def test_explicit_frame_wins_for_the_same_tour_screen(self):
+        self.frag(FRAG)
+        path = os.path.join(self.root, "strip.json")
+        with open(path, "w") as f:
+            json.dump({"frames": [
+                {"caption": "chips", "png": "tutors_light.png", "rects": "x.json"},
+                {"caption": "chips2", "tour": "courses", "png": "c.png", "rects": "c.json"}]}, f)
+        out = os.path.join(self.root, "merged.json")
+        r = run(self.root, ["--tour-resolved", self.tour("tutors", "courses"),
+                            "--strip-config", path, "--out-strip-config", out])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pngs = [f["png"] for f in json.load(open(out))["frames"]]
+        self.assertEqual(pngs, ["tutors_light.png", "c.png", "tutors_dark.png"])
+
     def test_tour_with_no_fragments_skips_everything_and_does_not_fail(self):
         r, out = self.run_tour(self.tour("welcome", "home"))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

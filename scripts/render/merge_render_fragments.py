@@ -182,8 +182,14 @@ def merge_strip_config(config_path, frames):
     """The shell's strip config with the generated frames appended."""
     with open(config_path, encoding="utf-8") as f:
         config = json.load(f)
-    have = {fr.get("png") for fr in config.get("frames") or []}
-    added = [dict(fr, generated=True) for fr in frames if fr["png"] not in have]
+    explicit = config.get("frames") or []
+    have = {fr.get("png") for fr in explicit}
+    # An explicit frame wins over the auto one for the same tour screen, so its
+    # hand-placed chips apply: same png name (<key>_<dark|light>.png) or an
+    # explicit "tour": "<key>" on the frame (covers both modes).
+    claimed = {fr.get("tour") for fr in explicit if fr.get("tour")}
+    added = [dict(fr, generated=True) for fr in frames
+             if fr["png"] not in have and fr.get("tour") not in claimed]
     config["frames"] = list(config.get("frames") or []) + added
     return config, len(added)
 
@@ -221,6 +227,7 @@ def emit_frames(screens):
                 "caption": f"{s['caption']} - {mode}",
                 "status": "SHIPPED",
                 "png": f"{s['name']}_{mode}.png",
+                "tour": s["name"],
                 "rects": f"{s['name']}_{mode}.json",
                 "note": f"from {s['source']}",
             })

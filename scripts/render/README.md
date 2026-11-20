@@ -839,7 +839,9 @@ the strip is not a list anyone maintains twice. The tour plan
 - binds each tour step to the fragment screen **named like the step key**, and
   writes `render_screens.g.dart` / the dark + light frames for those, in tour
   order, appended to the shell's explicit `strip.json` frames (an explicit
-  frame is never repeated or pruned);
+  frame is never pruned, and it WINS over the auto frame for the same screen,
+  so its hand-placed chips apply: name its png `<key>_<dark|light>.png` or give
+  it `"tour": "<key>"`; auto frames have no chips);
 - **skips** a tour step with no such screen (a sheet, a tap sequence, anything
   that is a device capture rather than a widget) and logs why;
 - ignores a fragment screen that is not a tour step (logged);
