@@ -1838,6 +1838,8 @@ jobs:
         if: inputs.tour-strip == true && hashFiles('tour_screenshots/*.png') != ''
         continue-on-error: true
         shell: bash
+        env:
+          RENDER_SVG_SUBDIR: ${{ inputs.render-svg-dir }}
         run: |
           python3 .tour-tools/scripts/render/tour_strip.py \
             --resolved tour.resolved.json \
@@ -1849,10 +1851,21 @@ jobs:
           # real, correct screens (paas_driver run 44092120451: 6 of 21 refused,
           # so no page was written). Device stills are judged by the tour's
           # own capture gates (ANR, foreground, completeness) instead.
+          #
+          # The tour's screens also get the per-frame SVG exports (annotated +
+          # clean), into the same directory as the render strip's. Without
+          # --emit-svg the tour strip wrote only the HTML page, so tour screens
+          # never produced any SVGs. An empty render-svg-dir turns it off, like
+          # the render strip.
+          TOUR_SVG_ARGS=()
+          if [ -n "$RENDER_SVG_SUBDIR" ]; then
+            TOUR_SVG_ARGS=(--emit-svg "${{ inputs.output-dir }}/$RENDER_SVG_SUBDIR")
+          fi
           python3 .tour-tools/scripts/render/compose_strip.py \
             --config tour_strip_work/strip.json \
             --out "${{ inputs.output-dir }}/tour-strip.html" \
-            --no-quality-gate
+            --no-quality-gate \
+            "${TOUR_SVG_ARGS[@]}"
 
       # Refresh the README's generated marker sections (store-description
       # + tour-gallery blocks, see scripts/tour/readme_sections.py) so the
