@@ -178,10 +178,10 @@ fail_verify() {
   # a failure here never hides the real failure below.
   if [ -n "${DRIFT:-}" ] && [ -d "$VERIFY/tree" ] && [ "${DRY_RUN:-false}" != "true" ]; then
     DRIFT_BRANCH="rokct/site-refresh-drift-${GITHUB_RUN_ID:-$(date +%s)}"
-    if git -C "$VERIFY/tree" add -A >/dev/null 2>&1 \
-      && git -C "$VERIFY/tree" -c user.name="rokct-site-refresh" -c user.email="site-refresh@users.noreply.github.com" \
-           commit -q -m "site-refresh: composed copies of the drifted files (zero-drift check failed)" >/dev/null 2>&1 \
-      && git -C "$VERIFY/tree" push -q origin "HEAD:refs/heads/$DRIFT_BRANCH" >/dev/null 2>&1; then
+    if git -C "$VERIFY/tree" add -A >/dev/null 2>&1 &&
+      git -C "$VERIFY/tree" -c user.name="rokct-site-refresh" -c user.email="site-refresh@users.noreply.github.com" \
+        commit -q -m "site-refresh: composed copies of the drifted files (zero-drift check failed)" >/dev/null 2>&1 &&
+      git -C "$VERIFY/tree" push -q origin "HEAD:refs/heads/$DRIFT_BRANCH" >/dev/null 2>&1; then
       printf '%s\n' "$DRIFT_BRANCH" >"$OUT/drift-branch" || true
       echo "[*] drifted files pushed to $DRIFT_BRANCH in the shell's repo (compare it with main)."
     else
