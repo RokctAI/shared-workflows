@@ -1,0 +1,74 @@
+name: Universal Pulsar CI
+
+# Runs each SDK module's Pulsar tests against the Pulsar framework from core.
+# No Frappe, no bench, no install-app ordering: the tests load the module's
+# pulsar/ folder straight from this checkout.
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: '3.12'
+      core-ref:
+        type: string
+        default: 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  pulsar-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint app token
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout this repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: sdk/${{ github.event.repository.name }}
+          persist-credentials: false
+
+      - name: Checkout Pulsar core
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: RokctAI/core
+          ref: ${{ inputs.core-ref }}
+          path: sdk/core
+          sparse-checkout: pulsar
+          token: ${{ steps.app-token.outputs.token || secrets.MONOREPO_PAT || github.token }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Pulsar requirements
+        run: |
+          pip install -q -r sdk/core/pulsar/pulsar/requirements.txt
+          pip install -q -r sdk/core/pulsar/pulsar/requirements-extras.txt || true
+
+      - name: Run module Pulsar tests
+        env:
+          PULSAR_CORE: ${{ github.workspace }}/sdk/core/pulsar
+          PULSAR_SDK_ROOT: ${{ github.workspace }}/sdk
+        run: |
+          set -e
+          cd "sdk/${{ github.event.repository.name }}"
+          found=0
+          for t in $(find . -path ./node_modules -prune -o -type d -path '*/pulsar/*tests' -print | sort); do
+            pdir="${t%/*}"
+            found=1
+            echo "::group::$t"
+            (cd "$pdir" && python -m unittest discover -s "${t##*/}" -t .)
+            echo "::endgroup::"
+          done
+          if [ "$found" = 0 ]; then
+            echo "No pulsar/*tests folders in this repo; nothing to run."
+          fi
