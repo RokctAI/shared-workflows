@@ -326,20 +326,11 @@ jobs:
   ci-frappe:
     needs: [detect-changes, lint, observability-compliance]
     if: always() && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && (needs.observability-compliance.result == 'success' || needs.observability-compliance.result == 'skipped') && inputs.run_ci && inputs.project_type == 'frappe' && needs.detect-changes.outputs.trivial != 'true'
-    uses: RokctAI/shared-workflows/.github/workflows/universal-frappe-ci.yml@main
+    # Frappe left for good: SDK modules are tested on Pulsar. universal-frappe-ci.yml
+    # is kept in the repo but no longer called (flagged for Ray's call after go-live).
+    uses: RokctAI/shared-workflows/.github/workflows/universal-pulsar-ci.yml@main
     with:
-      python-version: ${{ inputs.python-version || '3.14' }}
-      mariadb-version: ${{ inputs.mariadb-version || '10.6' }}
-      postgres-version: ${{ inputs.postgres-version || '16' }}
-      db-type: ${{ inputs.db-type || 'mariadb' }}
-      db-password: ${{ inputs.db-password || 'travis' }}
-      redis-version: ${{ inputs.redis-version || '6.0' }}
-      node-version: ${{ inputs.node-version || '24' }}
-      install-erpnext: ${{ inputs.install-erpnext }}
-      install-rpanel: ${{ inputs.install-rpanel }}
-      install-payments: ${{ inputs.install-payments }}
-      bootstrap: ${{ inputs.bootstrap }}
-      rpanel-db-version: '2.4.8'
+      python-version: ${{ inputs.python-version || '3.12' }}
     secrets: inherit
 
   ci-node:
