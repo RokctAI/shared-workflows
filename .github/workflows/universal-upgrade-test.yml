@@ -32,13 +32,33 @@ on:
         type: string
         default: ""
         description: "Optional shell command run (in platform/) before any docker compose up, e.g. to create external networks."
+      engine:
+        required: false
+        type: string
+        default: "frappe"
+        description: "'pulsar' runs the Pulsar blue-green job (upgrade-test-pulsar) instead of the legacy bench job."
+      compose_file:
+        required: false
+        type: string
+        default: "docker-compose.pulsar.yml"
+        description: "Pulsar job only: compose file in platform/ holding the postgres and hub services."
+      hub_package:
+        required: false
+        type: string
+        default: "pulsar-hub"
+        description: "Pulsar job only: GHCR package (under occultation/) of the hub image."
+      hub_site:
+        required: false
+        type: string
+        default: "hub.localhost"
+        description: "Pulsar job only: the site the hub creates and migrates."
     secrets:
       MONOREPO_PAT:
         required: false
 
 jobs:
   upgrade-test:
-    if: github.repository == 'RokctAI/PlatformStack'
+    if: github.repository == 'RokctAI/PlatformStack' && inputs.engine != 'pulsar'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -166,12 +186,12 @@ jobs:
           while [ $ELAPSED -lt $TIMEOUT ]; do
             # Run curl inside a bash -c to avoid docker compose exec -T output-doubling.
             # Take last 3 chars in case of any extra whitespace/CRLF, then check
-            # it matches a real HTTP response code (2xx, 3xx, 4xx or 5xx).
+            # it matches a healthy HTTP code (2xx, 3xx or 4xx). A 5xx is a broken app, never a pass.
             HTTP_CODE=$(docker compose exec -T app bash -c \
               "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000 2>/dev/null" \
               2>/dev/null | tr -d '[:space:]' | tail -c 3)
 
-            if echo "$HTTP_CODE" | grep -qE '^[2-5][0-9][0-9]$'; then
+            if echo "$HTTP_CODE" | grep -qE '^[2-4][0-9][0-9]$'; then
               DETECTED_SITE=$(docker compose exec -T app bash -c \
                 "ls /home/frappe/frappe-bench/sites" 2>/dev/null \
                 | grep -E "platform.rokct.ai|rpanel.local" | head -n 1 || echo "platform.rokct.ai")
@@ -195,7 +215,7 @@ jobs:
           docker inspect "$APP_CONTAINER" --format '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}}'
 
           if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "❌ Timeout: Legacy app never finished site setup."
+            echo "❌ Timeout: Legacy app never answered without a 5xx (last HTTP ${HTTP_CODE:-none})."
             exit 1
           fi
 
@@ -218,7 +238,7 @@ jobs:
             HTTP_CODE=$(docker compose exec -T app bash -c \
               "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000 2>/dev/null" \
               2>/dev/null | tr -d '[:space:]' | tail -c 3)
-            if echo "$HTTP_CODE" | grep -qE '^[2-5][0-9][0-9]$'; then
+            if echo "$HTTP_CODE" | grep -qE '^[2-4][0-9][0-9]$'; then
               echo "✅ Upgraded app responding (HTTP $HTTP_CODE) — upgrade successful."
               break
             fi
@@ -226,7 +246,7 @@ jobs:
             ELAPSED=$((ELAPSED + 10))
           done
           if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "❌ Upgraded app did not respond within ${TIMEOUT}s."
+            echo "❌ Upgraded app did not answer without a 5xx within ${TIMEOUT}s (last HTTP ${HTTP_CODE:-none})."
             docker compose logs app --tail 100
             exit 1
           fi
@@ -248,3 +268,214 @@ jobs:
         run: |
           docker compose -f docker-compose.tenant.yml down -v
           docker compose down -v
+
+  # Pulsar engine (no bench, no Frappe). Real blue-green:
+  #   red   = previous Pulsar hub release, serving, with a marker user written to its site
+  #   green = the release just built, started NEXT TO red on the same data, after Pulsar's own
+  #           migrations (`migrate <site> --engine pulsar`) ran with the green image
+  #   swap  = red stops, green alone serves; the marker must still log in
+  #   rollback = green stops, red (previous image) starts again on the migrated data and must serve
+  # Any 5xx (or no answer) at any step fails the job. Only 2xx counts as healthy for ping/login.
+  upgrade-test-pulsar:
+    if: github.repository == 'RokctAI/PlatformStack' && inputs.engine == 'pulsar'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    env:
+      COMPOSE_PROJECT_NAME: pulsarupg
+      COMPOSE_FILE: ${{ inputs.compose_file }}
+      SITE: ${{ inputs.hub_site }}
+      PULSAR_HUB_SITE: ${{ inputs.hub_site }}
+      NEW_IMAGE: ${{ inputs.registry }}/${{ inputs.hub_package }}:${{ inputs.current_version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Pre-deploy Command
+        if: inputs.pre_deploy_command != ''
+        env:
+          PRE_DEPLOY_COMMAND: ${{ inputs.pre_deploy_command }}
+        run: bash -c "$PRE_DEPLOY_COMMAND"
+
+      - name: Log in to Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.MONOREPO_PAT || github.token }}
+
+      - name: Throwaway credentials
+        run: |
+          # Fresh random values for this run only, masked before use. Never a real secret.
+          for v in PULSAR_DB_ROOT_PASSWORD PULSAR_HUB_ADMIN_PASSWORD PULSAR_TENANT_ADMIN_PASSWORD MARKER_PASSWORD; do
+            val="$(openssl rand -hex 24)"
+            echo "::add-mask::$val"
+            echo "$v=$val" >> "$GITHUB_ENV"
+          done
+
+      - name: Helpers
+        run: |
+          cat > "$RUNNER_TEMP/pulsar_lib.sh" <<'LIB'
+          # http_code <container> <path> [curl args...]: HTTP code from inside the compose network.
+          http_code() {
+            local c="$1" p="$2"; shift 2
+            docker run --rm --network "container:$c" curlimages/curl:8.10.1 \
+              -s -o /dev/null -w '%{http_code}' --max-time 5 -H "Host: $SITE" "$@" "http://127.0.0.1:8000$p" 2>/dev/null || echo 000
+          }
+          # wait_2xx <container> <label> [timeout]: ping must return 2xx. A 5xx fails at once.
+          wait_2xx() {
+            local c="$1" label="$2" t="${3:-300}" e=0 code=000
+            while [ "$e" -lt "$t" ]; do
+              code="$(http_code "$c" /api/method/ping)"
+              case "$code" in
+                2??) echo "✅ $label: ping HTTP $code"; return 0 ;;
+                5??) echo "❌ $label: ping HTTP $code (server error)"; docker logs "$c" --tail 200; return 1 ;;
+              esac
+              sleep 5; e=$((e + 5))
+            done
+            echo "❌ $label: no 2xx within ${t}s (last HTTP $code)"; docker logs "$c" --tail 200; return 1
+          }
+          # marker_login <container> <label>: the marker user written on red must log in (2xx).
+          marker_login() {
+            local code
+            code="$(http_code "$1" /api/method/login -X POST \
+              --data-urlencode "usr=ci-upgrade-marker" --data-urlencode "pwd=$MARKER_PASSWORD")"
+            case "$code" in
+              2??) echo "✅ $2: marker user logs in (HTTP $code)" ;;
+              *) echo "❌ $2: marker login HTTP $code"; docker logs "$1" --tail 100; return 1 ;;
+            esac
+          }
+          # no_frappe <image>: a Pulsar image carries no bench and no frappe package.
+          no_frappe() {
+            if docker run --rm --entrypoint sh "$1" -c \
+              'test -d /home/frappe/frappe-bench || command -v bench >/dev/null 2>&1 || python -c "import frappe" 2>/dev/null'; then
+              echo "❌ $1 still carries Frappe/bench"; return 1
+            fi
+            echo "✅ $1 has no Frappe"
+          }
+          LIB
+
+      - name: Detect Previous Pulsar Release
+        id: prev
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT || github.token }}
+          PKG: ${{ inputs.hub_package }}
+          REGISTRY: ${{ inputs.registry }}
+          CURRENT: ${{ inputs.current_version }}
+        run: |
+          ORG="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          TAGS="$(gh api "/orgs/$ORG/packages/container/occultation%2F$PKG/versions?per_page=100" \
+            --jq '.[] | .metadata.container.tags[]' 2>/dev/null | grep -vx latest | grep -vx "$CURRENT" | sort -V -r || true)"
+          PREV=""
+          # The newest earlier tag that is a Pulsar image (label rokct.engine=pulsar). Older tags are
+          # bench images and cannot be a red baseline for a Pulsar upgrade.
+          for t in $(echo "$TAGS" | head -n 10); do
+            docker pull -q "$REGISTRY/$PKG:$t" >/dev/null 2>&1 || continue
+            if [ "$(docker image inspect -f '{{ index .Config.Labels "rokct.engine" }}' "$REGISTRY/$PKG:$t")" = pulsar ]; then
+              PREV="$t"; break
+            fi
+          done
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Previous Pulsar release: ${PREV:-none (first Pulsar release)}"
+
+      - name: Images are Pulsar
+        run: |
+          . "$RUNNER_TEMP/pulsar_lib.sh"
+          docker pull -q "$NEW_IMAGE"
+          [ "$(docker image inspect -f '{{ index .Config.Labels "rokct.engine" }}' "$NEW_IMAGE")" = pulsar ] \
+            || { echo "❌ $NEW_IMAGE is not labelled rokct.engine=pulsar"; exit 1; }
+          no_frappe "$NEW_IMAGE"
+
+      - name: "🔴 Red: previous release serving"
+        id: red
+        env:
+          PREV: ${{ steps.prev.outputs.prev }}
+          REGISTRY: ${{ inputs.registry }}
+          PKG: ${{ inputs.hub_package }}
+        run: |
+          . "$RUNNER_TEMP/pulsar_lib.sh"
+          # First Pulsar release: there is no earlier Pulsar image, so red is the new image itself.
+          # The swap and rollback mechanics are still exercised; the summary says so.
+          RED_IMAGE="${PREV:+$REGISTRY/$PKG:$PREV}"
+          RED_IMAGE="${RED_IMAGE:-$NEW_IMAGE}"
+          echo "red_image=$RED_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "RED_IMAGE=$RED_IMAGE" >> "$GITHUB_ENV"
+          PULSAR_HUB_IMAGE="$RED_IMAGE" docker compose up -d postgres hub
+          RED="$(docker compose ps -q hub)"
+          echo "RED=$RED" >> "$GITHUB_ENV"
+          wait_2xx "$RED" "red ($RED_IMAGE)" 600
+          printf '%s\n' "$MARKER_PASSWORD" | docker exec -i -e IGNITION_SITE="$SITE" "$RED" \
+            pulsar-entrypoint user ci-upgrade-marker --password-stdin
+          marker_login "$RED" red
+          # Safety copy of every database before green touches the schema.
+          docker compose exec -T postgres pg_dumpall -U postgres > "$RUNNER_TEMP/red.sql"
+          echo "red dump: $(wc -c < "$RUNNER_TEMP/red.sql") bytes"
+
+      - name: "🟢 Green: migrate with the new release, start beside red"
+        run: |
+          . "$RUNNER_TEMP/pulsar_lib.sh"
+          NET="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$RED")"
+          VOL="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/srv/pulsar"}}{{.Name}}{{end}}{{end}}' "$RED")"
+          echo "NET=$NET" >> "$GITHUB_ENV"; echo "VOL=$VOL" >> "$GITHUB_ENV"
+          common=(--network "$NET" -v "$VOL:/srv/pulsar"
+            -e IGNITION_DB_HOST=postgres -e IGNITION_DB_PORT=5432 -e IGNITION_DB_ROOT_USER=postgres
+            -e IGNITION_DB_ROOT_PASSWORD="$PULSAR_DB_ROOT_PASSWORD" -e IGNITION_ADMIN_PASSWORD="$PULSAR_HUB_ADMIN_PASSWORD")
+          # Pulsar's own schema + data migrations, run by the green image while red still serves.
+          docker run --rm "${common[@]}" "$NEW_IMAGE" migrate "$SITE" --engine pulsar
+          # Migrations are idempotent: a second run must also succeed.
+          docker run --rm "${common[@]}" "$NEW_IMAGE" migrate "$SITE" --engine pulsar
+          docker run -d --name pulsar-green "${common[@]}" "$NEW_IMAGE" serve
+          wait_2xx pulsar-green "green ($NEW_IMAGE) beside red" 300
+          wait_2xx "$RED" "red still serving during green start" 30
+          marker_login pulsar-green green
+
+      - name: "🔁 Swap: red out, green alone"
+        run: |
+          . "$RUNNER_TEMP/pulsar_lib.sh"
+          docker compose stop hub
+          wait_2xx pulsar-green "green after swap" 60
+          marker_login pulsar-green "green after swap"
+          for p in /api/method/ping /api/method/login; do
+            c="$(http_code pulsar-green "$p")"
+            case "$c" in 5??|000) echo "❌ green $p HTTP $c"; exit 1 ;; esac
+          done
+
+      - name: "⏪ Rollback: previous release on migrated data"
+        run: |
+          . "$RUNNER_TEMP/pulsar_lib.sh"
+          docker rm -f pulsar-green >/dev/null
+          PULSAR_HUB_IMAGE="$RED_IMAGE" docker compose up -d --no-deps hub
+          RB="$(docker compose ps -q hub)"
+          if wait_2xx "$RB" "rollback ($RED_IMAGE) on migrated data" 300 && marker_login "$RB" rollback; then
+            echo "✅ Rollback serves without a restore."
+          else
+            echo "⚠️ Rollback image does not serve the migrated schema; restoring the red dump and retrying."
+            docker compose stop hub
+            docker compose exec -T postgres psql -q -U postgres -d postgres < "$RUNNER_TEMP/red.sql" >/dev/null
+            PULSAR_HUB_IMAGE="$RED_IMAGE" docker compose up -d --no-deps hub
+            RB="$(docker compose ps -q hub)"
+            wait_2xx "$RB" "rollback after restore" 300
+            marker_login "$RB" "rollback after restore"
+            echo "❌ Rollback needed a database restore: the migration is not backward compatible."
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        env:
+          PREV: ${{ steps.prev.outputs.prev }}
+        run: |
+          {
+            echo "### Pulsar blue-green upgrade test"
+            echo "- red: ${RED_IMAGE:-n/a}${PREV:+ (previous release $PREV)}"
+            [ -z "$PREV" ] && echo "- ⚠️ first Pulsar release: red was the new image, so this run proves swap/rollback mechanics, not a version upgrade"
+            echo "- green: $NEW_IMAGE"
+            echo "- migrations: \`migrate $SITE --engine pulsar\` (twice)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f pulsar-green >/dev/null 2>&1 || true
+          docker compose down -v || true
