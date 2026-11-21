@@ -1,0 +1,121 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+
+# Portfolio Weekly (CORTEX tender portfolio, hosting_sdk 1.27.0 /portfolio)
+#
+# Once a week, after the Weekly Site Refresh, this reads every showcase card
+# the sites announced (showcase-announce.yml writes them to RokctAI/hosting)
+# plus the print work kept on the CORTEX site (portfolio/print.json) and runs
+# scripts/portfolio/snapshot.py:
+#
+#   * nothing changed -> nothing happens (no version, no PR, no PDF);
+#   * something changed -> a new version YYYY.WW: its frozen pictures go to
+#     the registry's `portfolio-assets` branch, its portfolio/current.json and
+#     portfolio/versions/<version>.json go up as one PR that auto-merges
+#     (like the site-refresh robot PRs, only on a green build), and once the
+#     site serves that version its A4 page is printed to
+#     portfolio-assets/<version>/cortex-portfolio-<version>.pdf, which the
+#     page's "Download PDF" links to.
+#
+# Old versions stay on the branch and in portfolio/versions/; going back is
+# copying an old versions/<id>.json over current.json.
+
+name: Portfolio Weekly
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portfolio-weekly
+  cancel-in-progress: false
+
+env:
+  REGISTRY: RokctAI/hosting
+  ASSETS_BRANCH: portfolio-assets
+  SITE_URL: ${{ vars.CORTEX_SITE_URL || 'https://hosting-beta-one.vercel.app' }}
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.snap.outputs.changed }}
+      version: ${{ steps.snap.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sw
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REGISTRY }}
+          token: ${{ secrets.MONOREPO_PAT }}
+          path: registry
+      - name: Assets branch
+        env:
+          TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          url="https://x-access-token:${TOKEN}@github.com/${REGISTRY}.git"
+          if git ls-remote --exit-code --heads "$url" "$ASSETS_BRANCH" >/dev/null; then
+            git clone -q --depth 1 --branch "$ASSETS_BRANCH" "$url" assets
+          else
+            git init -q -b "$ASSETS_BRANCH" assets && git -C assets remote add origin "$url"
+          fi
+      - name: Snapshot
+        id: snap
+        run: |
+          python3 -I sw/scripts/portfolio/snapshot.py --registry registry --assets assets \
+            --assets-base "https://raw.githubusercontent.com/${REGISTRY}/${ASSETS_BRANCH}"
+      - name: Publish pictures
+        if: steps.snap.outputs.changed == 'true'
+        run: |
+          cd assets
+          git config user.name "rokct-portfolio-bot"; git config user.email "bot@users.noreply.github.com"
+          git add -A && git commit -q -m "portfolio ${{ steps.snap.outputs.version }}: pictures"
+          git push -q origin "HEAD:${ASSETS_BRANCH}"
+      - name: Open the version PR (auto-merge)
+        if: steps.snap.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          VERSION: ${{ steps.snap.outputs.version }}
+        run: |
+          cd registry
+          git config user.name "rokct-portfolio-bot"; git config user.email "bot@users.noreply.github.com"
+          branch="portfolio/${VERSION}-${GITHUB_RUN_ID}"
+          git checkout -q -b "$branch"
+          git add portfolio && git commit -q -m "portfolio ${VERSION}"
+          git push -q origin "$branch"
+          body="$(python3 -c 'import json;d=json.load(open("portfolio/current.json"));print("\n".join(["Weekly portfolio version "+d["version"]+".",""]+["- "+c for c in d["changes"]]+(["","Checks:"]+["- "+n for n in d["notes"]] if d["notes"] else [])))')"
+          gh pr create -R "$REGISTRY" --head "$branch" --base main --title "portfolio: version ${VERSION}" --body "$body"
+          gh pr merge -R "$REGISTRY" "$branch" --auto --squash || echo "::warning::auto-merge not armed"
+
+  pdf:
+    needs: snapshot
+    if: needs.snapshot.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: sw
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Playwright
+        run: |
+          cd sw/scripts/portfolio && npm init -y >/dev/null && npm i -s playwright@1.48.2 && npx playwright install --with-deps chromium
+      - name: Print the A4 page
+        env:
+          VERSION: ${{ needs.snapshot.outputs.version }}
+        run: node sw/scripts/portfolio/render_pdf.mjs "$SITE_URL" "$VERSION" "cortex-portfolio-${VERSION}.pdf"
+      - name: Publish the PDF
+        env:
+          TOKEN: ${{ secrets.MONOREPO_PAT }}
+          VERSION: ${{ needs.snapshot.outputs.version }}
+        run: |
+          git clone -q --depth 1 --branch "$ASSETS_BRANCH" "https://x-access-token:${TOKEN}@github.com/${REGISTRY}.git" assets
+          mkdir -p "assets/${VERSION}" && cp "cortex-portfolio-${VERSION}.pdf" "assets/${VERSION}/"
+          cd assets
+          git config user.name "rokct-portfolio-bot"; git config user.email "bot@users.noreply.github.com"
+          git add -A && git commit -q -m "portfolio ${VERSION}: PDF" && git push -q origin "HEAD:${ASSETS_BRANCH}"
