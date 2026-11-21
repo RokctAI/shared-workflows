@@ -1,0 +1,262 @@
+# Copyright 2026 ROKCT INTELLIGENCE (PTY) LTD
+#
+# Division Announce
+#
+# "Divisions announce themselves" (Ray, 2026-11-21: hide every division that
+# has no site or repo, "similar mechanism as how repos announce themselves to
+# cortex"). It is showcase-announce.yml's pattern: a division's site or repo
+# keeps a card at .rokct/division.json. When that card changes on main, this
+# reusable workflow:
+#   1. validates it (schema below; unknown keys are rejected);
+#   2. checks out the registry repo (default RokctAI/RokctAI_frontend, the
+#      rokct.ai shell) with MONOREPO_PAT;
+#   3. writes the card, byte for byte, to divisions/<owner>__<repo>.json;
+#   4. opens one pull request per repo (or adds to the open one), on a
+#      branch under divisions/<owner>__<repo>/.
+# Nothing changes until a person merges that pull request; then the rokct.ai
+# home (agent_sdk 1.29.0, landing/rokct-divisions.ts) lists the division.
+# A division with no card in divisions/ stays hidden.
+#
+# Card schema:
+#   {
+#     "division": "polaris",            one of the ids in DIVISIONS below
+#     "repo": "RokctAI/polaris-web",    must be the calling repo
+#     "url": "https://..."              optional: the division's site
+#   }
+#
+# Caller (a division repo's .github/workflows/division.yml):
+#   on: { push: { branches: [main], paths: ['.rokct/division.json'] }, workflow_dispatch: {} }
+#   jobs:
+#     announce:
+#       uses: RokctAI/shared-workflows/.github/workflows/division-announce.yml@main
+#       secrets: inherit
+
+name: Division Announce
+
+on:
+  workflow_call:
+    inputs:
+      card_path:
+        description: 'Path of the division card in the calling repo'
+        type: string
+        required: false
+        default: '.rokct/division.json'
+      registry_repo:
+        description: 'owner/name of the repo that holds the divisions/ registry'
+        type: string
+        required: false
+        default: 'RokctAI/RokctAI_frontend'
+      registry_base:
+        description: 'Branch of the registry repo the pull request targets'
+        type: string
+        required: false
+        default: 'main'
+    secrets:
+      MONOREPO_PAT:
+        description: 'Org token that can push branches and open pull requests in registry_repo'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: division-announce-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    name: Validate the division card and announce it
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARD_PATH: ${{ inputs.card_path }}
+      REGISTRY_REPO: ${{ inputs.registry_repo }}
+      REGISTRY_BASE: ${{ inputs.registry_base }}
+    steps:
+      - name: Checkout the site repo
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate the division card
+        id: card
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CARD_PATH" ]; then
+            echo "::error file=$CARD_PATH::No division card at $CARD_PATH."
+            exit 1
+          fi
+          python3 - "$CARD_PATH" "$GITHUB_REPOSITORY" <<'PY'
+          import json, os, re, sys
+
+          path, calling_repo = sys.argv[1], sys.argv[2]
+          # The divisions the rokct.ai home knows (agent_sdk 1.29.0,
+          # landing/rokct-divisions.ts RK_DIVISIONS). Keep the two in step.
+          DIVISIONS = ("helios-foundry", "juvo-platforms", "polaris", "cortex-media",
+                       "equinox-industries", "locus", "soma", "tensor")
+          try:
+              with open(path, encoding="utf-8") as fh:
+                  card = json.load(fh)
+          except (OSError, ValueError) as exc:
+              print(f"::error file={path}::Not valid JSON: {exc}")
+              sys.exit(1)
+          errors = []
+          if not isinstance(card, dict):
+              print(f"::error file={path}::The card must be a JSON object.")
+              sys.exit(1)
+          for key in sorted(set(card) - {"division", "repo", "url"}):
+              errors.append(f"unknown field '{key}' (the schema is fixed)")
+          if card.get("division") not in DIVISIONS:
+              errors.append(f"'division' must be one of {', '.join(DIVISIONS)}")
+          if card.get("repo") != calling_repo:
+              errors.append(f"'repo' must be this repo, {calling_repo}")
+          url = card.get("url")
+          if url is not None and (not isinstance(url, str) or not re.fullmatch(r"https://[^\s\"<>]+", url)):
+              errors.append("'url' must be an https address")
+          if os.path.getsize(path) > 4096:
+              errors.append("the card must be 4 KB or smaller")
+          for e in errors:
+              print(f"::error file={path}::{e}")
+          if errors:
+              sys.exit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"name={card['division']}\n")
+          print(f"Card OK: {card['division']} from {calling_repo}")
+          PY
+
+      - name: Check MONOREPO_PAT availability
+        id: guard
+        env:
+          TOKEN: ${{ secrets.MONOREPO_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::MONOREPO_PAT was not passed; the card is valid but no registry pull request can be opened."
+            {
+              echo "## Division Announce"
+              echo ""
+              echo "The card is valid, but \`MONOREPO_PAT\` was not available, so no pull request was opened in \`$REGISTRY_REPO\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout the registry repo
+        if: steps.guard.outputs.run == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ inputs.registry_repo }}
+          ref: ${{ inputs.registry_base }}
+          token: ${{ secrets.MONOREPO_PAT }}
+          path: .division-registry
+          fetch-depth: 1
+
+      - name: Write the card and open or update the pull request
+        if: steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MONOREPO_PAT }}
+          SITE_NAME: ${{ steps.card.outputs.name }}
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          NAME="${GITHUB_REPOSITORY#*/}"
+          SLUG="${OWNER}__${NAME}"
+          PREFIX="divisions/${SLUG}"
+          FILE="divisions/${SLUG}.json"
+          CARD="$GITHUB_WORKSPACE/$CARD_PATH"
+
+          cd .division-registry
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -f "$FILE" ] && cmp -s "$CARD" "$FILE"; then
+            echo "$REGISTRY_REPO@$REGISTRY_BASE already shows this card; nothing to do."
+            {
+              echo "## Division Announce"
+              echo ""
+              echo "\`$FILE\` on \`$REGISTRY_REPO@$REGISTRY_BASE\` already matches this card. Nothing to do."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -f "$FILE" ]; then VERB="update"; else VERB="add"; fi
+          TITLE="chore(divisions): ${VERB} ${SITE_NAME}"
+
+          # One open PR per site. If one is open from a branch under
+          # $PREFIX/, add to it (never force-pushed). Otherwise start a fresh
+          # branch from the registry's current main, so a squash-merged or
+          # closed PR's old branch is never reused.
+          PRS="$(gh pr list --repo "$REGISTRY_REPO" --base "$REGISTRY_BASE" --state open --limit 200 \
+            --json url,headRefName,isCrossRepository \
+            --jq '.[] | [.url, .headRefName, (.isCrossRepository | tostring)] | @tsv')"
+          PR_URL=""
+          BRANCH=""
+          while IFS=$'\t' read -r url ref cross; do
+            if [ -z "$url" ] || [ "$cross" != "false" ]; then continue; fi
+            if [ "$ref" = "$PREFIX" ] || [ "${ref#"$PREFIX/"}" != "$ref" ]; then
+              PR_URL="$url"
+              BRANCH="$ref"
+              break
+            fi
+          done <<< "$PRS"
+
+          if [ -n "$BRANCH" ]; then
+            echo "Open pull request $PR_URL (branch $BRANCH); adding to it."
+            git fetch -q --depth 1 origin "refs/heads/$BRANCH"
+            git checkout -q -B "$BRANCH" FETCH_HEAD
+          else
+            if git ls-remote --exit-code --heads origin "$PREFIX" > /dev/null; then
+              echo "::error::A branch named exactly $PREFIX exists in $REGISTRY_REPO, which blocks branches under $PREFIX/. Rename or delete it."
+              exit 1
+            fi
+            BRANCH="$PREFIX/$GITHUB_RUN_ID"
+            if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+              # A re-run attempt of this run already pushed the branch.
+              git fetch -q --depth 1 origin "refs/heads/$BRANCH"
+              git checkout -q -B "$BRANCH" FETCH_HEAD
+            else
+              git checkout -q -b "$BRANCH"
+            fi
+          fi
+
+          mkdir -p divisions
+          cp "$CARD" "$FILE"
+          git add "$FILE"
+          CHANGED=false
+          if git diff --cached --quiet; then
+            echo "Branch $BRANCH already carries this card."
+          else
+            CHANGED=true
+            git commit -q -m "$TITLE" \
+              -m "From $GITHUB_REPOSITORY@$GITHUB_SHA ($CARD_PATH)." \
+              -m "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            git push -q origin "HEAD:refs/heads/$BRANCH"
+            echo "Pushed $FILE to $BRANCH."
+          fi
+
+          BODY_FILE="$RUNNER_TEMP/division-pr-body.md"
+          {
+            echo "Before: the rokct.ai home does not list the latest division card for \`$GITHUB_REPOSITORY\`."
+            echo ""
+            echo "After: merging this puts the card from \`$GITHUB_REPOSITORY@$GITHUB_SHA\` at \`$FILE\`, and the rokct.ai home lists that division."
+            echo ""
+            echo "How: opened by \`division-announce.yml\` (RokctAI/shared-workflows) when \`$CARD_PATH\` changed on the main branch. The card was validated first. One pull request per repo; later changes update this one."
+            echo ""
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$BODY_FILE"
+
+          if [ -n "$PR_URL" ] && [ "$CHANGED" = "false" ]; then
+            echo "$PR_URL already proposes this card; nothing to do."
+            exit 0
+          elif [ -n "$PR_URL" ]; then
+            gh pr edit "$PR_URL" --title "$TITLE" --body-file "$BODY_FILE" > /dev/null
+            echo "Updated $PR_URL"
+          else
+            PR_URL="$(gh pr create --repo "$REGISTRY_REPO" --head "$BRANCH" --base "$REGISTRY_BASE" --title "$TITLE" --body-file "$BODY_FILE")"
+            echo "Opened $PR_URL"
+          fi
+          {
+            echo "## Division Announce"
+            echo ""
+            echo "$TITLE: $PR_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
