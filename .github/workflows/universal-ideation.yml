@@ -6,7 +6,7 @@ on:
       mode:
         type: string
         required: true
-        description: "One of: theme-check, idea-gen, concept-expand, rule-gen"
+        description: "One of: theme-check, idea-gen"
       runs-on:
         type: string
         required: false
@@ -138,7 +138,6 @@ jobs:
             fi
           fi
 
-      # --- MODE: concept-expand ---
       - name: Release Job Lock (Success)
         if: success()
         run: |
@@ -158,14 +157,6 @@ jobs:
           if [ "${{ inputs.mode }}" == "idea-gen" ]; then
             CARD_FILE="${{ steps.idea_generation.outputs.card_file }}"
             LEVEL="1"
-          fi
-          if [ "${{ inputs.mode }}" == "concept-expand" ]; then
-            CARD_FILE="${{ steps.concept_expansion.outputs.card_file }}"
-            LEVEL="2"
-          fi
-          if [ "${{ inputs.mode }}" == "rule-gen" ]; then
-            CARD_FILE="${{ steps.rule_generation.outputs.card_file }}"
-            LEVEL="3"
           fi
 
           if [ -n "$CARD_FILE" ] && [ -f "$CARD_FILE" ]; then

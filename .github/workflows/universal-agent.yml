@@ -129,7 +129,6 @@ jobs:
             fi
 
             AGENT=$(jq -r '.agent // "groq"' "$FILE")
-            REPO=$(jq -r '.repo' "$FILE")
             PROMPT=$(jq -r '.prompt' "$FILE")
             TITLE=$(jq -r '.title // "AI-Automation"' "$FILE")
             LEVEL=$(jq -r '.level // 0' "$FILE")
