@@ -9,7 +9,7 @@
 # no roadmap endpoint configured it logs one line and exits 0.
 #
 # Configuration is org-level, set once on the RokctAI organisation and
-# inherited by every repository, matching how MONOREPO_PAT / JULES_API_KEY /
+# inherited by every repository, matching how MONOREPO_PAT /
 # RLMS_SITE_URL are already consumed by the shared suite:
 #
 #   ROKCT_ROADMAP_ENDPOINT  organisation Actions *variable* - the full callback

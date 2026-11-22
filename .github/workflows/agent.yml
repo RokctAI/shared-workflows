@@ -48,6 +48,5 @@ jobs:
       ledger_session: ${{ inputs.session }}
       ledger_pr: ${{ inputs.pr }}
     secrets:
-      JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       MONOREPO_PAT: ${{ secrets.MONOREPO_PAT }}
