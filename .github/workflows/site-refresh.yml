@@ -286,6 +286,18 @@ jobs:
           esac
           echo "$SITE_URL: $(cat "$RESULT_DIR/status")"
 
+      # Ray, 11 Nov: "used to submit site to google to find you sooner can
+      # we auto do same to ai?" A healthy live site announces its pages to
+      # IndexNow every week (scripts/site-refresh/indexnow.mjs; never fails).
+      - name: Announce to search and AI (IndexNow)
+        if: matrix.site.url != ''
+        run: |
+          if [ "$(cat "$RESULT_DIR/status" 2>/dev/null)" = healthy ]; then
+            node scripts/site-refresh/indexnow.mjs || true
+          else
+            echo "indexnow: site not healthy, skipped"
+          fi
+
       - name: Upload the result
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
