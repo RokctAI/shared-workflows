@@ -188,7 +188,6 @@ jobs:
               echo "❌ Unknown agent '$AGENT' for $TITLE (only groq is supported)."
               REASON="unknown agent $AGENT"
             fi
-            fi
 
             if [ "$SUCCESS" = true ]; then
               mkdir -p .rokct/agent/logs
