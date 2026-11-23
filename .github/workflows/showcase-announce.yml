@@ -55,6 +55,11 @@
 #       The card is copied byte for byte, so the field reaches the registry
 #       unchanged.
 #
+#   Optional since hosting_sdk 1.27.0 (the tender portfolio, /portfolio):
+#     "features": ["Delivery-zone checker","Refill orders on WhatsApp"]
+#       up to 6 lines of up to 60 characters: what THIS client's work does
+#       beyond what every client gets. The site's own repo curates them.
+#
 #   Optional since hosting_sdk 1.20.5 (apps inside the card):
 #     "apps": [{"name":"Polaris","repo":"RokctAI/polaris","branch":"main",
 #               "phone":"marketing/tour/store/05-polaris_home.png",
@@ -156,7 +161,7 @@ jobs:
               sys.exit(1)
 
           required = ["name", "kind", "tagline", "repo", "rank"]
-          optional = ["url", "shots", "logo_back", "services", "logo", "award", "apps"]
+          optional = ["url", "shots", "logo_back", "services", "logo", "award", "apps", "features"]
           SERVICES = ("website", "logo", "social-posts", "business-plan", "pitch-deck", "print")
           PICTURE_EXT = (".webp", ".png", ".jpg", ".jpeg", ".avif")
           for key in required:
@@ -277,6 +282,17 @@ jobs:
                       award_part("award.detail", award["detail"], 90)
               else:
                   fail("'award' must be a string or an object with label (and optionally detail)")
+
+          # features: optional (hosting_sdk 1.27.0), up to 6 short lines naming what
+          # THIS client's site or app does beyond what every client gets (sign-in,
+          # security updates, translation, light/dark are shown once on /portfolio).
+          if "features" in card:
+              feats = card["features"]
+              if not isinstance(feats, list) or len(feats) > 6:
+                  fail("'features' must be a list of at most 6 lines")
+              else:
+                  for i, line in enumerate(feats):
+                      award_part(f"features[{i}]", line, 60)
 
           # apps: optional (hosting_sdk 1.20.5), up to 4 {name, repo?, branch?, phone, store?}.
           if "apps" in card:
