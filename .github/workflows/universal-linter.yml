@@ -519,8 +519,9 @@ jobs:
           # Some job images (python:3.11 slim, debian) ship python3 without ensurepip.
           if ! python3 -m venv "$LIC_VENV" 2>/dev/null; then
             rm -rf "$LIC_VENV"
-            apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null \
-              || python3 -m pip install --quiet virtualenv
+            if ! { apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null; }; then
+              python3 -m pip install --quiet virtualenv
+            fi
             python3 -m venv "$LIC_VENV" || python3 -m virtualenv "$LIC_VENV"
           fi
           "$LIC_VENV/bin/pip" install --quiet --upgrade pip
