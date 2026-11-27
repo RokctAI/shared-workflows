@@ -644,7 +644,8 @@ jobs:
             # Sticks only (Ray, 2026-11-27): apps read WEB_URL; Sticks takes it from STICKS_WEB_URL.
             if [ "$(cat .rokct/config/app_type 2>/dev/null)" = "sticks" ] && grep -q '^STICKS_WEB_URL=' .env/production.env; then
               sed -i '/^WEB_URL=/d' .env/production.env
-              sed -n 's/^STICKS_WEB_URL=/WEB_URL=/p' .env/production.env >> .env/production.env
+              STICKS_LINE="$(sed -n 's/^STICKS_WEB_URL=/WEB_URL=/p' .env/production.env)"
+              printf '%s\n' "$STICKS_LINE" >> .env/production.env
             fi
             echo "✅ .env/production.env ready."
           else
