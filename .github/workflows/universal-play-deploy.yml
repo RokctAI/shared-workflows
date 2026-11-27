@@ -647,6 +647,32 @@ jobs:
             rm -f .env/production.env
           fi
 
+      # Shell apps declare path dependencies into .rokct/cache/, which exist
+      # only after the SDK composer runs. Without this, `flutter pub get` fails
+      # on every composed shell (sticks 2026-11-27: telemetry_sdk not found).
+      # Same chain as universal-release.yml's compose step.
+      - name: Compose SDK Modules (If Shell App)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          if [ ! -f "composer.json" ]; then
+            echo "Not a composed shell app (no composer.json). Skipping composition."
+            exit 0
+          fi
+          if [ ! -f ".rokct/skills/.rok/flutter/scripts/compose.py" ] && [ -f ".rokct/initiate.py" ]; then
+            python3 .rokct/initiate.py
+          fi
+          if [ -f ".rokct/skills/.rok/flutter/scripts/compose.py" ]; then
+            python3 .rokct/skills/.rok/flutter/scripts/compose.py
+          elif [ -f ".rokct/skills/flutter/scripts/compose.py" ]; then
+            python3 .rokct/skills/flutter/scripts/compose.py
+          elif [ -f ".rokct/compose.py" ]; then
+            python3 .rokct/compose.py
+          else
+            echo "::error::composer.json present but no composer found."
+            exit 1
+          fi
+
       - name: Get Dependencies
         run: |
           flutter pub get
