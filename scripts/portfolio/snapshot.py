@@ -81,6 +81,11 @@ def pictures(card: dict) -> dict[str, str]:
     for i, app in enumerate(card.get("apps") or []):
         if isinstance(app, dict) and isinstance(app.get("phone"), str):
             out[f"app-{i}"] = raw(app.get("repo") or repo, app.get("branch") or "main", app["phone"])
+    for i, row in enumerate(card.get("feature_shots") or []):
+        if isinstance(row, list):
+            for j, path in enumerate(row[:3]):
+                if isinstance(path, str):
+                    out[f"feat-{i}-{j}"] = raw(repo, "main", path)
     return out
 
 
