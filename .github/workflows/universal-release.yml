@@ -2418,7 +2418,7 @@ jobs:
 
           # Fallback when the AI wrote nothing: the commit subjects in the notes.
           if [ -z "$(printf '%s' "$WHATSNEW" | tr -d '[:space:]')" ]; then
-            WHATSNEW=$(grep -E '^\* ' changelog.txt | sed -E 's/^\* //; s/ \(\[[^]]*\]\([^)]*\)\)$//' | sed -E 's/^/- /' | head -n 8)
+            WHATSNEW=$( { grep -E '^\* ' changelog.txt 2>/dev/null || true; } | sed -E 's/^\* //; s/ \(\[[^]]*\]\([^)]*\)\)$//' | sed -E 's/^/- /' | head -n 8)
           fi
 
           # Play allows 500 characters of What's New. Cut at a word boundary.
