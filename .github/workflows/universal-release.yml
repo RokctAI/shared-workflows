@@ -1410,7 +1410,12 @@ jobs:
                 elif [[ "$REF_NAME" == "main" ]]; then
                     # Check if version in file is a stable release (no -rc)
                     FILE="${{ needs.resolve-version.outputs.file }}"
-                    CUR_VER=$(jq -r 'if has("version") then .version else (to_entries[0].value) end' "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE")
+                    # resolve-version may hand back pubspec.yaml (Flutter) as well as a JSON file.
+                    if [[ "$FILE" == *.yaml || "$FILE" == *.yml ]]; then
+                      CUR_VER=$(grep -m1 -E '^version:' "$FILE" 2>/dev/null | sed -E 's/^version:[[:space:]]*//; s/["'"'"']//g' || true)
+                    else
+                      CUR_VER=$(jq -r 'if has("version") then .version else (to_entries[0].value) end' "$FILE" 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' "$FILE" || true)
+                    fi
                     if [[ "$CUR_VER" != *"-rc"* ]]; then
                         MODE="stable"
                         SUFFIX=""
@@ -2705,13 +2710,12 @@ jobs:
           fi
 
           # Play allows 500 characters of What's New. Cut at a word boundary.
-          WHATSNEW=$(printf '%s' "$WHATSNEW" | python3 -c '
-          import sys
-          text = sys.stdin.read().strip()
-          if len(text) > 500:
-              text = text[:500].rsplit(" ", 1)[0].rstrip()
-          print(text)
-          ')
+          # Plain bash: the frappe release container (debian:bookworm) has no python3.
+          if [ "${#WHATSNEW}" -gt 500 ]; then
+            WHATSNEW="${WHATSNEW:0:500}"
+            WHATSNEW="${WHATSNEW% *}"
+          fi
+          WHATSNEW="${WHATSNEW%"${WHATSNEW##*[![:space:]]}"}"
 
           if [ -n "$(printf '%s' "$WHATSNEW" | tr -d '[:space:]')" ]; then
             printf '%s\n' "$WHATSNEW" > whatsnew-en-US.txt
