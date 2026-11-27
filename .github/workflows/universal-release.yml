@@ -2448,8 +2448,16 @@ jobs:
             echo "No What's New to pack."
             exit 0
           fi
-          jq -n --arg v "${{ env.TAG_NAME }}" --rawfile n whatsnew-en-US.txt \
-            '{version: ($v | ltrimstr("v")), notes: ($n | rtrimstr("\n"))}' > assets/whats_new.json
+          # changes: a fingerprint of the commits since the previous release.
+          # The AI rewords the note on every run, so the app compares this,
+          # not the wording: a rebuild with new fixes shows its note again, a
+          # rebuild with nothing new does not.
+          TAG="${{ env.TAG_NAME }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v -E -- '-(rc|dev|alpha|beta)' | grep -v "$TAG" | head -n 1 || true)
+          if [ -n "$PREV_TAG" ]; then RANGE="$PREV_TAG..HEAD"; else RANGE="HEAD"; fi
+          CHANGES=$(git log "$RANGE" --format=%H | sha1sum | cut -c1-12)
+          jq -n --arg v "$TAG" --arg c "$CHANGES" --rawfile n whatsnew-en-US.txt \
+            '{version: ($v | ltrimstr("v")), changes: $c, notes: ($n | rtrimstr("\n"))}' > assets/whats_new.json
           echo "Packed assets/whats_new.json for ${{ env.TAG_NAME }}."
 
       # --- BUILD STAMPING ---
