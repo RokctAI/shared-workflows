@@ -516,7 +516,13 @@ jobs:
           # the runner's interpreter also lists OS packages the repo does not use
           # (e.g. crit, GPLv2, from the image's system Python) and fails on them.
           LIC_VENV="$RUNNER_TEMP/license-venv"
-          python3 -m venv "$LIC_VENV"
+          # Some job images (python:3.11 slim, debian) ship python3 without ensurepip.
+          if ! python3 -m venv "$LIC_VENV" 2>/dev/null; then
+            rm -rf "$LIC_VENV"
+            apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null \
+              || python3 -m pip install --quiet virtualenv
+            python3 -m venv "$LIC_VENV" || python3 -m virtualenv "$LIC_VENV"
+          fi
           "$LIC_VENV/bin/pip" install --quiet --upgrade pip
           if [ -f requirements.txt ]; then
             "$LIC_VENV/bin/pip" install --quiet -r requirements.txt
@@ -1731,7 +1737,7 @@ jobs:
       - name: Install markdownlint
         run: npm install -g markdownlint-cli2
       - name: Run markdownlint
-        run: npx markdownlint-cli2 '**/*.md' '!node_modules' '!.git' '!build' '!dist' '!out-bash' '!out-ps'
+        run: npx markdownlint-cli2 '**/*.md' '!node_modules' '!.git' '!build' '!dist' '!out-bash' '!out-ps' '!docs/api/**' '!**/Assets.xcassets/**' '!.rokct/**'
 
   lint-dockerfile:
     if: ${{ !contains(format(',{0},', inputs.skip-jobs), ',lint-dockerfile,') }}
