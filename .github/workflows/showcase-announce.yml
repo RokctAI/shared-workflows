@@ -161,7 +161,7 @@ jobs:
               sys.exit(1)
 
           required = ["name", "kind", "tagline", "repo", "rank"]
-          optional = ["url", "shots", "logo_back", "services", "logo", "award", "apps", "features"]
+          optional = ["url", "shots", "logo_back", "services", "logo", "award", "apps", "features", "feature_shots"]
           SERVICES = ("website", "logo", "social-posts", "business-plan", "pitch-deck", "print")
           PICTURE_EXT = (".webp", ".png", ".jpg", ".jpeg", ".avif")
           for key in required:
@@ -293,6 +293,22 @@ jobs:
               else:
                   for i, line in enumerate(feats):
                       award_part(f"features[{i}]", line, 60)
+
+          # feature_shots: optional (hosting_sdk 1.30.0), one list of up to 3
+          # paths on the repo's main branch per feature line, drawn under that line.
+          if "feature_shots" in card:
+              fs = card["feature_shots"]
+              n = len(card.get("features") or [])
+              if not isinstance(fs, list) or len(fs) > n:
+                  fail("'feature_shots' must hold at most one list per feature line")
+              else:
+                  for i, row in enumerate(fs):
+                      if not isinstance(row, list) or len(row) > 3:
+                          fail(f"'feature_shots[{i}]' must be a list of at most 3 paths")
+                          continue
+                      for j, path in enumerate(row):
+                          if not isinstance(path, str) or not path or path.startswith("/") or ".." in path or " " in path:
+                              fail(f"'feature_shots[{i}][{j}]' must be a plain relative path")
 
           # apps: optional (hosting_sdk 1.20.5), up to 4 {name, repo?, branch?, phone, store?}.
           if "apps" in card:
