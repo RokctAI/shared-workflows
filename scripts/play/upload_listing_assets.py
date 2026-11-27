@@ -834,8 +834,11 @@ def upload_assets(
             ).execute()
             log(f"promo video ({language}): set to {video_url}")
 
-    edits.commit(packageName=package_name, editId=edit_id).execute()
-    log(f"committed edit {edit_id} — listing assets are live on {package_name}")
+    # Ray, 2026-11-27: Play changes wait for him to send for review in Console.
+    edits.commit(
+        packageName=package_name, editId=edit_id, changesNotSentForReview=True
+    ).execute()
+    log(f"committed edit {edit_id} on {package_name}; send it for review in Play Console")
 
 
 def main():

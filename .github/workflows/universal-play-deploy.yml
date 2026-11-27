@@ -860,6 +860,8 @@ jobs:
           # when it holds a real note, else the release's generated one, else
           # empty (the action then skips release notes).
           whatsNewDirectory: ${{ steps.whatsnew.outputs.dir }}
+          # Ray, 2026-11-27: releases wait for him to send them for review in Console.
+          changesNotSentForReview: true
 
       # The action above only ships the AAB. Store LISTING assets rendered
       # by the tour pipeline into the caller's checkout (this job's Checkout
