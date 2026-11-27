@@ -932,6 +932,124 @@ def load_consumers_map(root_dir, override_path, logger):
     return consumers_map
 
 
+# --- Tablet planes (Ray, 2026-11-27: "rule just got forgotten") -------------
+# Fleet rule: on a tablet every routed screen shows as planes (list | detail),
+# never one stretched column. A routed screen (an auto_route @RoutePage class)
+# passes when it, or a widget it builds (followed up to 5 levels through the
+# classes of every SDK in this run), uses base_sdk's plane mechanism. A screen
+# that is full-screen by design (sign-in, kids mode, lock, player) says so with
+# a `// planes: single <reason>` comment directly above its @RoutePage.
+PLANE_TOKEN_RE = re.compile(
+    r"\b(PlaneHost|PlanePage|PlaneSpan|planeCountFor|\w+Plane(?:Flow|Host)s?)\b")
+PLANE_OPT_OUT_RE = re.compile(r"//\s*planes:\s*single\b")
+ROUTE_PAGE_RE = re.compile(r"@RoutePage\b")
+DART_CLASS_RE = re.compile(r"^(?:abstract\s+|final\s+|base\s+)*class\s+(\w+)", re.M)
+DART_CTOR_RE = re.compile(r"\b(_?[A-Z]\w*)\s*[(<.]")
+
+
+def _dart_classes(text):
+    ms = list(DART_CLASS_RE.finditer(text))
+    for i, m in enumerate(ms):
+        end = ms[i + 1].start() if i + 1 < len(ms) else len(text)
+        yield m.group(1), m.start(), text[m.start():end]
+
+
+def _dart_sources(dart_dir):
+    for sub in ('lib', 'templates'):
+        base = Path(dart_dir) / sub
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob('*.dart')):
+            if p.name.endswith(('.g.dart', '.gr.dart', '.freezed.dart')):
+                continue
+            yield p
+
+
+WIDGET_CLASS_RE = re.compile(
+    r"^[^{]*\b(?:extends|with)\s+[\w<>, ]*(?:Widget|State<|ConsumerState<)")
+DART_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
+
+
+def _lead_block(head):
+    """The annotations and comments directly above a class declaration."""
+    out = []
+    for ln in reversed(head.splitlines()):
+        st = ln.strip()
+        if st == '' or st.startswith(('//', '@', '*', '/*')):
+            out.append(st)
+            continue
+        break
+    return '\n'.join(out)
+
+
+def index_dart_classes(dart_dirs):
+    """Widget class name -> body text (comments stripped) across every SDK
+    in the run. Only widgets and their State classes are followed, so a
+    store or another route cannot lend a screen its planes."""
+    bodies = {}
+    for d in dart_dirs:
+        for p in _dart_sources(d):
+            try:
+                text = p.read_text(encoding='utf-8', errors='ignore')
+            except OSError:
+                continue
+            code = DART_COMMENT_RE.sub('', text)
+            for name, _, body in _dart_classes(code):
+                if WIDGET_CLASS_RE.search(body):
+                    bodies.setdefault(name, body)
+    return bodies
+
+
+def find_single_plane_routes(dart_dir, bodies, depth=5):
+    """[(rel_path, line, class)] for routed screens that never reach a plane."""
+    found = []
+    for p in _dart_sources(dart_dir):
+        try:
+            text = p.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        if '@RoutePage' not in text:
+            continue
+        routed = set()
+        for name, start, _ in _dart_classes(text):
+            if ROUTE_PAGE_RE.search(_lead_block(text[:start])):
+                routed.add(name)
+        for name, start, body in _dart_classes(text):
+            # The annotation block between the previous declaration and this class.
+            head = text[:start]
+            lead = _lead_block(head)
+            if not ROUTE_PAGE_RE.search(lead) or PLANE_OPT_OUT_RE.search(lead):
+                continue
+            body = DART_COMMENT_RE.sub('', body)
+            seen, todo, ok = {name} | routed, [(body, 0)], False
+            while todo:
+                b, d = todo.pop()
+                if PLANE_TOKEN_RE.search(b):
+                    ok = True
+                    break
+                if d >= depth:
+                    continue
+                for c in set(DART_CTOR_RE.findall(b)):
+                    if c in bodies and c not in seen:
+                        seen.add(c)
+                        todo.append((bodies[c], d + 1))
+            if not ok:
+                found.append((str(p.relative_to(dart_dir)).replace('\\', '/'),
+                              head.count('\n') + 1, name))
+    return found
+
+
+def validate_tablet_planes(sdk_name, dart_dir, bodies, logger):
+    bad = find_single_plane_routes(dart_dir, bodies)
+    for rel, line, name in bad:
+        logger.log(
+            f"Tablet planes: screen {name} ({rel}:{line}) shows as one stretched "
+            f"column on a tablet. Build it on PlaneHost/PlanePage (list | detail), "
+            f"or mark it `// planes: single <reason>` above @RoutePage if it is "
+            f"full-screen by design.", "ERROR", sdk_name)
+    return not bad
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Audit every SDK in the workspace: structure, manifest "
@@ -1022,6 +1140,8 @@ def main():
     consumers_map = load_consumers_map(root_dir, args.consumers_map, logger)
 
     overall_errors = 0
+    plane_bodies = (index_dart_classes([i['dart_dir'] for i in sdk_data.values()])
+                    if args.compliance else {})
 
     for sdk_name, info in sdk_data.items():
         logger.log(f"--- Auditing SDK: {sdk_name} ---")
@@ -1067,6 +1187,9 @@ def main():
         # 4. Architectural Compliance Scan (opt-in via --compliance)
         if args.compliance:
             if not run_compliance_scanner(sdk_name, info['dart_dir'], info['root_dir'], logger):
+                overall_errors += 1
+            if not validate_tablet_planes(sdk_name, info['dart_dir'],
+                                          plane_bodies, logger):
                 overall_errors += 1
 
 
