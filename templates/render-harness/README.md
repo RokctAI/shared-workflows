@@ -107,3 +107,5 @@ that fail SILENTLY - everything below them fails loudly enough to notice.
   downloads list), and marker 4 only where no demo implementation exists at
   all. A value the app did not compute is decoration, and the render stops
   being evidence.
+
+**Icon fonts:** copy `load_package_fonts.dart` next to `render_screen_test.dart`; the template calls `loadPackageFonts()` so package icons (Remix, Cupertino, ...) render instead of squares.
