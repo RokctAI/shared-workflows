@@ -30,6 +30,7 @@ Two halves, used together:
 | CI runner | [`run_strip.sh`](run_strip.sh) | Runs both halves against an already-composed tree. One implementation, called by both workflows below. |
 | Vector export | `vector_svg.dart` + [`svg_fonts.py`](svg_fonts.py) | Opt-in (`RENDER_VECTOR=1`): each frame also as a true vector SVG with real text - see [§10.1](#101-true-vector-svg-experimental-opt-in). |
 | Quality gate | [`frame_quality.py`](frame_quality.py) | Run by the composer before it writes anything: refuses frames that look blank, still show a spinner, or draw text as block glyphs - see [§12](#12-quality-gate---no-broken-frame-is-ever-written). |
+| Frames + decks | [`render.py`](render.py), [`phone_frame.py`](phone_frame.py), [`deck.py`](deck.py) | Phone/tablet frame, PROPOSAL label, animated PowerPoint - see [§0](#0-quick-start-frames-proposals-and-decks-one-cli). |
 | Placement export | `compose_strip.py --emit-svg` | One SVG per frame, annotated and clean, for dropping a screen into a user guide or a deck - see [§10](#10-svg-per-frame-for-a-guide-or-a-deck). |
 | CI workflow | [`universal-render-strip.yml`](../../.github/workflows/universal-render-strip.yml) | Optional manual button. Composes the SDKs on a runner, renders, uploads the page as an artifact - see [§8](#8-running-it-in-ci). |
 | CI gate | [`universal-guided-tour.yml`](../../.github/workflows/universal-guided-tour.yml) | Automatic. Renders the strip BEFORE the tour's emulator legs and fails the run if it does not render - see [§8.1](#81-the-guided-tour-runs-it-automatically-first). |
@@ -37,6 +38,22 @@ Two halves, used together:
 The halves are decoupled on purpose: the composer only needs the sidecar
 format, so a non-Flutter surface that can emit the same JSON composes into
 the same page.
+
+---
+
+## 0. Quick start: frames, proposals and decks (one CLI)
+
+`python3 scripts/render/render.py` wraps the presentation half (needs `pillow python-pptx lxml`, LibreOffice for preview):
+
+| Command | Does |
+|---|---|
+| `render.py frame IN.png OUT.png [--device tablet] [--proposal]` | Our own phone/tablet frame drawn in code; `--proposal` stamps an orange PROPOSAL label |
+| `render.py deck spec.json out.pptx` | Real PowerPoint; slides fade, framed screens fly in one after another (spec format: top of `deck.py`) |
+| `render.py preview out.pptx` | Slide PNGs to look at without PowerPoint |
+
+**Icons as squares** are fixed in the harness: `load_package_fonts.dart` registers every font every package declares, called at the end of `loadRealFonts()`. Copy it next to the test.
+
+**Proposals** (screen not built yet: render first, then build). Write the proposed screen as a throwaway widget in the app's render test (`test/render/proposals/<name>.dart`) from the app's REAL theme, shared components, trkeys and demo data, never HTML or a drawing. Render it with this same harness, frame it with `--proposal`. Once approved, the real screen is built, the proposal widget is deleted, and the real screen is rendered again without `--proposal`.
 
 ---
 

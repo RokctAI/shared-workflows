@@ -59,6 +59,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Copy vector_svg.dart next to this file (same template folder).
+import 'load_package_fonts.dart';
 import 'vector_svg.dart';
 
 // TODO(harness) 1/8 - imports of the code under test.
@@ -481,9 +482,10 @@ Future<void> loadRealFonts() async {
       '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
     ]);
   }
-  // final pubCache = Platform.environment['PUB_CACHE'] ??
-  //     '${Platform.environment['HOME']}/.pub-cache';
-  // await load('packages/remixicon/Remix', ['$pubCache/.../fonts/Remix.ttf']);
+  // Every font every package declares (Remix, Cupertino, Phosphor, the app's
+  // own), under the exact `packages/<pkg>/<family>` name Flutter asks for.
+  // Without this, package icons draw as small empty squares.
+  await loadPackageFonts();
 }
 
 // ===========================================================================
