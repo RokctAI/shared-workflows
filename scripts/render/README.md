@@ -41,7 +41,6 @@ the same page.
 
 ---
 
-
 ## 0. Quick start: frames, proposals and decks (one CLI)
 
 `python3 scripts/render/render.py` wraps the presentation half (needs `pillow python-pptx lxml`, LibreOffice for preview):
